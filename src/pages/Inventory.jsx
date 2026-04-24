@@ -24,26 +24,30 @@ export default function Inventory() {
   const [catTab,  setCatTab]   = useState('ทั้งหมด')
   const [sortKey, setSortKey]  = useState('created_at_desc')
   const [showSort,setShowSort] = useState(false)
-
   const [inventoryValue, setInventoryValue] = useState(0)
 
   useEffect(() => {
+    // โหลดสินค้าทั้งหมด
     supabase.from('products').select('*')
-      .then(({data}) => { setProducts(data||[]); setLoading(false) })
+      .then(({data}) => { setProducts(data || []); setLoading(false) })
 
-    // คำนวณมูลค่าคงคลังตรงๆ จาก DB = Available เท่านั้น + อุปกรณ์เสริม
-    supabase.rpc('get_inventory_value').then(({data}) => {
-      if (data !== null) setInventoryValue(Number(data))
-    }).catch(() => {
-      // fallback: คำนวณจาก products ที่โหลดมา
-      supabase.from('products').select('total_cost, status')
-        .eq('status','Available')
-        .then(({data:p}) => {
-          const val = (p||[]).reduce((a,x)=>a+Number(x.total_cost),0)
-          setInventoryValue(val)
-        })
-    })
+    // คำนวณมูลค่าคงคลัง Available เท่านั้น + อุปกรณ์เสริม
+    supabase.rpc('get_inventory_value')
+      .then(({data, error}) => {
+        if (!error && data !== null) {
+          setInventoryValue(Number(data))
+        } else {
+          // fallback กรณี function ยังไม่ได้ run migration_v3
+          supabase.from('products').select('total_cost, status')
+            .eq('status', 'Available')
+            .then(({data: p}) => {
+              setInventoryValue((p||[]).reduce((a,x) => a + Number(x.total_cost), 0))
+            })
+        }
+      })
   }, [])
+
+  const filtered = products
     .filter(p => tab==='all' || p.status===tab)
     .filter(p => catTab==='ทั้งหมด' || p.category===catTab)
     .filter(p => !search || p.model.toLowerCase().includes(search.toLowerCase()) || p.serial_number.toLowerCase().includes(search.toLowerCase()))
