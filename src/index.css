@@ -1,0 +1,23 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html { -webkit-tap-highlight-color: transparent; }
+  body { font-family: 'Sarabun', system-ui, sans-serif; }
+}
+
+@layer components {
+  .btn-primary  { @apply bg-brand-yellow text-brand-dark font-semibold px-4 py-2.5 rounded-xl active:scale-95 transition-all shadow-sm; }
+  .btn-danger   { @apply bg-brand-red text-white font-semibold px-4 py-2.5 rounded-xl active:scale-95 transition-all; }
+  .btn-ghost    { @apply bg-white text-brand-dark font-medium px-4 py-2.5 rounded-xl border border-amber-200 active:scale-95 transition-all; }
+  .card         { @apply bg-white rounded-2xl shadow-sm border border-amber-100 p-4; }
+  .input        { @apply w-full rounded-xl border border-amber-200 bg-white px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-brand-yellow/60 text-sm; }
+  .badge-available { @apply bg-emerald-100 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full; }
+  .badge-reserved  { @apply bg-amber-100 text-amber-700 text-xs font-semibold px-2.5 py-0.5 rounded-full; }
+  .badge-sold      { @apply bg-rose-100 text-rose-700 text-xs font-semibold px-2.5 py-0.5 rounded-full; }
+}
+
+.swipe-gallery { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
+.swipe-gallery > * { scroll-snap-align: start; }
+.pb-safe { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
