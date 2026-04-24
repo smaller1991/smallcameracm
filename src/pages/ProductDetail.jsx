@@ -42,8 +42,15 @@ export default function ProductDetail() {
       supabase.from('accessories').select('*').eq('product_id',id).order('created_at'),
     ])
     setProduct(p); setAccs(a||[])
+    const toLocal = iso => {
+      if (!iso) return ''
+      const d = new Date(iso)
+      d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
+      return d.toISOString().slice(0,16)
+    }
     setEf({model:p.model,serial_number:p.serial_number,condition:p.condition,
-           base_cost:p.base_cost,status:p.status,notes:p.notes||'',category:p.category||'กล้อง'})
+           base_cost:p.base_cost,status:p.status,notes:p.notes||'',
+           category:p.category||'กล้อง',created_at:toLocal(p.created_at)})
     setLoading(false)
   }
   useEffect(()=>{load()},[id])
@@ -51,11 +58,13 @@ export default function ProductDetail() {
   const saveEdit = async () => {
     setSaving(true)
     try {
-      const {error} = await supabase.from('products').update({
+      const updateData = {
         model:ef.model, serial_number:ef.serial_number,
         condition:Number(ef.condition), base_cost:parseFloat(ef.base_cost),
         status:ef.status, notes:ef.notes, category:ef.category,
-      }).eq('id',id)
+      }
+      if (ef.created_at) updateData.created_at = new Date(ef.created_at).toISOString()
+      const {error} = await supabase.from('products').update(updateData).eq('id',id)
       if (error) throw error
       toast.success('บันทึกแล้ว'); setEditing(false); load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
@@ -142,7 +151,6 @@ export default function ProductDetail() {
 
   return (
     <div>
-      {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100 bg-white sticky top-0 z-10">
         <button onClick={()=>navigate(-1)}><ChevronLeft size={24}/></button>
         <span className="font-bold truncate max-w-xs">{product.model}</span>
@@ -151,7 +159,6 @@ export default function ProductDetail() {
         </button>
       </div>
 
-      {/* Gallery */}
       <div className="bg-gray-100 relative">
         {product.images?.length > 0 ? (
           <>
@@ -177,8 +184,6 @@ export default function ProductDetail() {
       </div>
 
       <div className="px-4 py-4 space-y-3">
-
-        {/* Info / Edit */}
         <div className="card space-y-3">
           {editing ? (
             <>
@@ -223,6 +228,10 @@ export default function ProductDetail() {
                 <label className="text-xs text-gray-500 mb-1 block">หมายเหตุ</label>
                 <textarea className="input resize-none" rows={2} value={ef.notes} onChange={e=>setEf({...ef,notes:e.target.value})}/>
               </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลารับเข้า</label>
+                <input className="input" type="datetime-local" value={ef.created_at} onChange={e=>setEf({...ef,created_at:e.target.value})}/>
+              </div>
               <button onClick={saveEdit} disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
                 <Check size={16}/>บันทึก
               </button>
@@ -261,7 +270,6 @@ export default function ProductDetail() {
           )}
         </div>
 
-        {/* Accessories */}
         <div className="card">
           <div className="flex items-center justify-between mb-2">
             <h3 className="font-semibold text-sm">อุปกรณ์เสริม</h3>
@@ -294,15 +302,13 @@ export default function ProductDetail() {
           }
         </div>
 
-        {/* Sell */}
         {product.status==='Available' && (
           sellMode ? (
             <div className="card space-y-3">
               <h3 className="font-semibold text-sm">ยืนยันการขาย</h3>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">ราคาขายจริง (บาท)</label>
-                <input className="input" type="number" placeholder="0" value={soldPrice}
-                  onChange={e=>setSoldPrice(e.target.value)} autoFocus/>
+                <input className="input" type="number" placeholder="0" value={soldPrice} onChange={e=>setSoldPrice(e.target.value)} autoFocus/>
                 {soldPrice && (
                   <p className={"text-xs mt-1 font-medium "+(Number(soldPrice)-Number(product.total_cost)>=0?'text-green-600':'text-red-500')}>
                     กำไร: ฿{fmt(Number(soldPrice)-Number(product.total_cost))}
@@ -319,11 +325,7 @@ export default function ProductDetail() {
                 <div className="flex gap-2">
                   {['โอน','เงินสด'].map(m=>(
                     <button key={m} onClick={()=>setPayMethod(m)}
-                      className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(
-                        payMethod===m
-                          ? m==='โอน' ? 'bg-blue-600 text-white border-blue-600' : 'bg-green-600 text-white border-green-600'
-                          : 'bg-white text-gray-400 border-gray-200'
-                      )}>
+                      className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200')}>
                       {m==='โอน'?'💳 โอน':'💵 เงินสด'}
                     </button>
                   ))}
@@ -340,19 +342,15 @@ export default function ProductDetail() {
               </div>
             </div>
           ) : (
-            <button onClick={()=>{setSellMode(true);setSellDate('')}}
-              className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
+            <button onClick={()=>{setSellMode(true);setSellDate('')}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
               <ShoppingBag size={18}/>ขายสินค้า
             </button>
           )
         )}
 
         {product.status==='Reserved' && (
-          <button onClick={async()=>{
-            await supabase.from('products').update({status:'Available'}).eq('id',id); load()
-          }} className="w-full btn-ghost py-3 text-sm">
-            ยกเลิกการจอง → พร้อมขาย
-          </button>
+          <button onClick={async()=>{await supabase.from('products').update({status:'Available'}).eq('id',id);load()}}
+            className="w-full btn-ghost py-3 text-sm">ยกเลิกการจอง → พร้อมขาย</button>
         )}
 
         {product.status==='Sold' && (
@@ -362,8 +360,7 @@ export default function ProductDetail() {
           </button>
         )}
 
-        <button onClick={deleteProduct}
-          className="w-full flex items-center justify-center gap-2 text-sm text-red-400 py-2 hover:text-brand-red transition-colors">
+        <button onClick={deleteProduct} className="w-full flex items-center justify-center gap-2 text-sm text-red-400 py-2 hover:text-brand-red transition-colors">
           <Trash2 size={15}/>ลบสินค้านี้
         </button>
       </div>
