@@ -9,7 +9,7 @@ const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุ�
 
 export default function AddProduct() {
   const navigate = useNavigate()
-  const [form, setForm] = useState({ serial_number:'', model:'', condition:5, base_cost:'', notes:'', category:'กล้อง' })
+  const [form, setForm] = useState({ serial_number:'', model:'', condition:5, base_cost:'', notes:'', category:'กล้อง', created_at:'' })
   const [files,    setFiles]    = useState([])
   const [previews, setPreviews] = useState([])
   const [saving,   setSaving]   = useState(false)
@@ -32,14 +32,16 @@ export default function AddProduct() {
     setSaving(true)
     try {
       const cost = parseFloat(form.base_cost)
-      const {data:p, error} = await supabase.from('products').insert({
+      const insertData = {
         serial_number: form.serial_number.trim(),
         model: form.model.trim(),
         condition: Number(form.condition),
         base_cost: cost, total_cost: cost,
         notes: form.notes,
         category: form.category,
-      }).select().single()
+      }
+      if (form.created_at) insertData.created_at = new Date(form.created_at).toISOString()
+      const {data:p, error} = await supabase.from('products').insert(insertData).select().single()
       if (error) throw error
       if (files.length) {
         const urls = await uploadImages(supabase, p.id, files)
@@ -76,6 +78,12 @@ export default function AddProduct() {
               <input type="file" multiple accept="image/*" className="hidden" onChange={addFiles}/>
             </label>
           </div>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">วันที่และเวลารับเข้า</label>
+          <input className="input" type="datetime-local" value={form.created_at} onChange={e=>F('created_at',e.target.value)}/>
+          <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้วันที่และเวลาปัจจุบัน</p>
         </div>
 
         <div>
