@@ -25,12 +25,25 @@ export default function Inventory() {
   const [sortKey, setSortKey]  = useState('created_at_desc')
   const [showSort,setShowSort] = useState(false)
 
+  const [inventoryValue, setInventoryValue] = useState(0)
+
   useEffect(() => {
     supabase.from('products').select('*')
       .then(({data}) => { setProducts(data||[]); setLoading(false) })
-  }, [])
 
-  const filtered = products
+    // คำนวณมูลค่าคงคลังตรงๆ จาก DB = Available เท่านั้น + อุปกรณ์เสริม
+    supabase.rpc('get_inventory_value').then(({data}) => {
+      if (data !== null) setInventoryValue(Number(data))
+    }).catch(() => {
+      // fallback: คำนวณจาก products ที่โหลดมา
+      supabase.from('products').select('total_cost, status')
+        .eq('status','Available')
+        .then(({data:p}) => {
+          const val = (p||[]).reduce((a,x)=>a+Number(x.total_cost),0)
+          setInventoryValue(val)
+        })
+    })
+  }, [])
     .filter(p => tab==='all' || p.status===tab)
     .filter(p => catTab==='ทั้งหมด' || p.category===catTab)
     .filter(p => !search || p.model.toLowerCase().includes(search.toLowerCase()) || p.serial_number.toLowerCase().includes(search.toLowerCase()))
@@ -47,10 +60,7 @@ export default function Inventory() {
       }
     })
 
-  // มูลค่าคงคลัง = สินค้าทั้งหมดที่ยังไม่ขาย (ไม่สนใจ filter ที่เลือก)
-  const inventoryValue = products
-    .filter(p => p.status === 'Available' || p.status === 'Reserved')
-    .reduce((a,p) => a + Number(p.total_cost), 0)
+  // มูลค่าคงคลัง โหลดจาก state ที่ query มาแล้ว
 
   return (
     <div>
