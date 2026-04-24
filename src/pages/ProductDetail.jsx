@@ -322,6 +322,54 @@ export default function ProductDetail() {
             className="w-full btn-ghost py-3 text-sm">ยกเลิกการจอง → พร้อมขาย</button>
         )}
 
+        {product.status==='Sold' && (
+          <button onClick={async()=>{
+            if (!confirm('ยกเลิกการขายสินค้านี้?\nยอดเงินในหน้าบัญชีจะถูกหักคืนอัตโนมัติ')) return
+            setSaving(true)
+            try {
+              const price = Number(product.sold_price||0)
+              const method = product.payment_method
+
+              // 1. เปลี่ยนสถานะกลับ
+              await supabase.from('products').update({
+                status:'Available', sold_price:null,
+                payment_method:null, sold_date:null, warranty_expiry:null
+              }).eq('id',id)
+
+              // 2. หักยอด balance คืน
+              if (price > 0 && method) {
+                const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
+                if (bal) {
+                  if (method==='โอน') {
+                    await supabase.from('balances').update({
+                      bank: Math.max(0, Number(bal.bank) - price),
+                      updated_at: new Date().toISOString()
+                    }).eq('id','main')
+                  } else {
+                    await supabase.from('balances').update({
+                      cash: Math.max(0, Number(bal.cash) - price),
+                      updated_at: new Date().toISOString()
+                    }).eq('id','main')
+                  }
+                }
+              }
+
+              // 3. ลบ transaction Sale ที่เกี่ยวข้อง
+              await supabase.from('transactions')
+                .delete()
+                .eq('product_id', id)
+                .eq('category', 'Sale')
+
+              toast.success('ยกเลิกการขายแล้ว ยอดเงินหักคืนแล้ว')
+              load()
+            } catch(e){ toast.error(e.message) }
+            finally{ setSaving(false) }
+          }}
+            className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
+            ↩️ ยกเลิกการขาย (คืนสถานะ + หักยอดเงิน)
+          </button>
+        )}
+
         <button onClick={deleteProduct} className="w-full flex items-center justify-center gap-2 text-sm text-red-400 py-2 hover:text-brand-red">
           <Trash2 size={15}/>ลบสินค้านี้
         </button>
