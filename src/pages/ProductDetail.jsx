@@ -31,6 +31,7 @@ export default function ProductDetail() {
   const [sellMode, setSellMode] = useState(false)
   const [soldPrice,setSoldPrice]= useState('')
   const [payMethod,setPayMethod]= useState('โอน')
+  const [sellDate, setSellDate] = useState('')
   const [imgIdx,   setImgIdx]   = useState(0)
   const [saving,   setSaving]   = useState(false)
 
@@ -82,10 +83,30 @@ export default function ProductDetail() {
     if (!soldPrice) return toast.error('กรุณาระบุราคาขาย')
     setSaving(true)
     try {
+      const price = parseFloat(soldPrice)
+      const soldAt = sellDate ? new Date(sellDate).toISOString() : new Date().toISOString()
+      const warrantyExp = new Date(new Date(soldAt).getTime() + 15*86400000).toISOString()
+
+      // 1. update product status
       const {error} = await supabase.from('products').update({
-        status:'Sold', sold_price:parseFloat(soldPrice), payment_method:payMethod
+        status:'Sold',
+        sold_price: price,
+        payment_method: payMethod,
+        sold_date: soldAt,
+        warranty_expiry: warrantyExp,
       }).eq('id',id)
       if (error) throw error
+
+      // 2. auto-update balance (bank หรือ cash)
+      const {data: bal} = await supabase.from('balances').select('*').eq('id','main').single()
+      if (bal) {
+        if (payMethod === 'โอน') {
+          await supabase.from('balances').update({ bank: Number(bal.bank) + price, updated_at: new Date().toISOString() }).eq('id','main')
+        } else {
+          await supabase.from('balances').update({ cash: Number(bal.cash) + price, updated_at: new Date().toISOString() }).eq('id','main')
+        }
+      }
+
       toast.success(`ขายสำเร็จ! ช่องทาง: ${payMethod}`)
       setSellMode(false); load()
     } catch(e){toast.error(e.message)}
@@ -261,6 +282,11 @@ export default function ProductDetail() {
                 )}
               </div>
               <div>
+                <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลาที่ขาย</label>
+                <input className="input" type="datetime-local" value={sellDate} onChange={e=>setSellDate(e.target.value)}/>
+                <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้เวลาปัจจุบัน</p>
+              </div>
+              <div>
                 <label className="text-xs text-gray-500 mb-2 block">ช่องทางการชำระเงิน</label>
                 <div className="flex gap-2">
                   {['โอน','เงินสด'].map(m=>(
@@ -274,7 +300,7 @@ export default function ProductDetail() {
                   ))}
                 </div>
                 <p className="text-xs text-gray-400 mt-1.5">
-                  {payMethod==='โอน'?'ยอดจะรวมใน "ยอดเงินคงเหลือ" ในหน้าบัญชี':'ยอดจะรวมใน "เงินสดคงเหลือ" ในหน้าบัญชี'}
+                  {payMethod==='โอน'?'✅ ยอดจะบวกเพิ่มใน "ยอดโอน" ในหน้าบัญชีอัตโนมัติ':'✅ ยอดจะบวกเพิ่มใน "เงินสด" ในหน้าบัญชีอัตโนมัติ'}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -285,7 +311,7 @@ export default function ProductDetail() {
               </div>
             </div>
           ) : (
-            <button onClick={()=>setSellMode(true)} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
+            <button onClick={()=>{ setSellMode(true); setSellDate('') }} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
               <ShoppingBag size={18}/>ขายสินค้า
             </button>
           )

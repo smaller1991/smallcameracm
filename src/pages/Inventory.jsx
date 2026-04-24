@@ -47,7 +47,10 @@ export default function Inventory() {
       }
     })
 
-  const inventoryValue = products.filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
+  // มูลค่าคงคลัง = สินค้าทั้งหมดที่ยังไม่ขาย (ไม่สนใจ filter ที่เลือก)
+  const inventoryValue = products
+    .filter(p => p.status === 'Available' || p.status === 'Reserved')
+    .reduce((a,p) => a + Number(p.total_cost), 0)
 
   return (
     <div>
