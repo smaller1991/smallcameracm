@@ -48,7 +48,6 @@ export default function Finance() {
   const [showExpense,  setShowExpense]  = useState(false)
   const [detailFrom,   setDetailFrom]   = useState('')
   const [detailTo,     setDetailTo]     = useState('')
-  const [profitTo,     setProfitTo]     = useState('')
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
