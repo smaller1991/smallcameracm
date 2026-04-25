@@ -34,19 +34,23 @@ export default function Finance() {
   const [editBal,    setEditBal]    = useState(false)
   const [balForm,    setBalForm]    = useState({bank:'',cash:''})
 
-  // มูลค่าสต็อก
   const [stockValue, setStockValue] = useState(0)
+  const [soldProfit, setSoldProfit] = useState(0)
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
       supabase.from('transactions').select('*,products(model,category)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
-      supabase.from('products').select('total_cost,status'),
+      supabase.from('products').select('total_cost,status,sold_price'),
     ])
     setTxs(txData||[])
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
     const sv = (products||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
     setStockValue(sv)
+    // กำไรจากการขาย = ราคาขาย - ต้นทุนรวม (รวมอุปกรณ์เสริมแล้วใน total_cost)
+    const sp = (products||[]).filter(p=>p.status==='Sold'&&p.sold_price)
+      .reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+    setSoldProfit(sp)
     setLoading(false)
   }
   useEffect(()=>{load()},[])
@@ -60,7 +64,6 @@ export default function Finance() {
 
   const income  = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const expense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
-  const net     = income-expense
   const totalWealth = balance.bank + balance.cash + stockValue
 
   const saveBalance = async () => {
@@ -101,9 +104,9 @@ export default function Finance() {
         {/* รายรับ / รายจ่าย / กำไร */}
         <div className="flex gap-2">
           {[
-            {label:'รายรับ',value:income,color:'text-green-400'},
-            {label:'รายจ่าย',value:expense,color:'text-red-400'},
-            {label:'กำไร',value:Math.abs(net),color:net>=0?'text-brand-yellow':'text-red-400',prefix:net<0?'-':''},
+            {label:'รายรับ',  value:income,       color:'text-green-400'},
+            {label:'รายจ่าย', value:expense,      color:'text-red-400'},
+            {label:'กำไรขาย', value:Math.abs(soldProfit), color:soldProfit>=0?'text-brand-yellow':'text-red-400', prefix:soldProfit<0?'-':''},
           ].map(({label,value,color,prefix=''})=>(
             <div key={label} className="flex-1 rounded-xl p-2.5 text-center" style={{background:'rgba(255,255,255,0.08)'}}>
               <p className="text-white/50 text-xs">{label}</p>
