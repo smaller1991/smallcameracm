@@ -47,7 +47,7 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,category)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(model,category,total_cost)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method').eq('status','Sold'),
     ])
@@ -387,6 +387,14 @@ export default function Finance() {
                     </span>
                   </div>
                   {tx.products?.model && <p className="text-xs text-gray-400 truncate mt-0.5">{tx.products.model} {tx.products.category?`(${tx.products.category})`:''}</p>}
+                  {tx.category==='Sale' && tx.products?.total_cost != null && (() => {
+                    const profit = Number(tx.amount) - Number(tx.products.total_cost)
+                    return (
+                      <p className={`text-xs font-semibold mt-0.5 ${profit>=0?'text-green-600':'text-red-500'}`}>
+                        {profit>=0?'📈 กำไร':'📉 ขาดทุน'} {profit>=0?'+':''}฿{fmt(profit)}
+                      </p>
+                    )
+                  })()}
                   {tx.note && <p className="text-xs text-gray-400 truncate">{tx.note}</p>}
                   {tx.images?.length > 0 && (
                     <div className="flex gap-1 mt-1 overflow-x-auto">
