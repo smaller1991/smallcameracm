@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, X, Check } from 'lucide-react'
+import { Plus, Edit2, X, Check, ImagePlus } from 'lucide-react'
+import { uploadReceiptImages, deleteReceiptImage } from '../lib/imageUtils'
 import toast from 'react-hot-toast'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other']
@@ -28,6 +29,9 @@ export default function Finance() {
   const [saving,   setSaving]   = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo,   setDateTo]   = useState('')
+  const [imgFiles,    setImgFiles]    = useState([])
+  const [imgPreviews, setImgPreviews] = useState([])
+  const [removedImgs, setRemovedImgs] = useState([])
 
   // ยอดเงินคงเหลือ
   const [balance,    setBalance]    = useState({bank:0,cash:0})
@@ -74,20 +78,56 @@ export default function Finance() {
     setBalance({bank,cash}); setEditBal(false); toast.success('บันทึกยอดเงินแล้ว')
   }
 
-  const openAdd = () => { setEditId(null); setForm({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal()}); setShowForm(true) }
+  const openAdd = () => {
+    setEditId(null)
+    setForm({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal()})
+    setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
+    setShowForm(true)
+  }
   const openEdit = tx => {
     setEditId(tx.id)
     setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date)})
+    setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
+  }
+  const addImgFiles = files => {
+    setImgFiles(p=>[...p,...files])
+    setImgPreviews(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
+  }
+  const removeImgNew = i => {
+    URL.revokeObjectURL(imgPreviews[i])
+    setImgFiles(f=>f.filter((_,j)=>j!==i))
+    setImgPreviews(p=>p.filter((_,j)=>j!==i))
   }
   const save = async () => {
     if (!form.amount) return toast.error('กรุณาระบุจำนวนเงิน')
     setSaving(true)
     try {
       const payload = {type:form.type,category:form.category,amount:parseFloat(form.amount),note:form.note,date:new Date(form.date).toISOString()}
-      if (editId) { await supabase.from('transactions').update(payload).eq('id',editId); toast.success('แก้ไขแล้ว') }
-      else        { await supabase.from('transactions').insert(payload); toast.success('เพิ่มรายการแล้ว') }
-      setShowForm(false); setEditId(null); load()
+      if (editId) {
+        // ลบรูปที่ถูก mark ว่าลบ
+        for (const url of removedImgs) await deleteReceiptImage(supabase, url)
+        // upload รูปใหม่
+        let newUrls = []
+        if (imgFiles.length) newUrls = await uploadReceiptImages(supabase, editId, imgFiles)
+        // หา tx เดิมเพื่อ merge รูป
+        const existing = txs.find(t=>t.id===editId)
+        const kept = (existing?.images||[]).filter(u=>!removedImgs.includes(u))
+        payload.images = [...kept, ...newUrls]
+        await supabase.from('transactions').update(payload).eq('id',editId)
+        toast.success('แก้ไขแล้ว')
+      } else {
+        const {data:newTx, error} = await supabase.from('transactions').insert(payload).select().single()
+        if (error) throw error
+        if (imgFiles.length) {
+          const urls = await uploadReceiptImages(supabase, newTx.id, imgFiles)
+          await supabase.from('transactions').update({images:urls}).eq('id',newTx.id)
+        }
+        toast.success('เพิ่มรายการแล้ว')
+      }
+      setShowForm(false); setEditId(null)
+      setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
+      load()
     } catch(e){toast.error(e.message)}
     finally{setSaving(false)}
   }
@@ -204,11 +244,44 @@ export default function Finance() {
             <input className="input text-sm" type="datetime-local" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
           </div>
           <input className="input text-sm" placeholder="หมายเหตุ" value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/>
+
+          {/* รูปใบเสร็จ */}
+          <div>
+            <label className="text-xs text-gray-500 mb-1 block">รูปใบเสร็จ / หลักฐาน</label>
+            <div className="flex gap-2 flex-wrap">
+              {/* รูปเดิม (กรณี edit) */}
+              {editId && txs.find(t=>t.id===editId)?.images?.filter(u=>!removedImgs.includes(u)).map((url,i)=>(
+                <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-amber-200 flex-shrink-0">
+                  <img src={url} className="w-full h-full object-cover"/>
+                  <button onClick={()=>setRemovedImgs(r=>[...r,url])}
+                    className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                    <X size={10} className="text-white"/>
+                  </button>
+                </div>
+              ))}
+              {/* รูปใหม่ */}
+              {imgPreviews.map((src,i)=>(
+                <div key={'np'+i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-green-300 flex-shrink-0">
+                  <img src={src} className="w-full h-full object-cover"/>
+                  <button onClick={()=>removeImgNew(i)}
+                    className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                    <X size={10} className="text-white"/>
+                  </button>
+                </div>
+              ))}
+              <label className="w-16 h-16 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
+                <ImagePlus size={16} className="text-amber-400"/>
+                <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
+                <input type="file" multiple accept="image/*" className="hidden" onChange={e=>addImgFiles(Array.from(e.target.files))}/>
+              </label>
+            </div>
+          </div>
+
           <div className="flex gap-2">
             <button onClick={save} disabled={saving} className="btn-primary flex-1 py-2 text-sm flex items-center justify-center gap-1">
-              <Check size={14}/>{editId?'บันทึก':'เพิ่ม'}
+              <Check size={14}/>{saving?'...':(editId?'บันทึก':'เพิ่ม')}
             </button>
-            <button onClick={()=>{setShowForm(false);setEditId(null)}} className="btn-ghost px-4"><X size={14}/></button>
+            <button onClick={()=>{setShowForm(false);setEditId(null);setImgFiles([]);setImgPreviews([]);setRemovedImgs([])}} className="btn-ghost px-4"><X size={14}/></button>
           </div>
         </div>
       )}
@@ -230,6 +303,14 @@ export default function Finance() {
                   </div>
                   {tx.products?.model && <p className="text-xs text-gray-400 truncate mt-0.5">{tx.products.model} {tx.products.category?`(${tx.products.category})`:''}</p>}
                   {tx.note && <p className="text-xs text-gray-400 truncate">{tx.note}</p>}
+                  {tx.images?.length > 0 && (
+                    <div className="flex gap-1 mt-1 overflow-x-auto">
+                      {tx.images.map((url,i)=>(
+                        <img key={i} src={url} className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-amber-100"
+                          onClick={()=>window.open(url,'_blank')}/>
+                      ))}
+                    </div>
+                  )}
                   <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
                 </div>
                 <div className="flex flex-col gap-1 flex-shrink-0">
