@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { thDateShort } from '../lib/dateUtils'
 import { Search, Plus, ArrowUpDown } from 'lucide-react'
 
 const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Sold',label:'ขายแล้ว'}]
@@ -142,6 +143,14 @@ export default function Inventory() {
                     <div className="flex justify-between mt-1">
                       <p className="text-xs text-gray-500">ต้นทุน ฿{fmt(p.total_cost)}</p>
                       <p className="text-xs font-semibold text-amber-600">เกรด {p.condition}</p>
+                    </div>
+                    <div className="flex gap-2 mt-0.5">
+                      {p.created_at && (
+                        <p className="text-xs text-gray-300">📥 {thDateShort(p.created_at)}</p>
+                      )}
+                      {p.sold_date && (
+                        <p className="text-xs text-gray-300">📤 {thDateShort(p.sold_date)}</p>
+                      )}
                     </div>
                   </div>
                 </div>

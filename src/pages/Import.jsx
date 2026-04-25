@@ -7,15 +7,20 @@ import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 
-// แปลง DD/MM/YYYY HH.mm → ISO
+// แปลง DD/MM/YYYY หรือ DD/MM/YY หรือ DD/MM/YY HH.mm → ISO
 function parseThDate(str) {
   if (!str) return null
   const s = String(str).trim()
-  // รองรับ DD/MM/YYYY HH.mm หรือ DD/MM/YYYY HH:mm หรือ DD/MM/YYYY
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})(?:[\s](\d{1,2})[.:](\d{2}))?/)
+  // รองรับ DD/MM/YYYY, DD/MM/YY, DD/MM/YYYY HH.mm, DD/MM/YY HH:mm
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[\s](\d{1,2})[.:](\d{2}))?/)
   if (!m) return null
   let year = parseInt(m[3])
-  if (year > 2400) year -= 543 // แปลง พ.ศ. → ค.ศ.
+  // 2 หลัก: 25 = 2025, 68 = 2568 พ.ศ. → 2025 ค.ศ.
+  if (year < 100) {
+    year = year + 2000 // เช่น 26 → 2026
+  } else if (year > 2400) {
+    year = year - 543  // พ.ศ. → ค.ศ.
+  }
   const month = parseInt(m[2]) - 1
   const day   = parseInt(m[1])
   const hour  = m[4] ? parseInt(m[4]) : 0
@@ -83,27 +88,36 @@ export default function Import() {
         return ''
       }
       const model  = String(get('รุ่น','model') || '').trim()
-      const serial = String(get('serial') || '').trim()
-      const cost   = parseNum(get('ราคาซื้อ','ต้นทุน','base'))
-      if (!model || !serial || cost === null) continue
+      const serial = String(get('serial') || '0').trim()
+      const cost   = parseNum(get('ราคาซื้อ','ต้นทุน','base','ราคา'))
+      if (!model || cost === null) continue
       const statusRaw = String(get('สถานะ','status') || 'Available').trim().toLowerCase()
       const status    = STATUS_MAP[statusRaw] || 'Available'
       const soldPrice = parseNum(get('ราคาขาย','sold'))
       const catRaw    = String(get('ประเภท','category') || 'กล้อง').trim()
       const category  = CAT_MAP[catRaw] || 'กล้อง'
-      const payRaw    = String(get('ชำระ','payment') || '').trim()
+      const payRaw    = String(get('ชำระ','payment','ช่องทาง') || '').trim()
       const payment   = PAY_MAP[payRaw] || null
+
+      // วันที่รับเข้า — ลอง keyword หลายแบบ
+      const createdRaw = get('วันที่รับเข้า','วันรับเข้า','วันที่รับ','รับเข้า','created_at','created','วันซื้อ')
+      const createdAt  = parseThDate(String(createdRaw||''))
+
+      // วันที่ขาย
+      const soldRaw  = get('วันที่ขาย','วันขาย','sold_date','sold')
+      const soldDate = status==='Sold' ? parseThDate(String(soldRaw||'')) : null
+
       data.push({
-        model, serial_number: serial,
+        model, serial_number: serial || '0',
         category,
-        condition: parseInt(get('เกรด','grade','สภาพ')) || 5,
+        condition: parseInt(get('เกรด','grade','สภาพ','เกรดสภาพ')) || 1,
         base_cost: cost, total_cost: cost,
         status,
         sold_price: soldPrice || null,
         payment_method: payment,
-        sold_date: status==='Sold' ? parseThDate(String(get('วันที่ขาย','sold_date')||'')) : null,
+        sold_date: soldDate,
         warranty_expiry: null,
-        created_at: parseThDate(String(get('วันที่รับ','รับเข้า','created')||'')) || undefined,
+        created_at: createdAt || new Date().toISOString(),
         notes: String(get('หมายเหตุ','note','notes') || '').trim(),
         images: [],
       })
