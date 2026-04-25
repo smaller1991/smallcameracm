@@ -49,7 +49,7 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,category,total_cost)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(model,category,total_cost,warranty_expiry,payment_method)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method').eq('status','Sold'),
     ])
@@ -479,12 +479,26 @@ export default function Finance() {
             {filtered.map(tx=>{
               const profit = tx.category==='Sale' && tx.products?.total_cost!=null
                 ? Number(tx.amount)-Number(tx.products.total_cost) : null
+              const warrantyDays = tx.category==='Sale' && tx.products?.warranty_expiry
+                ? Math.ceil((new Date(tx.products.warranty_expiry)-new Date())/86400000) : null
               return (
               <div key={tx.id} className="card flex items-center gap-3">
                 <div className={`w-2 rounded-full flex-shrink-0 self-stretch ${TX_BAR[tx.category]||(tx.type==='Income'?'bg-green-400':'bg-red-400')}`}/>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${catColor(tx.category)}`}>{tx.category}</span>
+                    <div className="flex flex-wrap gap-1 flex-1">
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${catColor(tx.category)}`}>{tx.category}</span>
+                      {tx.category==='Sale' && tx.products?.payment_method && (
+                        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${tx.products.payment_method==='โอน'?'bg-blue-100 text-blue-700':'bg-green-100 text-green-700'}`}>
+                          ชำระ: {tx.products.payment_method}
+                        </span>
+                      )}
+                      {tx.category==='Sale' && warrantyDays!==null && (
+                        warrantyDays>=0
+                          ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">🛡️ ประกันเหลือ {warrantyDays} วัน</span>
+                          : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600 flex-shrink-0">🛡️ หมดประกัน</span>
+                      )}
+                    </div>
                     <div className="text-right flex-shrink-0">
                       <p className={`text-sm font-bold ${tx.type==='Income'?'text-green-600':'text-brand-red'}`}>
                         {tx.type==='Income'?'+':'-'}฿{fmt(tx.amount)}
