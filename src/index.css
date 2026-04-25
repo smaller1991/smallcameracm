@@ -22,83 +22,139 @@
 .swipe-gallery > * { scroll-snap-align: start; }
 .pb-safe { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
 
-/* ======= DARK MODE ======= */
-.dark body { background: #0f0f0f; color: #f0ead8; }
+/* ============================================================
+   DARK MODE
+   ============================================================ */
+.dark { color-scheme: dark; }
+.dark body { background: #121008; color: #EDE8DC; }
 
+/* ── Layout backgrounds ── */
+.dark .bg-brand-light { background-color: #121008 !important; }
+.dark main            { background-color: #121008 !important; }
+
+/* ── Cards ── */
 .dark .card {
-  background: #1e1a14 !important;
-  border-color: #3a3020 !important;
-  color: #f0ead8;
+  background: #1E1912 !important;
+  border-color: #332D1E !important;
+  color: #EDE8DC !important;
 }
-.dark .card * { color: inherit; }
 
-.dark .input {
-  background: #2a2218 !important;
-  border-color: #3a3020 !important;
-  color: #f0ead8 !important;
+/* ── Inputs & Selects ── */
+.dark .input,
+.dark input[type="text"],
+.dark input[type="number"],
+.dark input[type="date"],
+.dark input[type="datetime-local"],
+.dark input[type="email"],
+.dark input[type="password"],
+.dark textarea,
+.dark select {
+  background: #2A2318 !important;
+  border-color: #3D3526 !important;
+  color: #EDE8DC !important;
 }
-.dark .input::placeholder { color: #6b5d45 !important; }
-.dark .input option { background: #1e1a14; color: #f0ead8; }
+.dark .input::placeholder,
+.dark input::placeholder,
+.dark textarea::placeholder { color: #6B5F45 !important; }
+.dark select option { background: #1E1912; color: #EDE8DC; }
 
+/* ── Buttons ── */
 .dark .btn-ghost {
-  background: #2a2218 !important;
-  border-color: #3a3020 !important;
-  color: #f0ead8 !important;
+  background: #2A2318 !important;
+  border-color: #3D3526 !important;
+  color: #EDE8DC !important;
 }
 
-/* backgrounds */
-.dark .bg-brand-light,
-.dark .bg-white { background-color: #0f0f0f !important; }
-.dark [class*="bg-amber-50"]  { background-color: #1e1a14 !important; }
-.dark [class*="bg-amber-100"] { background-color: #2a2218 !important; }
+/* ── White backgrounds → dark ── */
+.dark .bg-white,
+.dark [class*="bg-white"] { background-color: #1E1912 !important; }
+.dark .sticky             { background-color: #121008 !important; border-color: #2A2318 !important; }
+
+/* ── Amber/Yellow tints ── */
+.dark [class*="bg-amber-50"]  { background-color: #1A160D !important; }
+.dark [class*="bg-amber-100"] { background-color: #26200F !important; }
+.dark [class*="border-amber-100"] { border-color: #2A2318 !important; }
+.dark [class*="border-amber-200"] { border-color: #3D3526 !important; }
+
+/* ── Gray tints ── */
 .dark [class*="bg-gray-50"],
-.dark [class*="bg-gray-100"]  { background-color: #1a1a1a !important; }
-.dark [class*="bg-white"]     { background-color: #1e1a14 !important; }
+.dark [class*="bg-gray-100"]  { background-color: #1A1A14 !important; }
+.dark [class*="bg-gray-200"]  { background-color: #252520 !important; }
 
-/* text */
-.dark [class*="text-gray-400"] { color: #8a7a60 !important; }
-.dark [class*="text-gray-500"] { color: #7a6a50 !important; }
-.dark [class*="text-gray-600"] { color: #9a8a70 !important; }
-.dark [class*="text-brand-dark"] { color: #f0ead8 !important; }
-.dark h1,
-.dark h2,
-.dark h3,
-.dark p:not([class*="text-"]) { color: #f0ead8; }
+/* ── Text colors ── */
+.dark [class*="text-gray-300"] { color: #7A7060 !important; }
+.dark [class*="text-gray-400"] { color: #8A7A65 !important; }
+.dark [class*="text-gray-500"] { color: #9A8A72 !important; }
+.dark [class*="text-gray-600"] { color: #ADA090 !important; }
+.dark [class*="text-brand-dark"] { color: #EDE8DC !important; }
 
-/* borders */
-.dark [class*="border-amber-100"] { border-color: #3a3020 !important; }
-.dark [class*="border-amber-200"] { border-color: #4a3f28 !important; }
-.dark [class*="border-gray-200"]  { border-color: #3a3020 !important; }
+/* ── Badges — คงสีเดิมแต่ปรับให้ดูในมืดได้ ── */
+.dark .badge-available { background: #14321E !important; color: #4ADE80 !important; }
+.dark .badge-reserved  { background: #2D2300 !important; color: #FCD34D !important; }
+.dark .badge-sold      { background: #2D1212 !important; color: #F87171 !important; }
 
-/* sticky bars */
-.dark .sticky { background-color: #0f0f0f !important; border-color: #2a2218 !important; }
+/* inline badge variants */
+.dark [class*="bg-emerald-100"] { background-color: #14321E !important; }
+.dark [class*="text-emerald-700"] { color: #4ADE80 !important; }
+.dark [class*="bg-rose-100"]    { background-color: #2D1212 !important; }
+.dark [class*="text-rose-700"]  { color: #F87171 !important; }
+.dark [class*="bg-green-100"]   { background-color: #0D2918 !important; }
+.dark [class*="text-green-700"] { color: #4ADE80 !important; }
+.dark [class*="bg-red-100"]     { background-color: #2D1010 !important; }
+.dark [class*="text-red-700"]   { color: #F87171 !important; }
+.dark [class*="bg-yellow-100"]  { background-color: #2A2000 !important; }
+.dark [class*="text-yellow-700"]{ color: #FCD34D !important; }
+.dark [class*="bg-blue-100"]    { background-color: #0D1A2D !important; }
+.dark [class*="text-blue-700"]  { color: #60A5FA !important; }
+.dark [class*="bg-orange-50"]   { background-color: #1F1208 !important; }
 
-/* modal */
-.dark [class*="rounded-t-3xl"] { background-color: #1a1510 !important; }
-.dark [class*="rounded-t-3xl"] input,
-.dark [class*="rounded-t-3xl"] select { background: #2a2218 !important; border-color: #3a3020 !important; color: #f0ead8 !important; }
+/* ── Icon colored backgrounds ── */
+.dark [class*="bg-amber-100"][class*="rounded"],
+.dark [class*="bg-amber-100"][class*="flex"] { background-color: #26200F !important; }
 
-/* search bar */
-.dark [class*="bg-brand-light"] { background-color: #0f0f0f !important; }
+/* ── Search bar & tabs area ── */
+.dark .search-bar,
+.dark [class*="sticky"][class*="bg-brand-light"],
+.dark [class*="sticky"][class*="py-3"] { background-color: #121008 !important; border-color: #2A2318 !important; }
 
-/* tabs */
-.dark button:not(.btn-primary):not(.btn-danger):not([class*="bg-brand"]):not([class*="bg-blue"]):not([class*="bg-green"]):not([class*="bg-red"]):not([class*="bg-orange"]):not(.active) {
-  background-color: #1e1a14;
-  border-color: #3a3020;
-  color: #8a7a60;
+/* Tab buttons */
+.dark button:not(.btn-primary):not(.btn-danger):not([class*="bg-brand"]):not([class*="bg-blue"]):not([class*="bg-green-6"]):not([class*="bg-red-"]):not([class*="bg-orange"]):not([class*="bg-amber-5"]):not([class*="text-brand-yellow"]):not(.active) {
+  background-color: #1E1912 !important;
+  border-color: #3D3526 !important;
+  color: #8A7A65 !important;
 }
 
-/* inventory card images placeholder */
-.dark [class*="bg-amber-100"][class*="rounded"] { background-color: #2a2218 !important; }
+/* ── Finance summary dark cards ── */
+.dark [style*="rgba(255,255,255,0.08)"] { background: rgba(255,255,255,0.05) !important; }
+.dark [style*="rgba(255,255,255,0.12)"] { background: rgba(255,255,255,0.08) !important; }
 
-/* summary cards in Finance dark bg */
-.dark [style*="rgba(255,255,255,0.08)"] { background: rgba(255,255,255,0.06) !important; }
-.dark [style*="rgba(255,255,255,0.12)"] { background: rgba(255,255,255,0.1) !important; }
+/* ── Modal bottom sheet ── */
+.dark [class*="rounded-t-3xl"] { background-color: #1A160D !important; }
+.dark [class*="rounded-t-3xl"] .input,
+.dark [class*="rounded-t-3xl"] select { background: #2A2318 !important; border-color: #3D3526 !important; color: #EDE8DC !important; }
+.dark [class*="rounded-t-3xl"] [class*="border-amber-100"] { border-color: #2A2318 !important; }
 
-/* red/green/blue colored backgrounds */
-.dark [class*="bg-green-50"]  { background-color: #0d1f14 !important; }
-.dark [class*="bg-red-50"]    { background-color: #1f0d0d !important; }
-.dark [class*="bg-blue-50"]   { background-color: #0d0f1f !important; }
-.dark [class*="bg-amber-50"]  { background-color: #1e1a14 !important; }
-.dark [class*="bg-orange-50"] { background-color: #1f1510 !important; }
+/* ── Summary stat cards on Dashboard ── */
+.dark .summary-card,
+.dark [class*="card"][class*="text-center"] { background: #1E1912 !important; border-color: #332D1E !important; }
+.dark .net-card { background: #0D0B06 !important; }
+
+/* ── Finance colored row backgrounds ── */
+.dark [class*="bg-green-50"]   { background-color: #0A1F10 !important; }
+.dark [class*="bg-red-50"]     { background-color: #1F0A0A !important; }
+.dark [class*="bg-blue-50"]    { background-color: #0A0F1F !important; }
+
+/* ── Import page ── */
+.dark [class*="border-dashed"] { border-color: #3D3526 !important; }
+.dark [class*="bg-amber-50"][class*="rounded-xl"] { background-color: #1A160D !important; }
+
+/* ── Inventory value bar ── */
+.dark [class*="bg-amber-50"][class*="border-amber-200"] {
+  background-color: #1A160D !important;
+  border-color: #3D3526 !important;
+}
+.dark [class*="text-amber-700"] { color: #D97706 !important; }
+
+/* ── Finance filter panel ── */
+.dark [class*="bg-white"][class*="border-b"] { background-color: #1A160D !important; border-color: #2A2318 !important; }
 
