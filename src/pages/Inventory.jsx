@@ -5,7 +5,7 @@ import { thDateShort } from '../lib/dateUtils'
 import { Search, Plus, ArrowUpDown } from 'lucide-react'
 
 const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Sold',label:'ขายแล้ว'}]
-const CAT_TABS = ['ทั้งหมด','กล้อง','เลนส์','แฟลช','อุปกรณ์','อื่นๆ']
+const CAT_TABS = ['ทั้งหมด','กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const SORT_OPTIONS = [
   {key:'created_at_desc',label:'วันที่ล่าสุด'},{key:'created_at_asc',label:'วันที่เก่าสุด'},
   {key:'model_asc',label:'ชื่อ A-Z'},{key:'model_desc',label:'ชื่อ Z-A'},

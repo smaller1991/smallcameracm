@@ -5,7 +5,7 @@ import { uploadImages } from '../lib/imageUtils'
 import { ChevronLeft, X, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 
-const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','อื่นๆ']
+const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 
 export default function AddProduct() {
   const navigate = useNavigate()

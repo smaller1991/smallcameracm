@@ -46,7 +46,7 @@ function parseNum(v) {
 }
 
 const STATUS_MAP  = { 'available':'Available','reserved':'Reserved','sold':'Sold' }
-const CAT_MAP     = { 'กล้อง':'กล้อง','เลนส์':'เลนส์','แฟลช':'แฟลช','อุปกรณ์':'อุปกรณ์','อื่นๆ':'อื่นๆ' }
+const CAT_MAP     = { 'กล้อง':'กล้อง','เลนส์':'เลนส์','แฟลช':'แฟลช','อุปกรณ์':'อุปกรณ์','กล้องดิจิตอลเก่า':'กล้องดิจิตอลเก่า','อื่นๆ':'อื่นๆ' }
 const PAY_MAP     = { 'โอน':'โอน','เงินสด':'เงินสด' }
 const TX_TYPE_MAP = { 'income':'Income','expense':'Expense' }
 const TX_CAT_LIST = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other']

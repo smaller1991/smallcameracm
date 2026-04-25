@@ -9,7 +9,7 @@ import toast from 'react-hot-toast'
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว'}
 const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold'}
-const CATEGORIES    = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','อื่นๆ']
+const CATEGORIES    = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 
 function WarrantyBadge({expiry}) {
   if (!expiry) return null
