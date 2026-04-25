@@ -38,23 +38,31 @@ export default function Finance() {
   const [editBal,    setEditBal]    = useState(false)
   const [balForm,    setBalForm]    = useState({bank:'',cash:''})
 
-  const [stockValue, setStockValue] = useState(0)
-  const [soldProfit, setSoldProfit] = useState(0)
+  const [stockValue,   setStockValue]   = useState(0)
+  const [soldProfit,   setSoldProfit]   = useState(0)
+  const [soldItems,    setSoldItems]    = useState([])
+  const [showProfit,   setShowProfit]   = useState(false)
+  const [profitFrom,   setProfitFrom]   = useState('')
+  const [profitTo,     setProfitTo]     = useState('')
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
       supabase.from('transactions').select('*,products(model,category)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
-      supabase.from('products').select('total_cost,status,sold_price'),
+      supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method').eq('status','Sold'),
     ])
     setTxs(txData||[])
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
-    const sv = (products||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
-    setStockValue(sv)
-    // กำไรจากการขาย = ราคาขาย - ต้นทุนรวม (รวมอุปกรณ์เสริมแล้วใน total_cost)
-    const sp = (products||[]).filter(p=>p.status==='Sold'&&p.sold_price)
-      .reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+
+    const sold = (products||[]).filter(p=>p.sold_price)
+    setSoldItems(sold)
+    const sp = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
     setSoldProfit(sp)
+
+    // stockValue จาก products ที่ยัง Available
+    const {data:allProducts} = await supabase.from('products').select('total_cost,status')
+    const sv = (allProducts||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
+    setStockValue(sv)
     setLoading(false)
   }
   useEffect(()=>{load()},[])
@@ -66,11 +74,18 @@ export default function Finance() {
     return true
   })
 
-  const income  = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
-  const expense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
-  const totalWealth = balance.bank + balance.cash + stockValue
+  // sold items filtered by profit date range
+  const filteredSoldItems = soldItems.filter(p => {
+    if (!p.sold_date) return false
+    if (profitFrom && new Date(p.sold_date)<new Date(profitFrom)) return false
+    if (profitTo   && new Date(p.sold_date)>new Date(profitTo+'T23:59:59')) return false
+    return true
+  })
+  const filteredProfit = filteredSoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
 
-  const saveBalance = async () => {
+  const income      = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
+  const expense     = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
+  const totalWealth = balance.bank + balance.cash + stockValue = async () => {
     const bank = parseFloat(balForm.bank)
     const cash = parseFloat(balForm.cash)
     if (isNaN(bank)||isNaN(cash)) return toast.error('กรุณากรอกตัวเลข')
@@ -143,17 +158,85 @@ export default function Finance() {
       <div className="bg-brand-dark px-4 pt-4 pb-4 space-y-3">
         {/* รายรับ / รายจ่าย / กำไร */}
         <div className="flex gap-2">
-          {[
-            {label:'รายรับ',  value:income,       color:'text-green-400'},
-            {label:'รายจ่าย', value:expense,      color:'text-red-400'},
-            {label:'กำไรขาย', value:Math.abs(soldProfit), color:soldProfit>=0?'text-brand-yellow':'text-red-400', prefix:soldProfit<0?'-':''},
-          ].map(({label,value,color,prefix=''})=>(
-            <div key={label} className="flex-1 rounded-xl p-2.5 text-center" style={{background:'rgba(255,255,255,0.08)'}}>
-              <p className="text-white/50 text-xs">{label}</p>
-              <p className={`font-bold text-sm mt-0.5 ${color}`}>{prefix}฿{fmt(value)}</p>
-            </div>
-          ))}
+          <div className="flex-1 rounded-xl p-2.5 text-center" style={{background:'rgba(255,255,255,0.08)'}}>
+            <p className="text-white/50 text-xs">รายรับ</p>
+            <p className="font-bold text-sm mt-0.5 text-green-400">฿{fmt(income)}</p>
+          </div>
+          <div className="flex-1 rounded-xl p-2.5 text-center" style={{background:'rgba(255,255,255,0.08)'}}>
+            <p className="text-white/50 text-xs">รายจ่าย</p>
+            <p className="font-bold text-sm mt-0.5 text-red-400">฿{fmt(expense)}</p>
+          </div>
+          <button onClick={()=>setShowProfit(true)}
+            className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
+            style={{background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,184,56,0.3)'}}>
+            <p className="text-white/50 text-xs">กำไรขาย 🔍</p>
+            <p className={`font-bold text-sm mt-0.5 ${soldProfit>=0?'text-brand-yellow':'text-red-400'}`}>
+              {soldProfit<0?'-':''}฿{fmt(Math.abs(soldProfit))}
+            </p>
+          </button>
         </div>
+
+        {/* Profit Detail Modal */}
+        {showProfit && (
+          <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={()=>setShowProfit(false)}>
+            <div className="bg-white w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+              <div className="px-5 pt-5 pb-3 border-b border-amber-100">
+                <div className="flex items-center justify-between mb-3">
+                  <h2 className="font-bold text-lg text-brand-dark">รายละเอียดกำไรขาย</h2>
+                  <button onClick={()=>setShowProfit(false)} className="text-gray-400 p-1">✕</button>
+                </div>
+                {/* date filter */}
+                <div className="flex gap-2 items-center">
+                  <input className="input flex-1 text-sm py-1.5" type="date"
+                    value={profitFrom} onChange={e=>setProfitFrom(e.target.value)} placeholder="จากวันที่"/>
+                  <span className="text-gray-400 text-sm">—</span>
+                  <input className="input flex-1 text-sm py-1.5" type="date"
+                    value={profitTo} onChange={e=>setProfitTo(e.target.value)} placeholder="ถึงวันที่"/>
+                  {(profitFrom||profitTo) && (
+                    <button onClick={()=>{setProfitFrom('');setProfitTo('')}} className="text-gray-400 text-lg">✕</button>
+                  )}
+                </div>
+                <div className="flex justify-between items-center mt-2">
+                  <p className="text-xs text-gray-500">{filteredSoldItems.length} รายการ</p>
+                  <p className={`font-bold text-base ${filteredProfit>=0?'text-green-600':'text-red-500'}`}>
+                    รวม: {filteredProfit>=0?'+':''}฿{fmt(filteredProfit)}
+                  </p>
+                </div>
+              </div>
+              <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
+                {filteredSoldItems.length===0
+                  ? <div className="text-center py-10 text-gray-400"><div className="text-4xl mb-2">📊</div>ไม่มีข้อมูลในช่วงนี้</div>
+                  : filteredSoldItems
+                      .sort((a,b)=>new Date(b.sold_date)-new Date(a.sold_date))
+                      .map(p=>{
+                        const profit = Number(p.sold_price)-Number(p.total_cost)
+                        return (
+                          <div key={p.id} className="bg-amber-50 rounded-xl px-4 py-3 flex items-center justify-between">
+                            <div className="min-w-0 flex-1">
+                              <p className="font-semibold text-sm text-brand-dark truncate">{p.model}</p>
+                              <p className="text-xs text-gray-400">SN: {p.serial_number}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">
+                                {p.sold_date ? new Date(p.sold_date).toLocaleDateString('th-TH',{dateStyle:'short'}) : ''}
+                                {p.payment_method && <span className={"ml-2 px-1.5 py-0.5 rounded text-xs font-medium "+(p.payment_method==='โอน'?'bg-blue-100 text-blue-600':'bg-green-100 text-green-600')}>{p.payment_method}</span>}
+                              </p>
+                              <div className="flex gap-3 mt-1 text-xs text-gray-500">
+                                <span>ขาย ฿{fmt(p.sold_price)}</span>
+                                <span>ต้นทุน ฿{fmt(p.total_cost)}</span>
+                              </div>
+                            </div>
+                            <div className="ml-3 flex-shrink-0 text-right">
+                              <p className={`font-bold text-base ${profit>=0?'text-green-600':'text-red-500'}`}>
+                                {profit>=0?'+':''}฿{fmt(profit)}
+                              </p>
+                            </div>
+                          </div>
+                        )
+                      })
+                }
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* ยอดเงินคงเหลือ + เงินสด + มูลค่ารวม */}
         <div className="bg-white/8 rounded-xl p-3 space-y-2" style={{background:'rgba(255,255,255,0.08)'}}>
