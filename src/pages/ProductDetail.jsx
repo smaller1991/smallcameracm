@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { uploadImages, deleteImage, deleteAllProductImages } from '../lib/imageUtils'
+import { uploadImages, deleteImage, deleteAllProductImages, uploadReceiptImages } from '../lib/imageUtils'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -65,10 +65,12 @@ export default function ProductDetail() {
   const [accPreviews,setAccPreviews] = useState([])
 
   // sell
-  const [sellMode,  setSellMode]  = useState(false)
-  const [soldPrice, setSoldPrice] = useState('')
-  const [payMethod, setPayMethod] = useState('โอน')
-  const [sellDate,  setSellDate]  = useState('')
+  const [sellMode,    setSellMode]    = useState(false)
+  const [soldPrice,   setSoldPrice]   = useState('')
+  const [payMethod,   setPayMethod]   = useState('โอน')
+  const [sellDate,    setSellDate]    = useState('')
+  const [sellImgFiles,setSellImgFiles]= useState([])
+  const [sellImgPrev, setSellImgPrev] = useState([])
 
   const toLocal = iso => {
     if (!iso) return ''
@@ -195,14 +197,27 @@ export default function ProductDetail() {
       }).eq('id',id)
       if (error) throw error
 
-      // 2. สร้าง transaction Income (JS สร้างเอง ไม่พึ่ง trigger)
-      await supabase.from('transactions').insert({
+      // 2. สร้าง transaction Income
+      const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         date: soldAt, type:'Income', category:'Sale', amount:price,
         product_id: id, payment_method: payMethod,
         note: 'ขายสินค้า: '+product.model+' SN:'+product.serial_number,
-      })
+      }).select().single()
+      if (txErr) throw txErr
 
-      // 3. บวกยอดใน balance
+      // 3. upload รูปใบเสร็จ → receipt-images ตั้งชื่อตาม spec
+      if (sellImgFiles.length && newTx) {
+        const meta = {
+          model:         product.model,
+          serial_number: product.serial_number,
+          created_at:    product.created_at,
+          sold_date:     soldAt,
+        }
+        const imgUrls = await uploadReceiptImages(supabase, newTx.id, sellImgFiles, meta)
+        await supabase.from('transactions').update({ images: imgUrls }).eq('id', newTx.id)
+      }
+
+      // 4. บวกยอด balance
       const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
       if (bal) {
         if (payMethod==='โอน') {
@@ -213,7 +228,9 @@ export default function ProductDetail() {
       }
 
       toast.success('ขายสำเร็จ! ช่องทาง: '+payMethod)
-      setSellMode(false); load()
+      setSellMode(false)
+      setSellImgFiles([]); setSellImgPrev([])
+      load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
 
@@ -502,8 +519,34 @@ export default function ProductDetail() {
                 <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้เวลาปัจจุบัน</p>
               </div>
               <div>
-                <label className="text-xs text-gray-500 mb-2 block">ช่องทางการชำระเงิน</label>
-                <div className="flex gap-2">
+                <label className="text-xs text-gray-500 mb-1 block">รูปใบเสร็จ / หลักฐาน (ไปแสดงในหน้าบัญชี)</label>
+                <div className="flex gap-2 flex-wrap">
+                  {sellImgPrev.map((src,i)=>(
+                    <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-green-300 flex-shrink-0">
+                      <img src={src} className="w-full h-full object-cover"/>
+                      <button onClick={()=>{
+                        URL.revokeObjectURL(sellImgPrev[i])
+                        setSellImgFiles(f=>f.filter((_,j)=>j!==i))
+                        setSellImgPrev(p=>p.filter((_,j)=>j!==i))
+                      }} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                        <X size={10} className="text-white"/>
+                      </button>
+                    </div>
+                  ))}
+                  <label className="w-16 h-16 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
+                    <ImagePlus size={16} className="text-amber-400"/>
+                    <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={e=>{
+                      const files = Array.from(e.target.files)
+                      setSellImgFiles(p=>[...p,...files])
+                      setSellImgPrev(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
+                    }}/>
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-2 block">ช่องทางการชำระเงิน</label>                <div className="flex gap-2">
                   {['โอน','เงินสด'].map(m=>(
                     <button key={m} onClick={()=>setPayMethod(m)}
                       className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200')}>
@@ -523,7 +566,7 @@ export default function ProductDetail() {
               </div>
             </div>
           ) : (
-            <button onClick={()=>{setSellMode(true);setSellDate('')}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
+            <button onClick={()=>{setSellMode(true);setSellDate('');setSellImgFiles([]);setSellImgPrev([])}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
               <ShoppingBag size={18}/>ขายสินค้า
             </button>
           )

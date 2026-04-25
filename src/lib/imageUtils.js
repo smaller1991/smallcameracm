@@ -60,13 +60,37 @@ export async function uploadImages(supabase, productId, files, meta = {}) {
   return urls
 }
 
-// ─── upload ใบเสร็จ (transaction) ────────────────────────────
-export async function uploadReceiptImages(supabase, txId, files) {
+// ─── upload ใบเสร็จ (transaction) พร้อมตั้งชื่อตาม spec ─────
+export async function uploadReceiptImages(supabase, txId, files, meta = {}) {
   const urls = []
+
+  // ดึงรายการไฟล์ที่มีอยู่แล้วใน folder เพื่อตรวจชื่อซ้ำ
+  const { data: existingFiles } = await supabase.storage
+    .from('receipt-images').list(String(txId))
+  const existingNames = new Set((existingFiles||[]).map(f => f.name))
+
   for (let i = 0; i < files.length; i++) {
     const compressed = await compressImage(files[i])
-    const path = `${txId}/${Date.now()}_${i}.jpg`
-    const { error } = await supabase.storage.from('receipt-images').upload(path, compressed, { upsert: false })
+
+    // ตั้งชื่อ: buyDate_sellDate_model_serial
+    const buyDate  = dateStr(meta.created_at)
+    const sellDate = meta.sold_date ? dateStr(meta.sold_date) : dateStr(new Date().toISOString())
+    const model    = safeStr(meta.model)
+    const serial   = safeStr(meta.serial_number)
+    const baseName = `${buyDate}_${sellDate}_${model}_${serial}`
+
+    // ตรวจชื่อซ้ำ ถ้าซ้ำให้ใส่ (1), (2), ...
+    let fileName = `${baseName}.jpg`
+    let counter  = 1
+    while (existingNames.has(fileName)) {
+      fileName = `${baseName}(${counter}).jpg`
+      counter++
+    }
+    existingNames.add(fileName) // กัน race condition ในลูปเดียวกัน
+
+    const path = `${txId}/${fileName}`
+    const { error } = await supabase.storage
+      .from('receipt-images').upload(path, compressed, { upsert: false })
     if (error) throw error
     const { data } = supabase.storage.from('receipt-images').getPublicUrl(path)
     urls.push(data.publicUrl)
