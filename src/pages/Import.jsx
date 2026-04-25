@@ -7,25 +7,36 @@ import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 
-// แปลง DD/MM/YYYY หรือ DD/MM/YY หรือ DD/MM/YY HH.mm → ISO
-function parseThDate(str) {
-  if (!str) return null
-  const s = String(str).trim()
-  // รองรับ DD/MM/YYYY, DD/MM/YY, DD/MM/YYYY HH.mm, DD/MM/YY HH:mm
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[\s](\d{1,2})[.:](\d{2}))?/)
-  if (!m) return null
-  let year = parseInt(m[3])
-  // 2 หลัก: 25 = 2025, 68 = 2568 พ.ศ. → 2025 ค.ศ.
-  if (year < 100) {
-    year = year + 2000 // เช่น 26 → 2026
-  } else if (year > 2400) {
-    year = year - 543  // พ.ศ. → ค.ศ.
+// แปลงวันที่ทุกรูปแบบ → ISO
+function parseThDate(val) {
+  if (!val && val !== 0) return null
+
+  // Excel serial date (ตัวเลข เช่น 45990)
+  if (typeof val === 'number' && val > 1000) {
+    // Excel serial: วันที่ 1 = 1 ม.ค. 1900
+    const d = new Date(Math.round((val - 25569) * 86400 * 1000))
+    if (!isNaN(d.getTime())) return d.toISOString()
   }
-  const month = parseInt(m[2]) - 1
-  const day   = parseInt(m[1])
-  const hour  = m[4] ? parseInt(m[4]) : 0
-  const min   = m[5] ? parseInt(m[5]) : 0
-  const d = new Date(year, month, day, hour, min)
+
+  const s = String(val).trim()
+  if (!s) return null
+
+  // DD/MM/YYYY หรือ DD/MM/YY พร้อม HH.mm หรือ HH:mm (optional)
+  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:[\s](\d{1,2})[.:](\d{2}))?/)
+  if (m) {
+    let year = parseInt(m[3])
+    if (year < 100) year += 2000          // 26 → 2026
+    else if (year > 2400) year -= 543      // พ.ศ. → ค.ศ.
+    const month = parseInt(m[2]) - 1
+    const day   = parseInt(m[1])
+    const hour  = m[4] ? parseInt(m[4]) : 0
+    const min   = m[5] ? parseInt(m[5]) : 0
+    const d = new Date(year, month, day, hour, min)
+    if (!isNaN(d.getTime())) return d.toISOString()
+  }
+
+  // พยายาม parse ตรงๆ (ISO, etc.)
+  const d = new Date(s)
   return isNaN(d.getTime()) ? null : d.toISOString()
 }
 
@@ -53,7 +64,7 @@ export default function Import() {
     const reader = new FileReader()
     reader.onload = (ev) => {
       try {
-        const wb = XLSX.read(ev.target.result, { type: 'array' })
+        const wb = XLSX.read(ev.target.result, { type: 'array', cellDates: false, raw: true })
         const products     = parseProducts(wb)
         const transactions = parseTransactions(wb)
         setPreview({ products, transactions })
@@ -99,13 +110,13 @@ export default function Import() {
       const payRaw    = String(get('ชำระ','payment','ช่องทาง') || '').trim()
       const payment   = PAY_MAP[payRaw] || null
 
-      // วันที่รับเข้า — ลอง keyword หลายแบบ
+      // วันที่รับเข้า — ส่ง raw value ให้ parseThDate จัดการ serial number ได้
       const createdRaw = get('วันที่รับเข้า','วันรับเข้า','วันที่รับ','รับเข้า','created_at','created','วันซื้อ')
-      const createdAt  = parseThDate(String(createdRaw||''))
+      const createdAt  = parseThDate(createdRaw)
 
       // วันที่ขาย
       const soldRaw  = get('วันที่ขาย','วันขาย','sold_date','sold')
-      const soldDate = status==='Sold' ? parseThDate(String(soldRaw||'')) : null
+      const soldDate = status==='Sold' ? parseThDate(soldRaw) : null
 
       data.push({
         model, serial_number: serial || '0',
@@ -150,7 +161,7 @@ export default function Import() {
       const typeRaw  = String(get('ประเภท','type') || '').trim().toLowerCase()
       const type     = TX_TYPE_MAP[typeRaw] || (typeRaw.includes('income')?'Income':typeRaw.includes('expense')?'Expense':null)
       const amount   = parseNum(get('จำนวน','amount','เงิน'))
-      const dateRaw  = String(get('วันที่','date') || '').trim()
+      const dateRaw  = get('วันที่','date')
       const date     = parseThDate(dateRaw)
       if (!type || !amount || !date) continue
       const catRaw = String(get('หมวด','category','cat') || 'Other').trim()
