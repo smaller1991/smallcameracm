@@ -184,22 +184,34 @@ export default function ProductDetail() {
     if (!soldPrice) return toast.error('กรุณาระบุราคาขาย')
     setSaving(true)
     try {
-      const price = parseFloat(soldPrice)
+      const price  = parseFloat(soldPrice)
       const soldAt = sellDate ? new Date(sellDate).toISOString() : new Date().toISOString()
       const warrantyExp = new Date(new Date(soldAt).getTime()+15*86400000).toISOString()
+
+      // 1. อัปเดตสินค้า
       const {error} = await supabase.from('products').update({
         status:'Sold', sold_price:price, payment_method:payMethod,
         sold_date:soldAt, warranty_expiry:warrantyExp,
       }).eq('id',id)
       if (error) throw error
+
+      // 2. สร้าง transaction Income (JS สร้างเอง ไม่พึ่ง trigger)
+      await supabase.from('transactions').insert({
+        date: soldAt, type:'Income', category:'Sale', amount:price,
+        product_id: id, payment_method: payMethod,
+        note: 'ขายสินค้า: '+product.model+' SN:'+product.serial_number,
+      })
+
+      // 3. บวกยอดใน balance
       const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
       if (bal) {
         if (payMethod==='โอน') {
-          await supabase.from('balances').update({bank:Number(bal.bank)+price,updated_at:new Date().toISOString()}).eq('id','main')
+          await supabase.from('balances').update({bank:Number(bal.bank)+price, updated_at:new Date().toISOString()}).eq('id','main')
         } else {
-          await supabase.from('balances').update({cash:Number(bal.cash)+price,updated_at:new Date().toISOString()}).eq('id','main')
+          await supabase.from('balances').update({cash:Number(bal.cash)+price, updated_at:new Date().toISOString()}).eq('id','main')
         }
       }
+
       toast.success('ขายสำเร็จ! ช่องทาง: '+payMethod)
       setSellMode(false); load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
@@ -207,27 +219,44 @@ export default function ProductDetail() {
 
   // ─── cancel sale ───────────────────────────────────────────
   const cancelSale = async () => {
-    if (!confirm('ยกเลิกการขายสินค้านี้?\nยอดเงินในหน้าบัญชีจะถูกหักคืนอัตโนมัติ')) return
+    if (!confirm('ยกเลิกการขายสินค้านี้?\nยอดเงินและรายการบัญชีจะถูกลบคืนอัตโนมัติ')) return
     setSaving(true)
     try {
-      const price = Number(product.sold_price||0)
+      const price  = Number(product.sold_price||0)
       const method = product.payment_method
+
+      // 1. คืนสถานะสินค้า
       await supabase.from('products').update({
         status:'Available', sold_price:null,
         payment_method:null, sold_date:null, warranty_expiry:null,
       }).eq('id',id)
+
+      // 2. หักยอด balance คืน
       if (price>0 && method) {
         const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
         if (bal) {
           if (method==='โอน') {
-            await supabase.from('balances').update({bank:Math.max(0,Number(bal.bank)-price),updated_at:new Date().toISOString()}).eq('id','main')
+            await supabase.from('balances').update({
+              bank: Math.max(0, Number(bal.bank)-price),
+              updated_at: new Date().toISOString()
+            }).eq('id','main')
           } else {
-            await supabase.from('balances').update({cash:Math.max(0,Number(bal.cash)-price),updated_at:new Date().toISOString()}).eq('id','main')
+            await supabase.from('balances').update({
+              cash: Math.max(0, Number(bal.cash)-price),
+              updated_at: new Date().toISOString()
+            }).eq('id','main')
           }
         }
       }
-      await supabase.from('transactions').delete().eq('product_id',id).eq('category','Sale')
-      toast.success('ยกเลิกการขายแล้ว'); load()
+
+      // 3. ลบ transaction Sale ทั้งหมดของสินค้านี้
+      await supabase.from('transactions')
+        .delete()
+        .eq('product_id', id)
+        .eq('category', 'Sale')
+
+      toast.success('ยกเลิกการขายแล้ว ยอดเงินและรายการบัญชีถูกลบแล้ว')
+      load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
 
