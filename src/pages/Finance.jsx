@@ -85,7 +85,9 @@ export default function Finance() {
 
   const income      = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const expense     = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
-  const totalWealth = balance.bank + balance.cash + stockValue = async () => {
+  const totalWealth = balance.bank + balance.cash + stockValue
+
+  const saveBalance = async () => {
     const bank = parseFloat(balForm.bank)
     const cash = parseFloat(balForm.cash)
     if (isNaN(bank)||isNaN(cash)) return toast.error('กรุณากรอกตัวเลข')
