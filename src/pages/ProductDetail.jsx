@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadImages, deleteImage, deleteAllProductImages, uploadReceiptImages } from '../lib/imageUtils'
+import { toLocal } from '../lib/dateUtils'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -71,13 +72,6 @@ export default function ProductDetail() {
   const [sellDate,    setSellDate]    = useState('')
   const [sellImgFiles,setSellImgFiles]= useState([])
   const [sellImgPrev, setSellImgPrev] = useState([])
-
-  const toLocal = iso => {
-    if (!iso) return ''
-    const d = new Date(iso)
-    d.setMinutes(d.getMinutes() - d.getTimezoneOffset())
-    return d.toISOString().slice(0,16)
-  }
 
   const load = async () => {
     const [{data:p},{data:a}] = await Promise.all([

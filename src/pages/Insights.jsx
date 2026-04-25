@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { thDateShort } from '../lib/dateUtils'
 import { X } from 'lucide-react'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')

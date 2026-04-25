@@ -2,13 +2,11 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, Edit2, X, Check, ImagePlus } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage } from '../lib/imageUtils'
+import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import toast from 'react-hot-toast'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other']
 const fmt  = n => Number(n||0).toLocaleString('th-TH')
-const thDate = d => new Date(d).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'})
-const toLocal = iso => { const d=new Date(iso); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16) }
-const nowLocal = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16) }
 
 // สีตาม category
 const CAT_COLOR = {
@@ -320,7 +318,7 @@ export default function Finance() {
                               <p className="font-semibold text-sm text-brand-dark truncate">{p.model}</p>
                               <p className="text-xs text-gray-400">SN: {p.serial_number}</p>
                               <p className="text-xs text-gray-400 mt-0.5">
-                                {p.sold_date ? new Date(p.sold_date).toLocaleDateString('th-TH',{dateStyle:'short'}) : ''}
+                                {p.sold_date ? thDateShort(p.sold_date) : ''}
                                 {p.payment_method && <span className={"ml-2 px-1.5 py-0.5 rounded text-xs font-medium "+(p.payment_method==='โอน'?'bg-blue-100 text-blue-600':'bg-green-100 text-green-600')}>{p.payment_method}</span>}
                               </p>
                               <div className="flex gap-3 mt-1 text-xs text-gray-500">

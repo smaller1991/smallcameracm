@@ -1,7 +1,7 @@
 import * as XLSX from 'xlsx'
+import { thDate } from './dateUtils'
 
 const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง', Sold: 'ขายแล้ว' }
-const thDate = d => d ? new Date(d).toLocaleString('th-TH', { dateStyle: 'short', timeStyle: 'short' }) : ''
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
 
 function write(rows, sheet, filename) {

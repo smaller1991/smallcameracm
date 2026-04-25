@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
+import { thDateShort } from '../lib/dateUtils'
 import { TrendingUp, TrendingDown, Package, ShoppingBag, Plus, AlertCircle } from 'lucide-react'
 
 const fmt = n => Number(n || 0).toLocaleString('th-TH')
@@ -13,7 +14,9 @@ export default function Dashboard() {
   const now = new Date()
   const ms  = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const me  = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
-  const monthLabel = now.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })
+  const firstDay = thDateShort(ms)
+  const lastDay  = thDateShort(me)
+  const monthLabel = `${firstDay} — ${lastDay}`
 
   useEffect(() => {
     Promise.all([
