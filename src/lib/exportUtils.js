@@ -4,6 +4,34 @@ import { thDate } from './dateUtils'
 const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง', Sold: 'ขายแล้ว' }
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
 
+// ─── Generate Import Template ─────────────────────────────────
+export function downloadImportTemplate() {
+  const wb = XLSX.utils.book_new()
+
+  // Sheet 1: Products
+  const pData = [
+    ['ชื่อรุ่น *','Serial Number *','ประเภท *','เกรดสภาพ * (1-5)','ราคาซื้อ (บาท) *','สถานะ *','ราคาขาย (บาท)','ช่องทางชำระ','วันที่รับเข้า (DD/MM/YYYY HH.mm)','วันที่ขาย (DD/MM/YYYY HH.mm)','หมายเหตุ'],
+    ['Fujifilm X100V','AB12345','กล้อง',4,28000,'Available','','','01/04/2568 10.00','','ตัวอย่าง — ลบแถวนี้ออก'],
+    ['Sony A7III','CD67890','กล้อง',5,55000,'Sold',65000,'โอน','15/03/2568 09.00','20/03/2568 15.30','ตัวอย่าง — ลบแถวนี้ออก'],
+  ]
+  const ws1 = XLSX.utils.aoa_to_sheet(pData)
+  ws1['!cols'] = [20,18,12,16,18,14,18,14,26,26,20].map(w=>({wch:w}))
+  XLSX.utils.book_append_sheet(wb, ws1, 'สต็อกสินค้า')
+
+  // Sheet 2: Transactions
+  const tData = [
+    ['วันที่ * (DD/MM/YYYY HH.mm)','ประเภท * (Income/Expense)','หมวดหมู่ *','จำนวนเงิน (บาท) *','หมายเหตุ'],
+    ['01/04/2568 10.00','Expense','Buy Stock',28000,'ตัวอย่าง — ลบแถวนี้ออก'],
+    ['20/03/2568 15.30','Income','Sale',65000,'ตัวอย่าง — ลบแถวนี้ออก'],
+    ['01/04/2568 09.00','Expense','Marketing',500,'ตัวอย่าง — ลบแถวนี้ออก'],
+  ]
+  const ws2 = XLSX.utils.aoa_to_sheet(tData)
+  ws2['!cols'] = [28,22,16,20,30].map(w=>({wch:w}))
+  XLSX.utils.book_append_sheet(wb, ws2, 'รายการบัญชี')
+
+  XLSX.writeFile(wb, 'camshop_import_template.xlsx')
+}
+
 function write(rows, sheet, filename) {
   const ws = XLSX.utils.json_to_sheet(rows)
   ws['!cols'] = Object.keys(rows[0] || {}).map(() => ({ wch: 20 }))
