@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, X, Check, ImagePlus } from 'lucide-react'
+import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage } from '../lib/imageUtils'
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import toast from 'react-hot-toast'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other']
+const PROD_CATS = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
+const TX_TYPES  = ['Income','Expense']
 const fmt  = n => Number(n||0).toLocaleString('th-TH')
 
 // สีตาม category
@@ -27,6 +29,10 @@ export default function Finance() {
   const [saving,   setSaving]   = useState(false)
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo,   setDateTo]   = useState('')
+  const [showFilter, setShowFilter] = useState(false)
+  const [selCats,    setSelCats]    = useState([])   // หมวดหมู่ที่เลือก
+  const [selTypes,   setSelTypes]   = useState([])   // Income/Expense
+  const [selProdCats,setSelProdCats]= useState([])   // ประเภทสินค้า
   const [imgFiles,    setImgFiles]    = useState([])
   const [imgPreviews, setImgPreviews] = useState([])
   const [removedImgs, setRemovedImgs] = useState([])
@@ -73,8 +79,20 @@ export default function Finance() {
   const filtered = txs.filter(t => {
     if (dateFrom && new Date(t.date)<new Date(dateFrom)) return false
     if (dateTo   && new Date(t.date)>new Date(dateTo+'T23:59:59')) return false
+    if (selTypes.length>0 && !selTypes.includes(t.type)) return false
+    if (selCats.length>0  && !selCats.includes(t.category)) return false
+    if (selProdCats.length>0) {
+      if (!t.products?.category || !selProdCats.includes(t.products.category)) return false
+    }
     return true
   })
+
+  const activeFilters = selCats.length + selTypes.length + selProdCats.length
+  const clearFilters = () => { setSelCats([]); setSelTypes([]); setSelProdCats([]) }
+
+  const toggle = (arr, setArr, val) => {
+    setArr(prev => prev.includes(val) ? prev.filter(x=>x!==val) : [...prev, val])
+  }
 
   // sold items filtered by profit date range
   const filteredSoldItems = soldItems.filter(p => {
@@ -387,17 +405,99 @@ export default function Finance() {
         </div>
       </div>
 
-      {/* Date filter */}
+      {/* Date filter + Filter button */}
       <div className="px-4 py-3 border-b border-amber-100 bg-white">
-        <p className="text-xs text-gray-500 mb-1.5 font-medium">กรองตามช่วงวันที่</p>
         <div className="flex gap-2 items-center">
           <input className="input flex-1 text-sm py-1.5" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
           <span className="text-gray-400 text-sm">—</span>
           <input className="input flex-1 text-sm py-1.5" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
           {(dateFrom||dateTo) && (
-            <button onClick={()=>{setDateFrom('');setDateTo('')}} className="text-gray-400 hover:text-brand-red p-1"><X size={16}/></button>
+            <button onClick={()=>{setDateFrom('');setDateTo('')}} className="text-gray-400 p-1"><X size={15}/></button>
           )}
+          <button onClick={()=>setShowFilter(f=>!f)}
+            className={`relative flex items-center gap-1 px-3 py-1.5 rounded-xl border text-sm font-medium transition-all flex-shrink-0
+              ${showFilter||activeFilters>0 ? 'bg-brand-dark text-brand-yellow border-brand-dark' : 'bg-white text-gray-500 border-gray-200'}`}>
+            <SlidersHorizontal size={14}/>
+            {activeFilters>0 && (
+              <span className="absolute -top-1.5 -right-1.5 bg-brand-red text-white text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold">
+                {activeFilters}
+              </span>
+            )}
+          </button>
         </div>
+
+        {/* Filter panel */}
+        {showFilter && (
+          <div className="mt-3 space-y-3">
+            {/* ประเภท Income/Expense */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5">ประเภทรายการ</p>
+              <div className="flex gap-2">
+                {TX_TYPES.map(t=>{
+                  const active = selTypes.includes(t)
+                  return (
+                    <button key={t} onClick={()=>toggle(selTypes,setSelTypes,t)}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all
+                        ${active
+                          ? t==='Income' ? 'bg-green-600 text-white border-green-600' : 'bg-brand-red text-white border-brand-red'
+                          : 'bg-white text-gray-500 border-gray-200'}`}>
+                      <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-white/30 border-white':'border-gray-300'}`}>
+                        {active && <Check size={10} strokeWidth={3}/>}
+                      </span>
+                      {t==='Income'?'รายรับ':'รายจ่าย'}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* หมวดหมู่ */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5">หมวดหมู่</p>
+              <div className="flex flex-wrap gap-1.5">
+                {CATS.map(c=>{
+                  const active = selCats.includes(c)
+                  return (
+                    <button key={c} onClick={()=>toggle(selCats,setSelCats,c)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
+                        ${active ? 'bg-brand-dark text-brand-yellow border-brand-dark' : 'bg-white text-gray-500 border-gray-200'}`}>
+                      <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-brand-yellow/30 border-brand-yellow':'border-gray-300'}`}>
+                        {active && <Check size={8} strokeWidth={3} className="text-brand-yellow"/>}
+                      </span>
+                      {c}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* ประเภทสินค้า */}
+            <div>
+              <p className="text-xs font-semibold text-gray-500 mb-1.5">ประเภทสินค้า</p>
+              <div className="flex flex-wrap gap-1.5">
+                {PROD_CATS.map(c=>{
+                  const active = selProdCats.includes(c)
+                  return (
+                    <button key={c} onClick={()=>toggle(selProdCats,setSelProdCats,c)}
+                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
+                        ${active ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-500 border-gray-200'}`}>
+                      <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-white/30 border-white':'border-gray-300'}`}>
+                        {active && <Check size={8} strokeWidth={3}/>}
+                      </span>
+                      {c}
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+
+            {activeFilters>0 && (
+              <button onClick={clearFilters} className="text-xs text-brand-red font-medium flex items-center gap-1">
+                <X size={12}/>ล้าง filter ทั้งหมด ({activeFilters})
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="px-4 py-3 flex justify-between items-center border-b border-amber-100">
