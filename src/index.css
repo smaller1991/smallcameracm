@@ -4,7 +4,7 @@
 
 @layer base {
   html { -webkit-tap-highlight-color: transparent; }
-  body { font-family: 'Sarabun', system-ui, sans-serif; }
+  body { font-family: 'Sarabun', system-ui, sans-serif; transition: background-color .3s, color .3s; }
 }
 
 @layer components {
@@ -21,3 +21,84 @@
 .swipe-gallery { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
 .swipe-gallery > * { scroll-snap-align: start; }
 .pb-safe { padding-bottom: max(1.5rem, env(safe-area-inset-bottom)); }
+
+/* ======= DARK MODE ======= */
+.dark body { background: #0f0f0f; color: #f0ead8; }
+
+.dark .card {
+  background: #1e1a14 !important;
+  border-color: #3a3020 !important;
+  color: #f0ead8;
+}
+.dark .card * { color: inherit; }
+
+.dark .input {
+  background: #2a2218 !important;
+  border-color: #3a3020 !important;
+  color: #f0ead8 !important;
+}
+.dark .input::placeholder { color: #6b5d45 !important; }
+.dark .input option { background: #1e1a14; color: #f0ead8; }
+
+.dark .btn-ghost {
+  background: #2a2218 !important;
+  border-color: #3a3020 !important;
+  color: #f0ead8 !important;
+}
+
+/* backgrounds */
+.dark .bg-brand-light,
+.dark .bg-white { background-color: #0f0f0f !important; }
+.dark [class*="bg-amber-50"]  { background-color: #1e1a14 !important; }
+.dark [class*="bg-amber-100"] { background-color: #2a2218 !important; }
+.dark [class*="bg-gray-50"],
+.dark [class*="bg-gray-100"]  { background-color: #1a1a1a !important; }
+.dark [class*="bg-white"]     { background-color: #1e1a14 !important; }
+
+/* text */
+.dark [class*="text-gray-400"] { color: #8a7a60 !important; }
+.dark [class*="text-gray-500"] { color: #7a6a50 !important; }
+.dark [class*="text-gray-600"] { color: #9a8a70 !important; }
+.dark [class*="text-brand-dark"] { color: #f0ead8 !important; }
+.dark h1,
+.dark h2,
+.dark h3,
+.dark p:not([class*="text-"]) { color: #f0ead8; }
+
+/* borders */
+.dark [class*="border-amber-100"] { border-color: #3a3020 !important; }
+.dark [class*="border-amber-200"] { border-color: #4a3f28 !important; }
+.dark [class*="border-gray-200"]  { border-color: #3a3020 !important; }
+
+/* sticky bars */
+.dark .sticky { background-color: #0f0f0f !important; border-color: #2a2218 !important; }
+
+/* modal */
+.dark [class*="rounded-t-3xl"] { background-color: #1a1510 !important; }
+.dark [class*="rounded-t-3xl"] input,
+.dark [class*="rounded-t-3xl"] select { background: #2a2218 !important; border-color: #3a3020 !important; color: #f0ead8 !important; }
+
+/* search bar */
+.dark [class*="bg-brand-light"] { background-color: #0f0f0f !important; }
+
+/* tabs */
+.dark button:not(.btn-primary):not(.btn-danger):not([class*="bg-brand"]):not([class*="bg-blue"]):not([class*="bg-green"]):not([class*="bg-red"]):not([class*="bg-orange"]):not(.active) {
+  background-color: #1e1a14;
+  border-color: #3a3020;
+  color: #8a7a60;
+}
+
+/* inventory card images placeholder */
+.dark [class*="bg-amber-100"][class*="rounded"] { background-color: #2a2218 !important; }
+
+/* summary cards in Finance dark bg */
+.dark [style*="rgba(255,255,255,0.08)"] { background: rgba(255,255,255,0.06) !important; }
+.dark [style*="rgba(255,255,255,0.12)"] { background: rgba(255,255,255,0.1) !important; }
+
+/* red/green/blue colored backgrounds */
+.dark [class*="bg-green-50"]  { background-color: #0d1f14 !important; }
+.dark [class*="bg-red-50"]    { background-color: #1f0d0d !important; }
+.dark [class*="bg-blue-50"]   { background-color: #0d0f1f !important; }
+.dark [class*="bg-amber-50"]  { background-color: #1e1a14 !important; }
+.dark [class*="bg-orange-50"] { background-color: #1f1510 !important; }
+

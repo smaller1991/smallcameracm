@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
-import { LayoutDashboard, Package, DollarSign, BarChart2, Download, Upload, Camera, LogOut } from 'lucide-react'
+import { LayoutDashboard, Package, DollarSign, BarChart2, Download, Upload, Camera, LogOut, Sun, Moon } from 'lucide-react'
 
 const nav = [
   { to: '/',         icon: LayoutDashboard, label: 'หน้าหลัก' },
@@ -18,15 +18,23 @@ const FONT_LABELS = ['S', 'M', 'L', 'XL']
 export default function Layout() {
   const signOut  = useAuthStore(s => s.signOut)
   const navigate = useNavigate()
-  const [fontIdx, setFontIdx] = useState(() => {
-    const saved = localStorage.getItem('cs_fontsize')
-    return saved ? Number(saved) : 1 // default M
-  })
+
+  const [fontIdx, setFontIdx] = useState(() => Number(localStorage.getItem('cs_fontsize') || 1))
+  const [dark,    setDark]    = useState(() => localStorage.getItem('cs_dark') === '1')
 
   useEffect(() => {
     document.documentElement.style.fontSize = FONT_SIZES[fontIdx] + 'px'
     localStorage.setItem('cs_fontsize', fontIdx)
   }, [fontIdx])
+
+  useEffect(() => {
+    if (dark) {
+      document.documentElement.classList.add('dark')
+    } else {
+      document.documentElement.classList.remove('dark')
+    }
+    localStorage.setItem('cs_dark', dark ? '1' : '0')
+  }, [dark])
 
   const decrease = () => setFontIdx(i => Math.max(0, i - 1))
   const increase = () => setFontIdx(i => Math.min(FONT_SIZES.length - 1, i + 1))
@@ -38,20 +46,25 @@ export default function Layout() {
           <Camera size={22} className="text-brand-yellow"/>CamShop
         </div>
         <div className="flex items-center gap-2">
+          {/* Dark mode toggle */}
+          <button onClick={() => setDark(d => !d)}
+            className="text-white/60 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10">
+            {dark ? <Sun size={17}/> : <Moon size={17}/>}
+          </button>
+
           {/* Font size controls */}
-          <div className="flex items-center gap-1 bg-white/10 rounded-lg px-1 py-0.5">
+          <div className="flex items-center gap-0.5 bg-white/10 rounded-lg px-1 py-0.5">
             <button onClick={decrease} disabled={fontIdx===0}
-              className="text-white/60 hover:text-white disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold transition-colors">
+              className="text-white/60 hover:text-white disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold">
               A-
             </button>
-            <span className="text-brand-yellow text-xs font-semibold w-4 text-center">
-              {FONT_LABELS[fontIdx]}
-            </span>
+            <span className="text-brand-yellow text-xs font-semibold w-4 text-center">{FONT_LABELS[fontIdx]}</span>
             <button onClick={increase} disabled={fontIdx===FONT_SIZES.length-1}
-              className="text-white/60 hover:text-white disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold transition-colors">
+              className="text-white/60 hover:text-white disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold">
               A+
             </button>
           </div>
+
           <button onClick={async () => { await signOut(); navigate('/login') }}
             className="text-white/50 hover:text-white transition-colors p-1">
             <LogOut size={18}/>
