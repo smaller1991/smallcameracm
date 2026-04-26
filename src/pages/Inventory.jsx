@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
-import { Search, Plus, ArrowUpDown } from 'lucide-react'
+import { Search, Plus, ArrowUpDown, ArrowLeftRight } from 'lucide-react'
 
 const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Sold',label:'ขายแล้ว'}]
 const CAT_TABS = ['ทั้งหมด','กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -115,9 +115,15 @@ export default function Inventory() {
 
       <div className="px-4 pt-3 pb-1 flex justify-between items-center">
         <p className="text-sm text-gray-500">{filtered.length} รายการ</p>
-        <button onClick={()=>navigate('/inventory/add')} className="btn-primary px-3 py-1.5 text-sm flex items-center gap-1">
-          <Plus size={15}/>เพิ่มสินค้า
-        </button>
+        <div className="flex gap-2">
+          <button onClick={()=>navigate('/tradein')}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-semibold border border-blue-300 bg-blue-50 text-blue-600 active:scale-95 transition-all">
+            <ArrowLeftRight size={14}/>แลกเปลี่ยน
+          </button>
+          <button onClick={()=>navigate('/inventory/add')} className="btn-primary px-3 py-1.5 text-sm flex items-center gap-1">
+            <Plus size={15}/>เพิ่มสินค้า
+          </button>
+        </div>
       </div>
 
       {loading
@@ -127,14 +133,17 @@ export default function Inventory() {
           : <div className="px-4 pb-4 space-y-2 mt-1">
               {filtered.map(p=>(
                 <div key={p.id} onClick={()=>navigate(`/inventory/${p.id}`)}
-                  className="card flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform">
+                  className={`card flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform ${p.is_trade_in?'border-blue-300 border-2':''}`}>
                   {p.images?.[0]
                     ? <img src={p.images[0]} className="w-16 h-16 rounded-xl object-cover flex-shrink-0"/>
-                    : <div className="w-16 h-16 rounded-xl bg-amber-100 flex items-center justify-center text-3xl flex-shrink-0">📷</div>}
+                    : <div className={`w-16 h-16 rounded-xl flex items-center justify-center text-3xl flex-shrink-0 ${p.is_trade_in?'bg-blue-100':'bg-amber-100'}`}>📷</div>}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <p className="font-semibold text-sm truncate flex-1">{p.model}</p>
-                      <span className={`${STATUS_CLASS[p.status]} text-xs font-semibold px-2 py-0.5 rounded-full`}>{STATUS_LABEL[p.status]}</span>
+                      <div className="flex gap-1 flex-shrink-0">
+                        {p.is_trade_in && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">🔄 แลก</span>}
+                        <span className={`${STATUS_CLASS[p.status]} text-xs font-semibold px-2 py-0.5 rounded-full`}>{STATUS_LABEL[p.status]}</span>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-md font-medium">{p.category||'กล้อง'}</span>
@@ -145,12 +154,8 @@ export default function Inventory() {
                       <p className="text-xs font-semibold text-amber-600">เกรด {p.condition}</p>
                     </div>
                     <div className="flex gap-2 mt-0.5">
-                      {p.created_at && (
-                        <p className="text-xs text-gray-300">📥 {thDateShort(p.created_at)}</p>
-                      )}
-                      {p.sold_date && (
-                        <p className="text-xs text-gray-300">📤 {thDateShort(p.sold_date)}</p>
-                      )}
+                      {p.created_at && <p className="text-xs text-gray-300">📥 {thDateShort(p.created_at)}</p>}
+                      {p.sold_date   && <p className="text-xs text-gray-300">📤 {thDateShort(p.sold_date)}</p>}
                     </div>
                   </div>
                 </div>
