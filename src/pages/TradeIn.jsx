@@ -58,7 +58,7 @@ export default function TradeIn() {
     try {
       const now = new Date().toISOString()
 
-      // 1. รับสินค้าแลกเข้าสต็อก (สีน้ำเงิน is_trade_in=true)
+      // 1. รับสินค้าแลกเข้าสต็อก (is_trade_in=true)
       const tradeCost = Number(tradeForm.trade_value)
       const { data: tradeProduct, error: e1 } = await supabase.from('products').insert({
         model:         tradeForm.model.trim(),
@@ -76,6 +76,12 @@ export default function TradeIn() {
       }).select().single()
       if (e1) throw e1
 
+      // ลบ transaction Buy Stock ที่ trigger สร้างอัตโนมัติออก (จะสร้างเองด้านล่าง)
+      await supabase.from('transactions')
+        .delete()
+        .eq('product_id', tradeProduct.id)
+        .eq('category', 'Buy Stock')
+
       // 2. เปลี่ยนสินค้าในสต็อกเป็น Sold (แลกออกไป)
       const soldPrice = outPrice // ราคาขาย = ต้นทุนรวม (แลก 1:1 บวกส่วนต่าง)
       const warranty  = new Date(new Date(now).getTime()+15*86400000).toISOString()
@@ -89,49 +95,43 @@ export default function TradeIn() {
       }).eq('id', selectedOut.id)
       if (e2) throw e2
 
-      // 3. บันทึก transaction แลกเปลี่ยน
-      const txBase = {
-        date: now,
-        product_id: selectedOut.id,
-        note: `แลกเปลี่ยน: ${selectedOut.model} ↔ ${tradeForm.model}`,
-      }
+      // 3. สร้าง transaction แลกเปลี่ยน (รวมเป็น 2 รายการชัดเจน)
 
-      // transaction รับสินค้าแลกเข้า (Expense = ต้นทุนสินค้าที่รับมา)
+      // 3a. รับสินค้าแลกเข้า = Expense (ต้นทุนสินค้าที่รับมา)
       await supabase.from('transactions').insert({
-        ...txBase,
-        type: 'Expense', category: 'Buy Stock', amount: tradeCost,
+        date:       now,
+        type:       'Expense',
+        category:   'Buy Stock',
+        amount:     tradeCost,
         product_id: tradeProduct.id,
-        note: `รับสินค้าแลก: ${tradeForm.model} SN:${tradeForm.serial_number}`,
+        note:       `🔄 รับแลก: ${tradeForm.model} SN:${tradeForm.serial_number} ↔ ${selectedOut.model}`,
       })
 
-      // transaction ส่วนต่าง (ถ้ามี)
+      // 3b. ส่วนต่าง (ถ้ามี)
       if (diff !== 0) {
         await supabase.from('transactions').insert({
-          ...txBase,
-          type: diff > 0 ? 'Income' : 'Expense',
-          category: 'Sale',
-          amount: Math.abs(diff),
+          date:           now,
+          type:           diff > 0 ? 'Income' : 'Expense',
+          category:       'Sale',
+          amount:         Math.abs(diff),
+          product_id:     selectedOut.id,
           payment_method: payMethod,
           note: diff > 0
-            ? `ลูกค้าจ่ายเพิ่ม (แลกเปลี่ยน): ${selectedOut.model} ↔ ${tradeForm.model}`
-            : `ร้านจ่ายคืนลูกค้า (แลกเปลี่ยน): ${selectedOut.model} ↔ ${tradeForm.model}`,
+            ? `🔄 ลูกค้าจ่ายเพิ่ม: ${selectedOut.model} ↔ ${tradeForm.model}`
+            : `🔄 ร้านจ่ายคืนลูกค้า: ${selectedOut.model} ↔ ${tradeForm.model}`,
         })
 
         // อัปเดต balance
         const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
         if (bal) {
+          const amt = Math.abs(diff)
           if (diff > 0) {
-            // ลูกค้าจ่ายเพิ่ม → รับเงินเข้า
-            const upd = payMethod === 'โอน'
-              ? { bank: Number(bal.bank) + diff }
-              : { cash: Number(bal.cash) + diff }
+            const upd = payMethod === 'โอน' ? { bank: Number(bal.bank)+amt } : { cash: Number(bal.cash)+amt }
             await supabase.from('balances').update({...upd, updated_at: now}).eq('id','main')
           } else {
-            // ร้านจ่ายคืน → เงินออก
-            const amt = Math.abs(diff)
             const upd = payMethod === 'โอน'
-              ? { bank: Math.max(0, Number(bal.bank) - amt) }
-              : { cash: Math.max(0, Number(bal.cash) - amt) }
+              ? { bank: Math.max(0, Number(bal.bank)-amt) }
+              : { cash: Math.max(0, Number(bal.cash)-amt) }
             await supabase.from('balances').update({...upd, updated_at: now}).eq('id','main')
           }
         }
