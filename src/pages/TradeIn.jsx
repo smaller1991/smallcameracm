@@ -119,21 +119,26 @@ export default function TradeIn() {
         trade_profit_a: profitA,
       })
 
-      // ── 4. อัปเดต balance ตามส่วนต่าง ──
-      if (diff !== 0) {
-        const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
+      // ── 4. อัปเดต balance ──
+      // รับเงินจากการขาย A เต็มจำนวน แล้วหัก B (ถ้าร้านจ่ายเพิ่ม)
+      const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
+      if (bal) {
+        let bank = Number(bal.bank)
+        let cash = Number(bal.cash)
+
+        if (diff > 0) {
+          // ลูกค้าจ่ายเพิ่ม → รับเงินส่วนต่างเข้า
+          if (payMethod==='โอน') bank += diff
+          else cash += diff
+        } else if (diff < 0) {
+          // ร้านจ่ายคืนลูกค้า → เงินออก
           const amt = Math.abs(diff)
-          if (diff > 0) {
-            const upd = payMethod==='โอน' ? {bank:Number(bal.bank)+amt} : {cash:Number(bal.cash)+amt}
-            await supabase.from('balances').update({...upd, updated_at:now}).eq('id','main')
-          } else {
-            const upd = payMethod==='โอน'
-              ? {bank:Math.max(0,Number(bal.bank)-amt)}
-              : {cash:Math.max(0,Number(bal.cash)-amt)}
-            await supabase.from('balances').update({...upd, updated_at:now}).eq('id','main')
-          }
+          if (payMethod==='โอน') bank = Math.max(0, bank - amt)
+          else cash = Math.max(0, cash - amt)
         }
+        // diff === 0 → แลกเท่ากันพอดี ไม่มีเงินเข้าออก
+
+        await supabase.from('balances').update({bank, cash, updated_at:now}).eq('id','main')
       }
 
       toast.success('บันทึกการแลกเปลี่ยนสำเร็จ!')
