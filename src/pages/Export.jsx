@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { exportInventory, exportTransactions } from '../lib/exportUtils'
+import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Download, Package, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -40,7 +41,7 @@ export default function Export() {
   const doExportTx = async () => {
     setBusy(true)
     try {
-      const {data} = await supabase.from('transactions').select('*,products(model,category)').order('date',{ascending:false})
+      const {data} = await supabase.from('transactions').select('*,products(model,category,total_cost,customer_note)').order('date',{ascending:false})
       if (txFmt==='xlsx') {
         exportTransactions(data||[], from||undefined, to||undefined)
       } else {
@@ -83,8 +84,8 @@ export default function Export() {
           <div><p className="font-semibold">ส่งออกรายการบัญชี</p><p className="text-xs text-gray-400">รายรับ-รายจ่าย เลือกช่วงวันได้</p></div>
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <div><label className="text-xs text-gray-500 mb-1 block">ตั้งแต่วันที่</label><input className="input" type="date" value={from} onChange={e=>setFrom(e.target.value)}/></div>
-          <div><label className="text-xs text-gray-500 mb-1 block">ถึงวันที่</label><input className="input" type="date" value={to} onChange={e=>setTo(e.target.value)}/></div>
+          <div><label className="text-xs text-gray-500 mb-1 block">ตั้งแต่วันที่</label><ThaiDatePicker value={from} onChange={setFrom} className="input w-full"/></div>
+          <div><label className="text-xs text-gray-500 mb-1 block">ถึงวันที่</label><ThaiDatePicker value={to} onChange={setTo} className="input w-full"/></div>
         </div>
         <p className="text-xs text-gray-400">หากไม่ระบุวันที่ จะส่งออกทั้งหมด</p>
         <div>
@@ -135,20 +136,45 @@ function exportInventoryPDF(products, statusFilter='all') {
              `฿${fmt(p.base_cost)}`,`฿${fmt(p.total_cost)}`,
              p.sold_price?`฿${fmt(p.sold_price)}`:'',
              p.sold_price?`฿${fmt(Number(p.sold_price)-Number(p.total_cost))}`:'',
-             thDate(p.created_at),thDate(p.sold_date)])
-  makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย'],rows,'สต็อกสินค้า.pdf')
+             thDate(p.created_at),thDate(p.sold_date),p.customer_note||''])
+  makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า'],rows,'สต็อกสินค้า.pdf')
 }
 
 function exportTransactionsPDF(txs, from, to) {
-  const rows = txs
-    .filter(t=>{
-      if (from&&new Date(t.date)<new Date(from)) return false
-      if (to&&new Date(t.date)>new Date(to+'T23:59:59')) return false
-      return true
-    })
-    .map(t=>[thDate(t.date),t.type==='Income'?'รายรับ':'รายจ่าย',t.category,
-             `฿${fmt(t.amount)}`,t.type==='Income'?`฿${fmt(t.amount)}`:'',
-             t.type==='Expense'?`฿${fmt(t.amount)}`:'',
-             t.products?.model||'',t.note||''])
-  makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','รุ่นกล้อง','หมายเหตุ'],rows,'รายการบัญชี.pdf')
+  const filtered = txs.filter(t=>{
+    if (from&&new Date(t.date)<new Date(from)) return false
+    if (to&&new Date(t.date)>new Date(to+'T23:59:59')) return false
+    return true
+  })
+  if (!filtered.length) return alert('ไม่มีข้อมูล')
+
+  const totalIncome  = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
+  const totalExpense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
+
+  const plValues = filtered.map(t=>{
+    if (t.category==='Sale'&&t.products?.total_cost!=null)
+      return Number(t.amount)-Number(t.products.total_cost)
+    if (t.category==='Trade'&&t.trade_profit_a!=null)
+      return Number(t.trade_profit_a)
+    return null
+  })
+  const totalProfit = plValues.reduce((a,v)=>v!=null?a+v:a,0)
+
+  const rows = filtered.map((t,i)=>{
+    const pl = plValues[i]
+    return [thDate(t.date),t.type==='Income'?'รายรับ':'รายจ่าย',t.category,
+            `฿${fmt(t.amount)}`,t.type==='Income'?`฿${fmt(t.amount)}`:'',
+            t.type==='Expense'?`฿${fmt(t.amount)}`:'',
+            pl!=null?`฿${fmt(pl)}`:'',
+            t.products?.model||'',
+            t.category==='Sale'?(t.products?.customer_note||''):'',
+            t.note||'']
+  })
+
+  rows.push(['','','','','','','','','',''])
+  rows.push(['สรุป','','รวมรายรับ','',`฿${fmt(totalIncome)}`,'','','','',''])
+  rows.push(['','','รวมรายจ่าย','','',`฿${fmt(totalExpense)}`,'','','',''])
+  rows.push(['','','กำไรขาดทุนสุทธิ','','','',`฿${fmt(totalProfit)}`,'','',''])
+
+  makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','รายละเอียดลูกค้า','หมายเหตุ'],rows,'รายการบัญชี.pdf')
 }

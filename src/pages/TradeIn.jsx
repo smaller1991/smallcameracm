@@ -1,7 +1,8 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { toLocal } from '../lib/dateUtils'
+import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, Search, ArrowLeftRight, Plus, Minus } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -163,7 +164,7 @@ export default function TradeIn() {
         {/* วันที่ */}
         <div className="card">
           <label className="text-xs text-gray-500 mb-1 block font-medium">วันที่และเวลาแลกเปลี่ยน</label>
-          <input className="input" type="datetime-local" value={tradeDate} onChange={e=>setTradeDate(e.target.value)}/>
+          <ThaiDatePicker value={tradeDate} onChange={setTradeDate} showTime className="input w-full"/>
           <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้เวลาปัจจุบัน</p>
         </div>
 
@@ -189,7 +190,7 @@ export default function TradeIn() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">ราคาที่ขายได้จริง (บาท) *</label>
-                <input className="input" type="number" placeholder="0" value={sellPriceA}
+                <input autoComplete="off" className="input" type="number" placeholder="0" value={sellPriceA}
                   onChange={e=>setSellPriceA(e.target.value)}/>
                 {sellPriceA && (
                   <div className="flex justify-between mt-1.5 text-xs">
@@ -205,7 +206,7 @@ export default function TradeIn() {
             <>
               <div className="relative">
                 <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-                <input className="input pl-9 text-sm" placeholder="ค้นหารุ่นหรือ Serial..."
+                <input autoComplete="off" className="input pl-9 text-sm" placeholder="ค้นหารุ่นหรือ Serial..."
                   value={search} onChange={e=>{ setSearch(e.target.value); loadProducts(e.target.value) }}/>
               </div>
               <div className="max-h-48 overflow-y-auto space-y-1.5">
@@ -238,12 +239,12 @@ export default function TradeIn() {
 
           <div>
             <label className="text-xs text-gray-500 mb-1 block">ชื่อรุ่น *</label>
-            <input className="input" placeholder="เช่น Canon 600D" value={tradeForm.model}
+            <input autoComplete="off" className="input" placeholder="เช่น Canon 600D" value={tradeForm.model}
               onChange={e=>setTradeForm({...tradeForm,model:e.target.value})}/>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">Serial Number *</label>
-            <input className="input" placeholder="SN..." value={tradeForm.serial_number}
+            <input autoComplete="off" className="input" placeholder="SN..." value={tradeForm.serial_number}
               onChange={e=>setTradeForm({...tradeForm,serial_number:e.target.value})}/>
           </div>
           <div>
@@ -267,13 +268,13 @@ export default function TradeIn() {
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">ราคารับซื้อ / มูลค่าแลก (บาท) *</label>
-            <input className="input" type="number" placeholder="0" value={tradeForm.buy_price}
+            <input autoComplete="off" className="input" type="number" placeholder="0" value={tradeForm.buy_price}
               onChange={e=>setTradeForm({...tradeForm,buy_price:e.target.value})}/>
             <p className="text-xs text-gray-400 mt-1">ราคานี้จะเป็นต้นทุนของสินค้า B ในสต็อก</p>
           </div>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">หมายเหตุ</label>
-            <input className="input" placeholder="สภาพ, อุปกรณ์ที่มาด้วย..." value={tradeForm.notes}
+            <input autoComplete="off" className="input" placeholder="สภาพ, อุปกรณ์ที่มาด้วย..." value={tradeForm.notes}
               onChange={e=>setTradeForm({...tradeForm,notes:e.target.value})}/>
           </div>
         </div>

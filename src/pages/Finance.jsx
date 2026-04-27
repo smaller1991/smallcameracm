@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage } from '../lib/imageUtils'
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
+import ThaiDatePicker from '../components/ThaiDatePicker'
 import toast from 'react-hot-toast'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other']
@@ -55,7 +56,7 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,category,total_cost,warranty_expiry,payment_method)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(model,category,total_cost,warranty_expiry,payment_method,customer_note)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
     ])
@@ -123,7 +124,7 @@ export default function Finance() {
   }
   const openEdit = tx => {
     setEditId(tx.id)
-    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date)})
+    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date),customer_note:tx.products?.customer_note||''})
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
   }
@@ -152,6 +153,10 @@ export default function Finance() {
         const kept = (existing?.images||[]).filter(u=>!removedImgs.includes(u))
         payload.images = [...kept, ...newUrls]
         await supabase.from('transactions').update(payload).eq('id',editId)
+        if (form.category === 'Sale') {
+          const tx = txs.find(t=>t.id===editId)
+          if (tx?.product_id) await supabase.from('products').update({customer_note:form.customer_note?.trim()||null}).eq('id',tx.product_id)
+        }
         toast.success('แก้ไขแล้ว')
       } else {
         const {data:newTx, error} = await supabase.from('transactions').insert(payload).select().single()
@@ -220,9 +225,9 @@ export default function Finance() {
                     <button onClick={()=>setShowIncome(false)} className="text-gray-400 p-1">✕</button>
                   </div>
                   <div className="flex gap-2 items-center">
-                    <input className="input flex-1 text-sm py-1.5" type="date" value={detailFrom} onChange={e=>setDetailFrom(e.target.value)}/>
+                    <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} className="input flex-1 text-sm py-1.5"/>
                     <span className="text-gray-400">—</span>
-                    <input className="input flex-1 text-sm py-1.5" type="date" value={detailTo} onChange={e=>setDetailTo(e.target.value)}/>
+                    <ThaiDatePicker value={detailTo} onChange={setDetailTo} className="input flex-1 text-sm py-1.5"/>
                     {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 text-lg">✕</button>}
                   </div>
                   <div className="flex justify-between mt-2">
@@ -267,9 +272,9 @@ export default function Finance() {
                     <button onClick={()=>setShowExpense(false)} className="text-gray-400 p-1">✕</button>
                   </div>
                   <div className="flex gap-2 items-center">
-                    <input className="input flex-1 text-sm py-1.5" type="date" value={detailFrom} onChange={e=>setDetailFrom(e.target.value)}/>
+                    <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} className="input flex-1 text-sm py-1.5"/>
                     <span className="text-gray-400">—</span>
-                    <input className="input flex-1 text-sm py-1.5" type="date" value={detailTo} onChange={e=>setDetailTo(e.target.value)}/>
+                    <ThaiDatePicker value={detailTo} onChange={setDetailTo} className="input flex-1 text-sm py-1.5"/>
                     {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 text-lg">✕</button>}
                   </div>
                   <div className="flex justify-between mt-2">
@@ -307,11 +312,9 @@ export default function Finance() {
                 </div>
                 {/* date filter */}
                 <div className="flex gap-2 items-center">
-                  <input className="input flex-1 text-sm py-1.5" type="date"
-                    value={profitFrom} onChange={e=>setProfitFrom(e.target.value)} placeholder="จากวันที่"/>
+                  <ThaiDatePicker value={profitFrom} onChange={setProfitFrom} className="input flex-1 text-sm py-1.5" placeholder="จากวันที่"/>
                   <span className="text-gray-400 text-sm">—</span>
-                  <input className="input flex-1 text-sm py-1.5" type="date"
-                    value={profitTo} onChange={e=>setProfitTo(e.target.value)} placeholder="ถึงวันที่"/>
+                  <ThaiDatePicker value={profitTo} onChange={setProfitTo} className="input flex-1 text-sm py-1.5" placeholder="ถึงวันที่"/>
                   {(profitFrom||profitTo) && (
                     <button onClick={()=>{setProfitFrom('');setProfitTo('')}} className="text-gray-400 text-lg">✕</button>
                   )}
@@ -369,11 +372,11 @@ export default function Finance() {
             <div className="space-y-2">
               <div className="flex gap-2 items-center">
                 <span className="text-white/60 text-xs w-16">ยอดโอน</span>
-                <input className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.bank} onChange={e=>setBalForm({...balForm,bank:e.target.value})}/>
+                <input autoComplete="off" className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.bank} onChange={e=>setBalForm({...balForm,bank:e.target.value})}/>
               </div>
               <div className="flex gap-2 items-center">
                 <span className="text-white/60 text-xs w-16">เงินสด</span>
-                <input className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.cash} onChange={e=>setBalForm({...balForm,cash:e.target.value})}/>
+                <input autoComplete="off" className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.cash} onChange={e=>setBalForm({...balForm,cash:e.target.value})}/>
               </div>
               <div className="flex gap-2">
                 <button onClick={saveBalance} className="btn-primary flex-1 py-1.5 text-sm"><Check size={13} className="inline mr-1"/>บันทึก</button>
@@ -408,9 +411,9 @@ export default function Finance() {
       {/* Date filter + Filter button */}
       <div className="px-4 py-3 border-b border-amber-100 bg-white">
         <div className="flex gap-2 items-center">
-          <input className="input flex-1 text-sm py-1.5" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+          <ThaiDatePicker value={dateFrom} onChange={setDateFrom} className="input flex-1 text-sm py-1.5"/>
           <span className="text-gray-400 text-sm">—</span>
-          <input className="input flex-1 text-sm py-1.5" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+          <ThaiDatePicker value={dateTo} onChange={setDateTo} className="input flex-1 text-sm py-1.5"/>
           {(dateFrom||dateTo) && (
             <button onClick={()=>{setDateFrom('');setDateTo('')}} className="text-gray-400 p-1"><X size={15}/></button>
           )}
@@ -523,12 +526,19 @@ export default function Finance() {
           <select className="input text-sm" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>
             {CATS.map(c=><option key={c}>{c}</option>)}
           </select>
-          <input className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/>
+          <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลา</label>
-            <input className="input text-sm" type="datetime-local" value={form.date} onChange={e=>setForm({...form,date:e.target.value})}/>
+            <ThaiDatePicker value={form.date} onChange={v=>setForm({...form,date:v})} showTime className="input text-sm w-full"/>
           </div>
-          <input className="input text-sm" placeholder="หมายเหตุ" value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/>
+          <input autoComplete="off" className="input text-sm" placeholder="หมายเหตุ" value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/>
+          {editId && form.category==='Sale' && (
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">รายละเอียดลูกค้า</label>
+              <textarea className="input text-sm resize-none" rows={2} placeholder="ชื่อ / เบอร์โทร / หมายเหตุลูกค้า..."
+                value={form.customer_note||''} onChange={e=>setForm({...form,customer_note:e.target.value})}/>
+            </div>
+          )}
 
           {/* รูปใบเสร็จ */}
           <div>
@@ -557,7 +567,7 @@ export default function Finance() {
               <label className="w-16 h-16 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
                 <ImagePlus size={16} className="text-amber-400"/>
                 <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
-                <input type="file" multiple accept="image/*" className="hidden" onChange={e=>addImgFiles(Array.from(e.target.files))}/>
+                <input autoComplete="off" type="file" multiple accept="image/*" className="hidden" onChange={e=>addImgFiles(Array.from(e.target.files))}/>
               </label>
             </div>
           </div>
@@ -654,6 +664,9 @@ export default function Finance() {
                     </p>
                   )}
                   {tx.note && <p className="text-xs text-gray-400 truncate">{tx.note}</p>}
+                  {tx.category==='Sale' && tx.products?.customer_note && (
+                    <p className="text-xs text-blue-500 truncate">👤 {tx.products.customer_note}</p>
+                  )}
                   {tx.images?.length > 0 && (
                     <div className="flex gap-1 mt-1 overflow-x-auto">
                       {tx.images.map((url,i)=>(

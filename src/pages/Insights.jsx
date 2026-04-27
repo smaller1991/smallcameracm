@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
+import ThaiDatePicker from '../components/ThaiDatePicker'
 import { X } from 'lucide-react'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
@@ -70,9 +71,9 @@ export default function Insights() {
       <div className="card">
         <p className="text-xs text-gray-500 mb-2 font-medium">กรองตามช่วงวันที่ขาย</p>
         <div className="flex gap-2 items-center">
-          <input className="input flex-1 text-sm py-1.5" type="date" value={dateFrom} onChange={e=>setDateFrom(e.target.value)}/>
+          <ThaiDatePicker value={dateFrom} onChange={setDateFrom} className="input flex-1 text-sm py-1.5"/>
           <span className="text-gray-400 text-sm">—</span>
-          <input className="input flex-1 text-sm py-1.5" type="date" value={dateTo} onChange={e=>setDateTo(e.target.value)}/>
+          <ThaiDatePicker value={dateTo} onChange={setDateTo} className="input flex-1 text-sm py-1.5"/>
           {(dateFrom||dateTo) && (
             <button onClick={()=>{setDateFrom('');setDateTo('')}} className="text-gray-400 hover:text-brand-red p-1"><X size={16}/></button>
           )}

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
 import { downloadImportTemplate } from '../lib/exportUtils'
@@ -261,7 +261,7 @@ export default function Import() {
           <Upload size={28} className="text-amber-400 mb-2"/>
           <p className="text-sm font-medium text-gray-600">{file ? file.name : 'กดเพื่อเลือกไฟล์'}</p>
           <p className="text-xs text-gray-400 mt-1">.xlsx, .xls</p>
-          <input type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile}/>
+          <input autoComplete="off" type="file" accept=".xlsx,.xls" className="hidden" onChange={handleFile}/>
         </label>
       </div>
 

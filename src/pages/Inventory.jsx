@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
@@ -73,7 +73,7 @@ export default function Inventory() {
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-            <input className="input pl-9" placeholder="ค้นหารุ่นหรือ Serial..." value={search} onChange={e=>setSearch(e.target.value)}/>
+            <input autoComplete="off" className="input pl-9" placeholder="ค้นหารุ่นหรือ Serial..." value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
           <button onClick={()=>setShowSort(!showSort)}
             className={`flex items-center gap-1 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${showSort?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-500 border-gray-200'}`}>

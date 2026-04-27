@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadImages, deleteImage, deleteAllProductImages, uploadReceiptImages } from '../lib/imageUtils'
 import { toLocal } from '../lib/dateUtils'
+import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -35,7 +36,7 @@ function ImagePicker({ previews, onAdd, onRemove, label = 'เพิ่มรู
       <label className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
         <ImagePlus size={18} className="text-amber-400"/>
         <span className="text-xs text-amber-400 mt-0.5">{label}</span>
-        <input type="file" multiple accept="image/*" className="hidden"
+        <input autoComplete="off" type="file" multiple accept="image/*" className="hidden"
           onChange={e => onAdd(Array.from(e.target.files))}/>
       </label>
     </div>
@@ -66,12 +67,13 @@ export default function ProductDetail() {
   const [accPreviews,setAccPreviews] = useState([])
 
   // sell
-  const [sellMode,    setSellMode]    = useState(false)
-  const [soldPrice,   setSoldPrice]   = useState('')
-  const [payMethod,   setPayMethod]   = useState('โอน')
-  const [sellDate,    setSellDate]    = useState('')
-  const [sellImgFiles,setSellImgFiles]= useState([])
-  const [sellImgPrev, setSellImgPrev] = useState([])
+  const [sellMode,     setSellMode]     = useState(false)
+  const [soldPrice,    setSoldPrice]    = useState('')
+  const [payMethod,    setPayMethod]    = useState('โอน')
+  const [sellDate,     setSellDate]     = useState('')
+  const [customerNote, setCustomerNote] = useState('')
+  const [sellImgFiles, setSellImgFiles] = useState([])
+  const [sellImgPrev,  setSellImgPrev]  = useState([])
 
   const load = async () => {
     const [{data:p},{data:a}] = await Promise.all([
@@ -81,7 +83,8 @@ export default function ProductDetail() {
     setProduct(p); setAccs(a||[])
     setEf({model:p.model, serial_number:p.serial_number, condition:p.condition,
            base_cost:p.base_cost, status:p.status, notes:p.notes||'',
-           category:p.category||'กล้อง', created_at:toLocal(p.created_at)})
+           category:p.category||'กล้อง', created_at:toLocal(p.created_at),
+           customer_note:p.customer_note||''})
     setEditNewFiles([]); setEditNewPreviews([]); setRemovedUrls([])
     setLoading(false)
   }
@@ -125,6 +128,7 @@ export default function ProductDetail() {
         model: ef.model, serial_number: ef.serial_number,
         condition: Number(ef.condition), base_cost: parseFloat(ef.base_cost),
         status: ef.status, notes: ef.notes, category: ef.category, images,
+        customer_note: ef.customer_note?.trim() || null,
       }
       if (ef.created_at) updateData.created_at = new Date(ef.created_at).toISOString()
       const {error} = await supabase.from('products').update(updateData).eq('id',id)
@@ -188,6 +192,7 @@ export default function ProductDetail() {
       const {error} = await supabase.from('products').update({
         status:'Sold', sold_price:price, payment_method:payMethod,
         sold_date:soldAt, warranty_expiry:warrantyExp,
+        customer_note: customerNote.trim() || null,
       }).eq('id',id)
       if (error) throw error
 
@@ -364,7 +369,7 @@ export default function ProductDetail() {
                   <label className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
                     <ImagePlus size={18} className="text-amber-400"/>
                     <span className="text-xs text-amber-400 mt-0.5">เพิ่มรูป</span>
-                    <input type="file" multiple accept="image/*" className="hidden" onChange={e=>addEditFiles(Array.from(e.target.files))}/>
+                    <input autoComplete="off" type="file" multiple accept="image/*" className="hidden" onChange={e=>addEditFiles(Array.from(e.target.files))}/>
                   </label>
                 </div>
                 {removedUrls.length>0 && <p className="text-xs text-red-400 mt-1">จะลบ {removedUrls.length} รูป เมื่อกดบันทึก</p>}
@@ -379,15 +384,15 @@ export default function ProductDetail() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">ชื่อรุ่น</label>
-                <input className="input" value={ef.model} onChange={e=>setEf({...ef,model:e.target.value})}/>
+                <input autoComplete="off" className="input" value={ef.model} onChange={e=>setEf({...ef,model:e.target.value})}/>
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">Serial Number</label>
-                <input className="input" value={ef.serial_number} onChange={e=>setEf({...ef,serial_number:e.target.value})}/>
+                <input autoComplete="off" className="input" value={ef.serial_number} onChange={e=>setEf({...ef,serial_number:e.target.value})}/>
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">ราคาซื้อ (บาท)</label>
-                <input className="input" type="number" value={ef.base_cost} onChange={e=>setEf({...ef,base_cost:e.target.value})}/>
+                <input autoComplete="off" className="input" type="number" value={ef.base_cost} onChange={e=>setEf({...ef,base_cost:e.target.value})}/>
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-2 block">เกรดสภาพ</label>
@@ -413,8 +418,12 @@ export default function ProductDetail() {
                 <textarea className="input resize-none" rows={2} value={ef.notes} onChange={e=>setEf({...ef,notes:e.target.value})}/>
               </div>
               <div>
+                <label className="text-xs text-gray-500 mb-1 block">รายละเอียดลูกค้า</label>
+                <textarea className="input resize-none" rows={2} placeholder="ชื่อ / เบอร์โทร / หมายเหตุลูกค้า..." value={ef.customer_note||''} onChange={e=>setEf({...ef,customer_note:e.target.value})}/>
+              </div>
+              <div>
                 <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลารับเข้า</label>
-                <input className="input" type="datetime-local" value={ef.created_at} onChange={e=>setEf({...ef,created_at:e.target.value})}/>
+                <ThaiDatePicker value={ef.created_at} onChange={v=>setEf({...ef,created_at:v})} showTime className="input w-full"/>
               </div>
               <button onClick={saveEdit} disabled={saving} className="btn-primary w-full flex items-center justify-center gap-2">
                 <Check size={16}/>{saving?'กำลังบันทึก...':'บันทึก'}
@@ -450,6 +459,12 @@ export default function ProductDetail() {
                 )}
               </div>
               {product.notes && <p className="text-sm text-gray-500 italic">{product.notes}</p>}
+              {product.customer_note && (
+                <div className="bg-blue-50 rounded-xl px-3 py-2">
+                  <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
+                  <p className="text-sm text-blue-700 whitespace-pre-wrap">{product.customer_note}</p>
+                </div>
+              )}
             </>
           )}
         </div>
@@ -466,8 +481,8 @@ export default function ProductDetail() {
           </div>
           {addAcc && (
             <div className="bg-amber-50 rounded-xl p-3 mb-3 space-y-2">
-              <input className="input text-sm" placeholder="ชื่ออุปกรณ์..." value={accName} onChange={e=>setAccName(e.target.value)}/>
-              <input className="input text-sm" type="number" placeholder="ราคา (บาท)" value={accCost} onChange={e=>setAccCost(e.target.value)}/>
+              <input autoComplete="off" className="input text-sm" placeholder="ชื่ออุปกรณ์..." value={accName} onChange={e=>setAccName(e.target.value)}/>
+              <input autoComplete="off" className="input text-sm" type="number" placeholder="ราคา (บาท)" value={accCost} onChange={e=>setAccCost(e.target.value)}/>
               <div>
                 <p className="text-xs text-gray-500 mb-1">รูปภาพ (รวมใน gallery สินค้า)</p>
                 <ImagePicker previews={accPreviews} onAdd={addAccFiles} onRemove={removeAccFile} label="เพิ่มรูป"/>
@@ -500,7 +515,7 @@ export default function ProductDetail() {
               <h3 className="font-semibold text-sm">ยืนยันการขาย</h3>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">ราคาขายจริง (บาท)</label>
-                <input className="input" type="number" placeholder="0" value={soldPrice} onChange={e=>setSoldPrice(e.target.value)} autoFocus/>
+                <input autoComplete="off" className="input" type="number" placeholder="0" value={soldPrice} onChange={e=>setSoldPrice(e.target.value)} autoFocus/>
                 {soldPrice && (
                   <p className={"text-xs mt-1 font-medium "+(Number(soldPrice)-Number(product.total_cost)>=0?'text-green-600':'text-red-500')}>
                     กำไร: ฿{fmt(Number(soldPrice)-Number(product.total_cost))}
@@ -509,7 +524,7 @@ export default function ProductDetail() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลาที่ขาย</label>
-                <input className="input" type="datetime-local" value={sellDate} onChange={e=>setSellDate(e.target.value)}/>
+                <ThaiDatePicker value={sellDate} onChange={setSellDate} showTime className="input w-full"/>
                 <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้เวลาปัจจุบัน</p>
               </div>
               <div>
@@ -530,7 +545,7 @@ export default function ProductDetail() {
                   <label className="w-16 h-16 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
                     <ImagePlus size={16} className="text-amber-400"/>
                     <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
-                    <input type="file" multiple accept="image/*" className="hidden" onChange={e=>{
+                    <input autoComplete="off" type="file" multiple accept="image/*" className="hidden" onChange={e=>{
                       const files = Array.from(e.target.files)
                       setSellImgFiles(p=>[...p,...files])
                       setSellImgPrev(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
@@ -552,6 +567,12 @@ export default function ProductDetail() {
                   {payMethod==='โอน'?'✅ ยอดจะบวกเพิ่มใน "ยอดโอน" อัตโนมัติ':'✅ ยอดจะบวกเพิ่มใน "เงินสด" อัตโนมัติ'}
                 </p>
               </div>
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">รายละเอียดลูกค้า (ไม่บังคับ)</label>
+                <textarea className="input resize-none text-sm" rows={2}
+                  placeholder="ชื่อ / เบอร์โทร / หมายเหตุลูกค้า..."
+                  value={customerNote} onChange={e=>setCustomerNote(e.target.value)}/>
+              </div>
               <div className="flex gap-2">
                 <button onClick={sell} disabled={saving} className="btn-primary flex-1 py-3 flex items-center justify-center gap-2">
                   <ShoppingBag size={16}/>ยืนยันขาย
@@ -560,7 +581,7 @@ export default function ProductDetail() {
               </div>
             </div>
           ) : (
-            <button onClick={()=>{setSellMode(true);setSellDate('');setSellImgFiles([]);setSellImgPrev([])}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
+            <button onClick={()=>{setSellMode(true);setSellDate('');setCustomerNote('');setSellImgFiles([]);setSellImgPrev([])}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
               <ShoppingBag size={18}/>ขายสินค้า
             </button>
           )

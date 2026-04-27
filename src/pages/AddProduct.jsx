@@ -1,7 +1,8 @@
-import { useState } from 'react'
+﻿import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadImages } from '../lib/imageUtils'
+import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, X, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -75,14 +76,14 @@ export default function AddProduct() {
             <label className="flex-shrink-0 w-24 h-24 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow">
               <ImagePlus size={22} className="text-amber-400"/>
               <span className="text-xs text-amber-400 mt-1">เพิ่มรูป</span>
-              <input type="file" multiple accept="image/*" className="hidden" onChange={addFiles}/>
+              <input autoComplete="off" type="file" multiple accept="image/*" className="hidden" onChange={addFiles}/>
             </label>
           </div>
         </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">วันที่และเวลารับเข้า</label>
-          <input className="input" type="datetime-local" value={form.created_at} onChange={e=>F('created_at',e.target.value)}/>
+          <ThaiDatePicker value={form.created_at} onChange={v=>F('created_at',v)} showTime className="input w-full"/>
           <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้วันที่และเวลาปัจจุบัน</p>
         </div>
 
@@ -95,11 +96,11 @@ export default function AddProduct() {
 
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">ชื่อรุ่น *</label>
-          <input className="input" placeholder="เช่น Fujifilm X100V" value={form.model} onChange={e=>F('model',e.target.value)}/>
+          <input autoComplete="off" className="input" placeholder="เช่น Fujifilm X100V" value={form.model} onChange={e=>F('model',e.target.value)}/>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">Serial Number *</label>
-          <input className="input" placeholder="SN..." value={form.serial_number} onChange={e=>F('serial_number',e.target.value)}/>
+          <input autoComplete="off" className="input" placeholder="SN..." autoComplete="off" value={form.serial_number} onChange={e=>F('serial_number',e.target.value)}/>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-2">เกรดสภาพ</label>
@@ -114,7 +115,7 @@ export default function AddProduct() {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">ราคาซื้อ (บาท) *</label>
-          <input className="input" type="number" placeholder="0" value={form.base_cost} onChange={e=>F('base_cost',e.target.value)}/>
+          <input autoComplete="off" className="input" type="number" placeholder="0" value={form.base_cost} onChange={e=>F('base_cost',e.target.value)}/>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">หมายเหตุ</label>

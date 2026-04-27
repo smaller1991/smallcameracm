@@ -55,29 +55,51 @@ export function exportInventory(products, statusFilter = 'all') {
       'วันที่รับเข้า':    thDate(p.created_at),
       'วันที่ขาย':        thDate(p.sold_date),
       'วันหมดประกัน':    thDate(p.warranty_expiry),
+      'รายละเอียดลูกค้า': p.customer_note || '',
     }))
   if (!rows.length) return alert('ไม่มีข้อมูล')
   write(rows, 'สต็อกสินค้า', `สต็อกสินค้า_${stamp()}.xlsx`)
 }
 
 export function exportTransactions(transactions, from, to) {
-  const rows = transactions
-    .filter(t => {
-      const d = new Date(t.date)
-      if (from && d < new Date(from)) return false
-      if (to   && d > new Date(to + 'T23:59:59')) return false
-      return true
-    })
-    .map(t => ({
+  const filtered = transactions.filter(t => {
+    const d = new Date(t.date)
+    if (from && d < new Date(from)) return false
+    if (to   && d > new Date(to + 'T23:59:59')) return false
+    return true
+  })
+  if (!filtered.length) return alert('ไม่มีข้อมูล')
+
+  const totalIncome  = filtered.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0)
+  const totalExpense = filtered.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0)
+
+  const rows = filtered.map(t => {
+    let pl = ''
+    if (t.category === 'Sale' && t.products?.total_cost != null)
+      pl = Number(t.amount) - Number(t.products.total_cost)
+    else if (t.category === 'Trade' && t.trade_profit_a != null)
+      pl = Number(t.trade_profit_a)
+    return {
       'วันที่':        thDate(t.date),
       'ประเภท':       t.type === 'Income' ? 'รายรับ' : 'รายจ่าย',
       'หมวดหมู่':     t.category,
       'จำนวนเงิน':    Number(t.amount),
       'รายรับ':       t.type === 'Income' ? Number(t.amount) : '',
       'รายจ่าย':      t.type === 'Expense' ? Number(t.amount) : '',
-      'รุ่นกล้อง':    t.products?.model || '',
-      'หมายเหตุ':     t.note || '',
-    }))
-  if (!rows.length) return alert('ไม่มีข้อมูล')
+      'กำไรขาดทุน':        pl,
+      'รุ่นกล้อง':         t.products?.model || '',
+      'รายละเอียดลูกค้า':  t.category === 'Sale' ? (t.products?.customer_note || '') : '',
+      'หมายเหตุ':          t.note || '',
+    }
+  })
+
+  const totalProfit = rows.reduce((a, r) => r['กำไรขาดทุน'] !== '' ? a + r['กำไรขาดทุน'] : a, 0)
+
+  const empty = { 'วันที่':'','ประเภท':'','หมวดหมู่':'','จำนวนเงิน':'','รายรับ':'','รายจ่าย':'','กำไรขาดทุน':'','รุ่นกล้อง':'','รายละเอียดลูกค้า':'','หมายเหตุ':'' }
+  rows.push(empty)
+  rows.push({ ...empty, 'วันที่':'สรุป', 'หมวดหมู่':'รวมรายรับ',       'รายรับ':    totalIncome  })
+  rows.push({ ...empty,                  'หมวดหมู่':'รวมรายจ่าย',      'รายจ่าย':   totalExpense })
+  rows.push({ ...empty,                  'หมวดหมู่':'กำไรขาดทุนสุทธิ', 'กำไรขาดทุน': totalProfit })
+
   write(rows, 'รายการบัญชี', `รายการบัญชี_${stamp()}.xlsx`)
 }
