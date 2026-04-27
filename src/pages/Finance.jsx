@@ -10,15 +10,15 @@ const PROD_CATS = ['กล้อง','เลนส์','แฟลช','อุป
 const TX_TYPES  = ['Income','Expense']
 const fmt  = n => Number(n||0).toLocaleString('th-TH')
 
-// สีตาม category
 const CAT_COLOR = {
   'Sale':      'bg-green-100 text-green-700 border-green-200',
   'Buy Stock': 'bg-red-100 text-red-700 border-red-200',
   'Add-on':    'bg-yellow-100 text-yellow-700 border-yellow-200',
+  'Trade':     'bg-blue-100 text-blue-700 border-blue-200',
 }
 const catColor = cat => CAT_COLOR[cat] || 'bg-gray-100 text-gray-600 border-gray-200'
-const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400' }
-const txBar    = cat => TX_BAR[cat] || (cat==='Income'?'bg-green-400':'bg-gray-300')
+const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400' }
+const txBar    = cat => TX_BAR[cat] || 'bg-gray-300'
 
 export default function Finance() {
   const [txs,      setTxs]      = useState([])
@@ -57,17 +57,17 @@ export default function Finance() {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
       supabase.from('transactions').select('*,products(model,category,total_cost,warranty_expiry,payment_method)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
-      supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method').eq('status','Sold'),
+      supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
     ])
     setTxs(txData||[])
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
 
+    // กำไรจากการขาย = sold_price - total_cost (รวมทั้ง Sale และ Trade)
     const sold = (products||[]).filter(p=>p.sold_price)
     setSoldItems(sold)
     const sp = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
     setSoldProfit(sp)
 
-    // stockValue จาก products ที่ยัง Available
     const {data:allProducts} = await supabase.from('products').select('total_cost,status')
     const sv = (allProducts||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
     setStockValue(sv)
@@ -581,6 +581,44 @@ export default function Finance() {
                 ? Number(tx.amount)-Number(tx.products.total_cost) : null
               const warrantyDays = tx.category==='Sale' && tx.products?.warranty_expiry
                 ? Math.ceil((new Date(tx.products.warranty_expiry)-new Date())/86400000) : null
+              const isTrade = tx.category === 'Trade'
+
+              // Trade transaction — แสดงแบบพิเศษสีน้ำเงิน
+              if (isTrade) {
+                return (
+                  <div key={tx.id} className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3">
+                    <div className="w-2 rounded-full flex-shrink-0 self-stretch bg-blue-400"/>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-start justify-between gap-2">
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-100 text-blue-700 border-blue-200 flex-shrink-0">🔄 Trade</span>
+                        <div className="text-right flex-shrink-0">
+                          {tx.trade_sell_a && <p className="text-xs text-gray-500">ขาย ฿{fmt(tx.trade_sell_a)}</p>}
+                          {tx.trade_profit_a != null && (
+                            <p className={`text-xs font-bold ${Number(tx.trade_profit_a)>=0?'text-green-600':'text-red-500'}`}>
+                              กำไร {Number(tx.trade_profit_a)>=0?'+':''}฿{fmt(tx.trade_profit_a)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      {tx.products?.model && (
+                        <p className="text-sm font-semibold text-blue-700 mt-0.5 truncate">{tx.products.model}</p>
+                      )}
+                      {tx.note && (
+                        <div className="mt-1 space-y-0.5">
+                          {tx.note.split(' | ').map((line,i)=>(
+                            <p key={i} className="text-xs text-blue-600/80 truncate">{line}</p>
+                          ))}
+                        </div>
+                      )}
+                      <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
+                    </div>
+                    <div className="flex flex-col gap-1 flex-shrink-0">
+                      <button onClick={()=>del(tx.id)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
+                    </div>
+                  </div>
+                )
+              }
+
               return (
               <div key={tx.id} className="card flex items-center gap-3">
                 <div className={`w-2 rounded-full flex-shrink-0 self-stretch ${TX_BAR[tx.category]||(tx.type==='Income'?'bg-green-400':'bg-red-400')}`}/>
