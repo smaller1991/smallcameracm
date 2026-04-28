@@ -7,6 +7,7 @@ import ThaiDatePicker from '../components/ThaiDatePicker'
 import toast from 'react-hot-toast'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other']
+const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
 const PROD_CATS = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const TX_TYPES  = ['Income','Expense']
 const fmt  = n => Number(n||0).toLocaleString('th-TH')
@@ -74,12 +75,11 @@ export default function Finance() {
     setTxs(txData||[])
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
 
-    // กำไรจากการขาย = sold_price - total_cost (รวมทั้ง Sale และ Trade) หักค่า Shipping
     const sold = (products||[]).filter(p=>p.sold_price)
     setSoldItems(sold)
-    const sp       = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
-    const shipping = (txData||[]).filter(t=>t.category==='Shipping'&&t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
-    setSoldProfit(sp - shipping)
+    const sp         = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+    const deductions = (txData||[]).filter(t=>PROFIT_DEDUCT_CATS.includes(t.category)&&t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
+    setSoldProfit(sp - deductions)
 
     const {data:allProducts} = await supabase.from('products').select('total_cost,status')
     const sv = (allProducts||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
@@ -124,14 +124,18 @@ export default function Finance() {
     if (profitTo   && new Date(p.sold_date)>new Date(profitTo+'T23:59:59')) return false
     return true
   })
-  const filteredGross    = filteredSoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
-  const filteredShipping = txs.filter(t => {
-    if (t.category !== 'Shipping' || t.type !== 'Expense') return false
-    if (profitFrom && new Date(t.date)<new Date(profitFrom)) return false
-    if (profitTo   && new Date(t.date)>new Date(profitTo+'T23:59:59')) return false
-    return true
-  }).reduce((a,t)=>a+Number(t.amount),0)
-  const filteredProfit = filteredGross - filteredShipping
+  const filteredGross      = filteredSoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+  const filteredDeductions = PROFIT_DEDUCT_CATS.map(cat => ({
+    cat,
+    amount: txs.filter(t => {
+      if (t.category !== cat || t.type !== 'Expense') return false
+      if (profitFrom && new Date(t.date)<new Date(profitFrom)) return false
+      if (profitTo   && new Date(t.date)>new Date(profitTo+'T23:59:59')) return false
+      return true
+    }).reduce((a,t)=>a+Number(t.amount),0)
+  })).filter(d => d.amount > 0)
+  const filteredDeductTotal = filteredDeductions.reduce((a,d)=>a+d.amount,0)
+  const filteredProfit = filteredGross - filteredDeductTotal
 
   const income      = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const expense     = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
@@ -431,12 +435,12 @@ export default function Finance() {
                     <p className="text-xs text-gray-500">{filteredSoldItems.length} รายการขาย</p>
                     <p className="text-sm font-semibold text-green-600">+฿{fmt(filteredGross)}</p>
                   </div>
-                  {filteredShipping > 0 && (
-                    <div className="flex justify-between items-center">
-                      <p className="text-xs text-orange-500">🚚 ค่าขนส่ง (Shipping)</p>
-                      <p className="text-sm font-semibold text-orange-500">-฿{fmt(filteredShipping)}</p>
+                  {filteredDeductions.map(d => (
+                    <div key={d.cat} className="flex justify-between items-center">
+                      <p className="text-xs text-orange-500">📤 {d.cat}</p>
+                      <p className="text-sm font-semibold text-orange-500">-฿{fmt(d.amount)}</p>
                     </div>
-                  )}
+                  ))}
                   <div className="flex justify-between items-center border-t border-amber-100 pt-1 mt-1">
                     <p className="text-xs font-semibold text-gray-600">กำไรสุทธิ</p>
                     <p className={`font-bold text-base ${filteredProfit>=0?'text-green-600':'text-red-500'}`}>
