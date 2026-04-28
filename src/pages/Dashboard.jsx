@@ -22,12 +22,16 @@ export default function Dashboard() {
     Promise.all([
       supabase.from('products').select('*').order('created_at', { ascending: false }),
       supabase.from('transactions').select('*').gte('date', ms).lte('date', me),
-    ]).then(([{ data: products }, { data: txs }]) => {
-      const avail   = products?.filter(p => p.status === 'Available').length ?? 0
-      const soldM   = products?.filter(p => p.status === 'Sold' && p.sold_date >= ms).length ?? 0
-      const income  = txs?.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0) ?? 0
-      const expense = txs?.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0) ?? 0
-      setData({ avail, soldM, income, expense, products: products || [] })
+      supabase.from('balances').select('*').eq('id', 'main').single(),
+    ]).then(([{ data: products }, { data: txs }, { data: bal }]) => {
+      const avail      = products?.filter(p => p.status === 'Available').length ?? 0
+      const soldM      = products?.filter(p => p.status === 'Sold' && p.sold_date >= ms).length ?? 0
+      const income     = txs?.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0) ?? 0
+      const expense    = txs?.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0) ?? 0
+      const stockValue = (products || []).filter(p => p.status !== 'Sold').reduce((a, p) => a + Number(p.total_cost || 0), 0)
+      const bank       = Number(bal?.bank || 0)
+      const cash       = Number(bal?.cash || 0)
+      setData({ avail, soldM, income, expense, products: products || [], stockValue, bank, cash })
       setLoading(false)
     })
   }, [])
@@ -88,7 +92,54 @@ export default function Dashboard() {
         </p>
       </div>
 
-      <div className="px-4 mt-4">
+      {/* Wealth breakdown */}
+      {(() => {
+        const total = data.stockValue + data.bank + data.cash
+        const pct   = v => total > 0 ? (v / total * 100) : 0
+        const segments = [
+          { label: 'สต็อกสินค้า',      value: data.stockValue, pct: pct(data.stockValue), color: 'bg-amber-400',  dot: 'bg-amber-400',  text: 'text-amber-600'  },
+          { label: 'ยอดโอน (ธนาคาร)', value: data.bank,       pct: pct(data.bank),       color: 'bg-blue-400',   dot: 'bg-blue-400',   text: 'text-blue-600'   },
+          { label: 'เงินสด',           value: data.cash,       pct: pct(data.cash),       color: 'bg-green-400',  dot: 'bg-green-400',  text: 'text-green-600'  },
+        ]
+        return (
+          <div className="mx-4 mt-3 card space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-sm font-semibold text-brand-dark">สัดส่วนมูลค่ารวม</p>
+              <p className="text-sm font-bold text-brand-dark">฿{fmt(total)}</p>
+            </div>
+
+            {/* Stacked bar */}
+            <div className="flex h-4 rounded-full overflow-hidden gap-0.5">
+              {segments.map(s => s.value > 0 && (
+                <div key={s.label}
+                  className={`${s.color} transition-all`}
+                  style={{ width: `${s.pct}%` }}
+                  title={`${s.label}: ${s.pct.toFixed(1)}%`}
+                />
+              ))}
+              {total === 0 && <div className="bg-gray-100 w-full"/>}
+            </div>
+
+            {/* Legend rows */}
+            <div className="space-y-2">
+              {segments.map(s => (
+                <div key={s.label} className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${s.dot}`}/>
+                  <p className="text-xs text-gray-500 flex-1">{s.label}</p>
+                  <div className="text-right">
+                    <span className={`text-xs font-bold ${s.text}`}>
+                      {s.pct.toFixed(1)}%
+                    </span>
+                    <span className="text-xs text-gray-400 ml-2">฿{fmt(s.value)}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )
+      })()}
+
+      <div className="px-4 mt-3">
         <button onClick={() => navigate('/inventory/add')} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
           <Plus size={18}/>รับสินค้าเข้าสต็อก
         </button>
