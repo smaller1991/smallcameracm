@@ -22,6 +22,15 @@ const catColor = cat => CAT_COLOR[cat] || 'bg-gray-100 text-gray-600 border-gray
 const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400', 'Shipping':'bg-orange-400' }
 const txBar    = cat => TX_BAR[cat] || 'bg-gray-300'
 
+const monthStart = () => {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-01`
+}
+const monthEnd = () => {
+  const d = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0)
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+}
+
 export default function Finance() {
   const [txs,      setTxs]      = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -29,8 +38,8 @@ export default function Finance() {
   const [editId,   setEditId]   = useState(null)
   const [form,     setForm]     = useState({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal()})
   const [saving,   setSaving]   = useState(false)
-  const [dateFrom, setDateFrom] = useState('')
-  const [dateTo,   setDateTo]   = useState('')
+  const [dateFrom, setDateFrom] = useState(monthStart())
+  const [dateTo,   setDateTo]   = useState(monthEnd())
   const [showFilter, setShowFilter] = useState(false)
   const [selCats,    setSelCats]    = useState([])   // หมวดหมู่ที่เลือก
   const [selTypes,   setSelTypes]   = useState([])   // Income/Expense
