@@ -151,13 +151,13 @@ export default function Finance() {
 
   const openAdd = () => {
     setEditId(null)
-    setForm({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal()})
+    setForm({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal(),payment_method:'โอน'})
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
   }
   const openEdit = tx => {
     setEditId(tx.id)
-    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date),customer_note:tx.products?.customer_note||''})
+    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date),customer_note:tx.products?.customer_note||'',payment_method:tx.payment_method||'โอน'})
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
   }
@@ -170,18 +170,30 @@ export default function Finance() {
     setImgFiles(f=>f.filter((_,j)=>j!==i))
     setImgPreviews(p=>p.filter((_,j)=>j!==i))
   }
+  const adjustBalance = async (type, method, amount) => {
+    const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
+    if (!bal || !amount) return
+    let bank = Number(bal.bank), cash = Number(bal.cash)
+    if (type === 'Income') {
+      if (method === 'โอน') bank += amount; else cash += amount
+    } else {
+      if (method === 'โอน') bank = Math.max(0, bank - amount); else cash = Math.max(0, cash - amount)
+    }
+    await supabase.from('balances').update({ bank, cash, updated_at: new Date().toISOString() }).eq('id','main')
+  }
+
   const save = async () => {
     if (!form.amount) return toast.error('กรุณาระบุจำนวนเงิน')
     setSaving(true)
     try {
-      const payload = {type:form.type,category:form.category,amount:parseFloat(form.amount),note:form.note,date:new Date(form.date).toISOString()}
+      const amount  = parseFloat(form.amount)
+      const method  = form.payment_method || 'โอน'
+      const payload = { type:form.type, category:form.category, amount, note:form.note,
+                        date:new Date(form.date).toISOString(), payment_method:method }
       if (editId) {
-        // ลบรูปที่ถูก mark ว่าลบ
         for (const url of removedImgs) await deleteReceiptImage(supabase, url)
-        // upload รูปใหม่
         let newUrls = []
         if (imgFiles.length) newUrls = await uploadReceiptImages(supabase, editId, imgFiles)
-        // หา tx เดิมเพื่อ merge รูป
         const existing = txs.find(t=>t.id===editId)
         const kept = (existing?.images||[]).filter(u=>!removedImgs.includes(u))
         payload.images = [...kept, ...newUrls]
@@ -198,6 +210,7 @@ export default function Finance() {
           const urls = await uploadReceiptImages(supabase, newTx.id, imgFiles)
           await supabase.from('transactions').update({images:urls}).eq('id',newTx.id)
         }
+        await adjustBalance(form.type, method, amount)
         toast.success('เพิ่มรายการแล้ว')
       }
       setShowForm(false); setEditId(null)
@@ -667,6 +680,19 @@ export default function Finance() {
           <select className="input text-sm" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>
             {CATS.map(c=><option key={c}>{c}</option>)}
           </select>
+          {/* ช่องทางการชำระ */}
+          <div>
+            <p className="text-xs text-gray-500 mb-1">ช่องทาง</p>
+            <div className="flex gap-2">
+              {['โอน','เงินสด'].map(m=>(
+                <button key={m} onClick={()=>setForm({...form,payment_method:m})}
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all
+                    ${form.payment_method===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
+                  {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                </button>
+              ))}
+            </div>
+          </div>
           <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/>
           <div>
             <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลา</label>

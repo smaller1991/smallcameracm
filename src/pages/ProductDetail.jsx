@@ -60,10 +60,11 @@ export default function ProductDetail() {
   const [removedUrls,     setRemovedUrls]     = useState([])
 
   // accessories
-  const [addAcc,    setAddAcc]    = useState(false)
-  const [accName,   setAccName]   = useState('')
-  const [accCost,   setAccCost]   = useState('')
-  const [accFiles,  setAccFiles]  = useState([])
+  const [addAcc,     setAddAcc]     = useState(false)
+  const [accName,    setAccName]    = useState('')
+  const [accCost,    setAccCost]    = useState('')
+  const [accPayMethod, setAccPayMethod] = useState('โอน')
+  const [accFiles,   setAccFiles]   = useState([])
   const [accPreviews,setAccPreviews] = useState([])
 
   // sell
@@ -152,12 +153,15 @@ export default function ProductDetail() {
     if (!accName||!accCost) return toast.error('กรุณากรอกชื่อและราคา')
     setSaving(true)
     try {
+      const cost = parseFloat(accCost)
+
+      // 1. บันทึก accessory
       const {error} = await supabase.from('accessories').insert({
-        product_id:id, name:accName, cost:parseFloat(accCost)
+        product_id:id, name:accName, cost
       })
       if (error) throw error
 
-      // upload รูปอุปกรณ์เสริม → รวมใน gallery สินค้าหลัก
+      // 2. upload รูปอุปกรณ์เสริม → รวมใน gallery สินค้าหลัก
       if (accFiles.length) {
         const meta = { model: product.model, serial_number: product.serial_number,
                        created_at: product.created_at, sold_date: product.sold_date }
@@ -166,8 +170,25 @@ export default function ProductDetail() {
         await supabase.from('products').update({images}).eq('id',id)
       }
 
-      toast.success('เพิ่มอุปกรณ์เสริมแล้ว')
-      setAccName(''); setAccCost('')
+      // 3. สร้าง transaction Expense / Add-on
+      await supabase.from('transactions').insert({
+        type: 'Expense', category: 'Add-on', amount: cost,
+        product_id: id, payment_method: accPayMethod,
+        date: new Date().toISOString(),
+        note: `Add-on: ${accName} — ${product.model} SN:${product.serial_number}`,
+      })
+
+      // 4. หักยอด balance
+      const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
+      if (bal) {
+        const upd = accPayMethod === 'โอน'
+          ? { bank: Math.max(0, Number(bal.bank) - cost) }
+          : { cash: Math.max(0, Number(bal.cash) - cost) }
+        await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id','main')
+      }
+
+      toast.success(`เพิ่ม Add-on แล้ว — หัก ${accPayMethod} ฿${cost.toLocaleString('th-TH')}`)
+      setAccName(''); setAccCost(''); setAccPayMethod('โอน')
       setAccFiles([]); setAccPreviews([])
       setAddAcc(false); load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
@@ -532,6 +553,18 @@ export default function ProductDetail() {
               <input autoComplete="off" className="input text-sm" placeholder="ชื่ออุปกรณ์..." value={accName} onChange={e=>setAccName(e.target.value)}/>
               <input autoComplete="off" className="input text-sm" type="number" placeholder="ราคา (บาท)" value={accCost} onChange={e=>setAccCost(e.target.value)}/>
               <div>
+                <p className="text-xs text-gray-500 mb-1">ช่องทางการชำระ</p>
+                <div className="flex gap-2">
+                  {['โอน','เงินสด'].map(m=>(
+                    <button key={m} onClick={()=>setAccPayMethod(m)}
+                      className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all
+                        ${accPayMethod===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
+                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div>
                 <p className="text-xs text-gray-500 mb-1">รูปภาพ (รวมใน gallery สินค้า)</p>
                 <ImagePicker previews={accPreviews} onAdd={addAccFiles} onRemove={removeAccFile} label="เพิ่มรูป"/>
               </div>
@@ -539,7 +572,7 @@ export default function ProductDetail() {
                 <button onClick={saveAcc} disabled={saving} className="btn-primary flex-1 py-2 text-sm">
                   {saving?'...':'บันทึก'}
                 </button>
-                <button onClick={()=>{setAddAcc(false);setAccFiles([]);setAccPreviews([])}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
+                <button onClick={()=>{setAddAcc(false);setAccFiles([]);setAccPreviews([]);setAccPayMethod('โอน')}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
               </div>
             </div>
           )}
