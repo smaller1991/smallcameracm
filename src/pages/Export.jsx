@@ -1,17 +1,21 @@
 import { useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { exportInventory, exportTransactions } from '../lib/exportUtils'
+import { exportInventory, exportTransactions, exportInventoryWithImages, exportTransactionsWithImages } from '../lib/exportUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Download, Package, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function Export() {
-  const [invFilter, setInvFilter] = useState('all')
-  const [from,      setFrom]      = useState('')
-  const [to,        setTo]        = useState('')
-  const [busy,      setBusy]      = useState(false)
-  const [invFmt,    setInvFmt]    = useState('xlsx')
-  const [txFmt,     setTxFmt]     = useState('xlsx')
+  const [invFilter,   setInvFilter]   = useState('all')
+  const [from,        setFrom]        = useState('')
+  const [to,          setTo]          = useState('')
+  const [busy,        setBusy]        = useState(false)
+  const [invFmt,      setInvFmt]      = useState('xlsx')
+  const [txFmt,       setTxFmt]       = useState('xlsx')
+  const [withImages,    setWithImages]    = useState(false)
+  const [imgProgress,   setImgProgress]   = useState(null)
+  const [withTxImages,  setWithTxImages]  = useState(false)
+  const [txImgProgress, setTxImgProgress] = useState(null)
 
   const fmtBtns = (val,set) => (
     <div className="flex gap-2 mt-2">
@@ -26,30 +30,39 @@ export default function Export() {
 
   const doExportInv = async () => {
     setBusy(true)
+    setImgProgress(null)
     try {
       const {data} = await supabase.from('products').select('*').order('created_at',{ascending:false})
-      if (invFmt==='xlsx') {
+      if (withImages) {
+        await exportInventoryWithImages(data||[], invFilter, invFmt, (done, total) => {
+          setImgProgress({ done, total })
+        })
+      } else if (invFmt==='xlsx') {
         exportInventory(data||[], invFilter)
       } else {
         exportInventoryPDF(data||[], invFilter)
       }
       toast.success('ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
-    finally{setBusy(false)}
+    finally{ setBusy(false); setImgProgress(null) }
   }
 
   const doExportTx = async () => {
-    setBusy(true)
+    setBusy(true); setTxImgProgress(null)
     try {
       const {data} = await supabase.from('transactions').select('*,products(model,category,total_cost,customer_note)').order('date',{ascending:false})
-      if (txFmt==='xlsx') {
+      if (withTxImages) {
+        await exportTransactionsWithImages(data||[], from||undefined, to||undefined, txFmt, (done, total) => {
+          setTxImgProgress({ done, total })
+        })
+      } else if (txFmt==='xlsx') {
         exportTransactions(data||[], from||undefined, to||undefined)
       } else {
         exportTransactionsPDF(data||[], from||undefined, to||undefined)
       }
       toast.success('ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
-    finally{setBusy(false)}
+    finally{ setBusy(false); setTxImgProgress(null) }
   }
 
   return (
@@ -68,12 +81,41 @@ export default function Export() {
           <option value="Reserved">จอง</option>
           <option value="Sold">ขายแล้ว</option>
         </select>
+        {/* Export with images toggle */}
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <div className="relative">
+            <input type="checkbox" className="sr-only" checked={withImages} onChange={e=>setWithImages(e.target.checked)}/>
+            <div className={`w-10 h-5 rounded-full transition-colors ${withImages?'bg-brand-dark':'bg-gray-200'}`}/>
+            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${withImages?'translate-x-5':''}`}/>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-700">ส่งออกพร้อมรูปภาพ</p>
+            <p className="text-xs text-gray-400">ไฟล์จะเป็น .zip (เอกสาร + รูป แยกโฟลเดอร์ตามวัน)</p>
+          </div>
+        </label>
+
         <div>
-          <p className="text-xs text-gray-500 mb-1 font-medium">รูปแบบไฟล์</p>
+          <p className="text-xs text-gray-500 mb-1 font-medium">รูปแบบไฟล์เอกสาร{withImages ? ' (ภายใน ZIP)' : ''}</p>
           {fmtBtns(invFmt,setInvFmt)}
         </div>
+
+        {/* Progress bar while fetching images */}
+        {imgProgress && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>กำลังดึงรูปภาพ...</span>
+              <span>{imgProgress.done}/{imgProgress.total}</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2">
+              <div className="bg-brand-dark h-2 rounded-full transition-all"
+                style={{width: imgProgress.total ? `${Math.round(imgProgress.done/imgProgress.total*100)}%` : '0%'}}/>
+            </div>
+          </div>
+        )}
+
         <button onClick={doExportInv} disabled={busy} className="btn-primary w-full flex items-center justify-center gap-2">
-          <Download size={16}/>ดาวน์โหลด สต็อกสินค้า.{invFmt}
+          <Download size={16}/>
+          {withImages ? 'ดาวน์โหลด สต็อกสินค้า+รูป.zip' : `ดาวน์โหลด สต็อกสินค้า.${invFmt}`}
         </button>
       </div>
 
@@ -88,12 +130,41 @@ export default function Export() {
           <div><label className="text-xs text-gray-500 mb-1 block">ถึงวันที่</label><ThaiDatePicker value={to} onChange={setTo} className="input w-full"/></div>
         </div>
         <p className="text-xs text-gray-400">หากไม่ระบุวันที่ จะส่งออกทั้งหมด</p>
+
+        {/* Export with images toggle */}
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <div className="relative">
+            <input type="checkbox" className="sr-only" checked={withTxImages} onChange={e=>setWithTxImages(e.target.checked)}/>
+            <div className={`w-10 h-5 rounded-full transition-colors ${withTxImages?'bg-brand-dark':'bg-gray-200'}`}/>
+            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${withTxImages?'translate-x-5':''}`}/>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-gray-700">ส่งออกพร้อมรูปใบเสร็จ</p>
+            <p className="text-xs text-gray-400">ไฟล์จะเป็น .zip (เอกสาร + รูป แยกโฟลเดอร์ตามวัน)</p>
+          </div>
+        </label>
+
         <div>
-          <p className="text-xs text-gray-500 mb-1 font-medium">รูปแบบไฟล์</p>
+          <p className="text-xs text-gray-500 mb-1 font-medium">รูปแบบไฟล์เอกสาร{withTxImages ? ' (ภายใน ZIP)' : ''}</p>
           {fmtBtns(txFmt,setTxFmt)}
         </div>
+
+        {txImgProgress && (
+          <div className="space-y-1">
+            <div className="flex justify-between text-xs text-gray-500">
+              <span>กำลังดึงรูปใบเสร็จ...</span>
+              <span>{txImgProgress.done}/{txImgProgress.total}</span>
+            </div>
+            <div className="w-full bg-gray-100 rounded-full h-2">
+              <div className="bg-brand-dark h-2 rounded-full transition-all"
+                style={{width: txImgProgress.total ? `${Math.round(txImgProgress.done/txImgProgress.total*100)}%` : '0%'}}/>
+            </div>
+          </div>
+        )}
+
         <button onClick={doExportTx} disabled={busy} className="btn-primary w-full flex items-center justify-center gap-2">
-          <Download size={16}/>ดาวน์โหลด รายการบัญชี.{txFmt}
+          <Download size={16}/>
+          {withTxImages ? 'ดาวน์โหลด รายการบัญชี+รูป.zip' : `ดาวน์โหลด รายการบัญชี.${txFmt}`}
         </button>
       </div>
     </div>
@@ -136,8 +207,8 @@ function exportInventoryPDF(products, statusFilter='all') {
              `฿${fmt(p.base_cost)}`,`฿${fmt(p.total_cost)}`,
              p.sold_price?`฿${fmt(p.sold_price)}`:'',
              p.sold_price?`฿${fmt(Number(p.sold_price)-Number(p.total_cost))}`:'',
-             thDate(p.created_at),thDate(p.sold_date),p.customer_note||''])
-  makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า'],rows,'สต็อกสินค้า.pdf')
+             thDate(p.created_at),thDate(p.sold_date),p.customer_note||'',p.notes||''])
+  makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows,'สต็อกสินค้า.pdf')
 }
 
 function exportTransactionsPDF(txs, from, to) {

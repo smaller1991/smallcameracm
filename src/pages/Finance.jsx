@@ -1,12 +1,12 @@
 ﻿import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal } from 'lucide-react'
-import { uploadReceiptImages, deleteReceiptImage } from '../lib/imageUtils'
+import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal, Search } from 'lucide-react'
+import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import toast from 'react-hot-toast'
 
-const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other']
+const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other']
 const PROD_CATS = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const TX_TYPES  = ['Income','Expense']
 const fmt  = n => Number(n||0).toLocaleString('th-TH')
@@ -16,9 +16,10 @@ const CAT_COLOR = {
   'Buy Stock': 'bg-red-100 text-red-700 border-red-200',
   'Add-on':    'bg-yellow-100 text-yellow-700 border-yellow-200',
   'Trade':     'bg-blue-100 text-blue-700 border-blue-200',
+  'Shipping':  'bg-orange-100 text-orange-700 border-orange-200',
 }
 const catColor = cat => CAT_COLOR[cat] || 'bg-gray-100 text-gray-600 border-gray-200'
-const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400' }
+const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400', 'Shipping':'bg-orange-400' }
 const txBar    = cat => TX_BAR[cat] || 'bg-gray-300'
 
 export default function Finance() {
@@ -37,6 +38,7 @@ export default function Finance() {
   const [imgFiles,    setImgFiles]    = useState([])
   const [imgPreviews, setImgPreviews] = useState([])
   const [removedImgs, setRemovedImgs] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
 
   // ยอดเงินคงเหลือ
   const [balance,    setBalance]    = useState({bank:0,cash:0})
@@ -63,11 +65,12 @@ export default function Finance() {
     setTxs(txData||[])
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
 
-    // กำไรจากการขาย = sold_price - total_cost (รวมทั้ง Sale และ Trade)
+    // กำไรจากการขาย = sold_price - total_cost (รวมทั้ง Sale และ Trade) หักค่า Shipping
     const sold = (products||[]).filter(p=>p.sold_price)
     setSoldItems(sold)
-    const sp = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
-    setSoldProfit(sp)
+    const sp       = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+    const shipping = (txData||[]).filter(t=>t.category==='Shipping'&&t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
+    setSoldProfit(sp - shipping)
 
     const {data:allProducts} = await supabase.from('products').select('total_cost,status')
     const sv = (allProducts||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
@@ -88,6 +91,16 @@ export default function Finance() {
     return true
   })
 
+  const q = searchQuery.trim().toLowerCase()
+  const searched = q
+    ? filtered.filter(t =>
+        (t.note||'').toLowerCase().includes(q) ||
+        (t.category||'').toLowerCase().includes(q) ||
+        (t.products?.model||'').toLowerCase().includes(q) ||
+        String(t.amount||'').includes(q)
+      )
+    : filtered
+
   const activeFilters = selCats.length + selTypes.length + selProdCats.length
   const clearFilters = () => { setSelCats([]); setSelTypes([]); setSelProdCats([]) }
 
@@ -102,7 +115,14 @@ export default function Finance() {
     if (profitTo   && new Date(p.sold_date)>new Date(profitTo+'T23:59:59')) return false
     return true
   })
-  const filteredProfit = filteredSoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+  const filteredGross    = filteredSoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+  const filteredShipping = txs.filter(t => {
+    if (t.category !== 'Shipping' || t.type !== 'Expense') return false
+    if (profitFrom && new Date(t.date)<new Date(profitFrom)) return false
+    if (profitTo   && new Date(t.date)>new Date(profitTo+'T23:59:59')) return false
+    return true
+  }).reduce((a,t)=>a+Number(t.amount),0)
+  const filteredProfit = filteredGross - filteredShipping
 
   const income      = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const expense     = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
@@ -173,10 +193,88 @@ export default function Finance() {
     } catch(e){toast.error(e.message)}
     finally{setSaving(false)}
   }
-  const del = async id => {
-    if (!confirm('ลบรายการนี้?')) return
-    await supabase.from('transactions').delete().eq('id',id)
-    toast.success('ลบแล้ว'); load()
+  const del = async tx => {
+    const willRevertSale   = tx.category === 'Sale'      && tx.product_id
+    const willDeleteProduct = tx.category === 'Buy Stock' && tx.product_id
+    const msg = willDeleteProduct
+      ? 'ลบรายการนี้?\n⚠️ สินค้าที่เชื่อมอยู่จะถูกลบออกจากสต็อกด้วย'
+      : willRevertSale
+      ? 'ลบรายการนี้?\n• สินค้าที่เชื่อมอยู่จะกลับเป็นพร้อมขาย\n• ยอดเงินจะถูกหักคืนอัตโนมัติ'
+      : 'ลบรายการนี้?'
+    if (!confirm(msg)) return
+
+    try {
+      if (willRevertSale) {
+        const price = Number(tx.amount)
+        const method = tx.payment_method
+        await supabase.from('products').update({
+          status: 'Available', sold_price: null, sold_date: null,
+          payment_method: null, warranty_expiry: null,
+        }).eq('id', tx.product_id)
+        if (price > 0 && method) {
+          const { data: bal } = await supabase.from('balances').select('*').eq('id', 'main').single()
+          if (bal) {
+            const upd = method === 'โอน'
+              ? { bank: Math.max(0, Number(bal.bank) - price) }
+              : { cash: Math.max(0, Number(bal.cash) - price) }
+            await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', 'main')
+          }
+        }
+        await supabase.from('transactions').delete().eq('id', tx.id)
+        toast.success('ลบแล้ว — สินค้ากลับเป็นพร้อมขาย'); load(); return
+      }
+
+      if (willDeleteProduct) {
+        await supabase.from('transactions').delete().eq('product_id', tx.product_id)
+        await deleteAllProductImages(supabase, tx.product_id)
+        await supabase.from('products').delete().eq('id', tx.product_id)
+        toast.success('ลบแล้ว — สินค้าถูกลบออกจากสต็อก'); load(); return
+      }
+
+      await supabase.from('transactions').delete().eq('id', tx.id)
+      toast.success('ลบแล้ว'); load()
+    } catch(e) { toast.error(e.message) }
+  }
+
+  const cancelTrade = async tx => {
+    if (!confirm('ยกเลิกการแลกเปลี่ยนนี้?\n• สินค้า A จะกลับมาเป็นพร้อมขาย\n• สินค้า B จะถูกลบออกจากสต็อก')) return
+    try {
+      // หา product B จาก trade_ref_id ของ product A
+      const { data: pA } = await supabase.from('products').select('trade_ref_id').eq('id', tx.product_id).single()
+      const productBId = pA?.trade_ref_id
+
+      // คืน product A → Available
+      await supabase.from('products').update({
+        status: 'Available', sold_price: null, sold_date: null,
+        warranty_expiry: null, payment_method: null, trade_ref_id: null,
+      }).eq('id', tx.product_id)
+
+      // ลบ product B และ transactions ของ B
+      if (productBId) {
+        await supabase.from('transactions').delete().eq('product_id', productBId)
+        await supabase.from('products').delete().eq('id', productBId)
+      }
+
+      // ลบ trade transaction
+      await supabase.from('transactions').delete().eq('id', tx.id)
+
+      // คืน balance
+      const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
+      if (bal) {
+        let bank = Number(bal.bank)
+        let cash = Number(bal.cash)
+        if (tx.type === 'Income') {
+          if (tx.payment_method === 'โอน') bank -= Number(tx.amount)
+          else cash -= Number(tx.amount)
+        } else {
+          if (tx.payment_method === 'โอน') bank += Number(tx.amount)
+          else cash += Number(tx.amount)
+        }
+        await supabase.from('balances').update({ bank: Math.max(0, bank), cash: Math.max(0, cash), updated_at: new Date().toISOString() }).eq('id','main')
+      }
+
+      toast.success('ยกเลิกการแลกเปลี่ยนแล้ว'); load()
+    } catch(e) { toast.error(e.message) }
   }
 
   return (
@@ -319,11 +417,23 @@ export default function Finance() {
                     <button onClick={()=>{setProfitFrom('');setProfitTo('')}} className="text-gray-400 text-lg">✕</button>
                   )}
                 </div>
-                <div className="flex justify-between items-center mt-2">
-                  <p className="text-xs text-gray-500">{filteredSoldItems.length} รายการ</p>
-                  <p className={`font-bold text-base ${filteredProfit>=0?'text-green-600':'text-red-500'}`}>
-                    รวม: {filteredProfit>=0?'+':''}฿{fmt(filteredProfit)}
-                  </p>
+                <div className="mt-2 space-y-0.5">
+                  <div className="flex justify-between items-center">
+                    <p className="text-xs text-gray-500">{filteredSoldItems.length} รายการขาย</p>
+                    <p className="text-sm font-semibold text-green-600">+฿{fmt(filteredGross)}</p>
+                  </div>
+                  {filteredShipping > 0 && (
+                    <div className="flex justify-between items-center">
+                      <p className="text-xs text-orange-500">🚚 ค่าขนส่ง (Shipping)</p>
+                      <p className="text-sm font-semibold text-orange-500">-฿{fmt(filteredShipping)}</p>
+                    </div>
+                  )}
+                  <div className="flex justify-between items-center border-t border-amber-100 pt-1 mt-1">
+                    <p className="text-xs font-semibold text-gray-600">กำไรสุทธิ</p>
+                    <p className={`font-bold text-base ${filteredProfit>=0?'text-green-600':'text-red-500'}`}>
+                      {filteredProfit>=0?'+':''}฿{fmt(filteredProfit)}
+                    </p>
+                  </div>
                 </div>
               </div>
               <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
@@ -338,9 +448,10 @@ export default function Finance() {
                             <div className="min-w-0 flex-1">
                               <p className="font-semibold text-sm text-brand-dark truncate">{p.model}</p>
                               <p className="text-xs text-gray-400">SN: {p.serial_number}</p>
-                              <p className="text-xs text-gray-400 mt-0.5">
+                              <p className="text-xs text-gray-400 mt-0.5 flex items-center flex-wrap gap-1">
                                 {p.sold_date ? thDateShort(p.sold_date) : ''}
-                                {p.payment_method && <span className={"ml-2 px-1.5 py-0.5 rounded text-xs font-medium "+(p.payment_method==='โอน'?'bg-blue-100 text-blue-600':'bg-green-100 text-green-600')}>{p.payment_method}</span>}
+                                {p.is_trade_in && <span className="px-1.5 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-600">Trade</span>}
+                                {p.payment_method && <span className={"px-1.5 py-0.5 rounded text-xs font-medium "+(p.payment_method==='โอน'?'bg-blue-100 text-blue-600':'bg-green-100 text-green-600')}>{p.payment_method}</span>}
                               </p>
                               <div className="flex gap-3 mt-1 text-xs text-gray-500">
                                 <span>ขาย ฿{fmt(p.sold_price)}</span>
@@ -429,6 +540,23 @@ export default function Finance() {
           </button>
         </div>
 
+        {/* Search bar */}
+        <div className="relative mt-2">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"/>
+          <input
+            autoComplete="off"
+            className="input w-full pl-8 pr-8 text-sm py-1.5"
+            placeholder="ค้นหา รุ่น / หมวดหมู่ / หมายเหตุ / ราคา..."
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-400">
+              <X size={14}/>
+            </button>
+          )}
+        </div>
+
         {/* Filter panel */}
         {showFilter && (
           <div className="mt-3 space-y-3">
@@ -504,7 +632,7 @@ export default function Finance() {
       </div>
 
       <div className="px-4 py-3 flex justify-between items-center border-b border-amber-100">
-        <p className="text-sm text-gray-500">{filtered.length} รายการ</p>
+        <p className="text-sm text-gray-500">{searched.length} รายการ</p>
         <button onClick={openAdd} className="btn-primary px-3 py-1.5 text-sm flex items-center gap-1">
           <Plus size={15}/>เพิ่มรายการ
         </button>
@@ -585,8 +713,8 @@ export default function Finance() {
       {loading
         ? <div className="flex justify-center pt-12"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
         : <div className="px-4 pb-4 space-y-2 mt-2">
-            {filtered.length===0 && <div className="text-center pt-16 text-gray-400"><div className="text-5xl mb-3">💰</div>ไม่มีรายการในช่วงนี้</div>}
-            {filtered.map(tx=>{
+            {searched.length===0 && <div className="text-center pt-16 text-gray-400"><div className="text-5xl mb-3">💰</div>ไม่มีรายการในช่วงนี้</div>}
+            {searched.map(tx=>{
               const profit = tx.category==='Sale' && tx.products?.total_cost!=null
                 ? Number(tx.amount)-Number(tx.products.total_cost) : null
               const warrantyDays = tx.category==='Sale' && tx.products?.warranty_expiry
@@ -623,7 +751,7 @@ export default function Finance() {
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
                     </div>
                     <div className="flex flex-col gap-1 flex-shrink-0">
-                      <button onClick={()=>del(tx.id)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
+                      <button onClick={()=>cancelTrade(tx)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
                     </div>
                   </div>
                 )
@@ -679,7 +807,7 @@ export default function Finance() {
                 </div>
                 <div className="flex flex-col gap-1 flex-shrink-0">
                   <button onClick={()=>openEdit(tx)} className="p-1.5 text-gray-300 hover:text-brand-dark"><Edit2 size={14}/></button>
-                  <button onClick={()=>del(tx.id)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
+                  <button onClick={()=>del(tx)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
                 </div>
               </div>
             )})}

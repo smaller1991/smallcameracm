@@ -65,6 +65,13 @@ export default function TradeIn() {
       const now = tradeDate ? new Date(tradeDate).toISOString() : new Date().toISOString()
       const warranty = new Date(new Date(now).getTime()+15*86400000).toISOString()
 
+      const tradeNote = [
+        `🔄 แลกเปลี่ยน`,
+        `A: ${selectedOut.model} SN:${selectedOut.serial_number} ขายได้ ฿${fmt(sellA)} (กำไร ${profitA>=0?'+':''}฿${fmt(profitA)})`,
+        `B: ${tradeForm.model} SN:${tradeForm.serial_number} รับซื้อ ฿${fmt(buyB)}`,
+        diff>0 ? `ลูกค้าจ่ายเพิ่ม ฿${fmt(diff)} (${payMethod})` : diff<0 ? `ร้านจ่ายคืน ฿${fmt(Math.abs(diff))} (${payMethod})` : `แลกเท่ากันพอดี`,
+      ].join(' | ')
+
       // ── 1. เพิ่มสินค้า B เข้าสต็อก (is_trade_in=true) ──
       const { data: productB, error: e1 } = await supabase.from('products').insert({
         model:         tradeForm.model.trim(),
@@ -76,7 +83,7 @@ export default function TradeIn() {
         status:        'Available',
         is_trade_in:   true,
         trade_ref_id:  selectedOut.id,
-        notes:         tradeForm.notes || `รับแลกจาก ${selectedOut.model}`,
+        notes:         tradeForm.notes || tradeNote,
         created_at:    now,
         images:        [],
       }).select().single()
@@ -98,13 +105,6 @@ export default function TradeIn() {
       if (e2) throw e2
 
       // ── 3. Transaction รวมอันเดียว สีน้ำเงิน (category='Trade') ──
-      // บันทึกรายละเอียดครบใน note + เก็บข้อมูลกำไรใน metadata
-      const tradeNote = [
-        `🔄 แลกเปลี่ยน`,
-        `A: ${selectedOut.model} SN:${selectedOut.serial_number} ขายได้ ฿${fmt(sellA)} (กำไร ${profitA>=0?'+':''}฿${fmt(profitA)})`,
-        `B: ${tradeForm.model} SN:${tradeForm.serial_number} รับซื้อ ฿${fmt(buyB)}`,
-        diff>0 ? `ลูกค้าจ่ายเพิ่ม ฿${fmt(diff)} (${payMethod})` : diff<0 ? `ร้านจ่ายคืน ฿${fmt(Math.abs(diff))} (${payMethod})` : `แลกเท่ากันพอดี`,
-      ].join(' | ')
 
       await supabase.from('transactions').insert({
         date:           now,

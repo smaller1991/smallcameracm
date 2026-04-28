@@ -276,13 +276,61 @@ export default function ProductDetail() {
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
 
+  // ─── cancel trade ──────────────────────────────────────────
+  const cancelTrade = async () => {
+    if (!confirm('ยกเลิกการแลกเปลี่ยนนี้?\n• สินค้า A จะกลับมาเป็นพร้อมขาย\n• สินค้า B จะถูกลบออกจากสต็อก')) return
+    setSaving(true)
+    try {
+      const productAId = product.is_trade_in ? product.trade_ref_id : id
+      const productBId = product.is_trade_in ? id : product.trade_ref_id
+
+      const { data: tradeTx } = await supabase
+        .from('transactions').select('*')
+        .eq('product_id', productAId).eq('category', 'Trade').single()
+
+      await supabase.from('products').update({
+        status: 'Available', sold_price: null, sold_date: null,
+        warranty_expiry: null, payment_method: null, trade_ref_id: null,
+      }).eq('id', productAId)
+
+      if (productBId) {
+        await supabase.from('transactions').delete().eq('product_id', productBId)
+        await supabase.from('products').delete().eq('id', productBId)
+      }
+
+      if (tradeTx) {
+        await supabase.from('transactions').delete().eq('id', tradeTx.id)
+        const { data: bal } = await supabase.from('balances').select('*').eq('id', 'main').single()
+        if (bal) {
+          let bank = Number(bal.bank), cash = Number(bal.cash)
+          if (tradeTx.type === 'Income') {
+            if (tradeTx.payment_method === 'โอน') bank -= Number(tradeTx.amount)
+            else cash -= Number(tradeTx.amount)
+          } else {
+            if (tradeTx.payment_method === 'โอน') bank += Number(tradeTx.amount)
+            else cash += Number(tradeTx.amount)
+          }
+          await supabase.from('balances').update({
+            bank: Math.max(0, bank), cash: Math.max(0, cash),
+            updated_at: new Date().toISOString()
+          }).eq('id', 'main')
+        }
+      }
+
+      toast.success('ยกเลิกการแลกเปลี่ยนแล้ว')
+      if (product.is_trade_in) navigate('/inventory')
+      else load()
+    } catch(e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
   // ─── delete product (ลบรูปทั้งหมดใน storage ด้วย) ─────────
   const deleteProduct = async () => {
-    if (!confirm('ลบสินค้านี้?\nรูปภาพทั้งหมดจะถูกลบออกจาก Storage ด้วย')) return
+    if (!confirm('ลบสินค้านี้?\nรูปภาพและรายการบัญชีทั้งหมดจะถูกลบด้วย')) return
     setSaving(true)
     try {
       await deleteAllProductImages(supabase, id)
-      await supabase.from('products').delete().eq('id',id)
+      await supabase.from('transactions').delete().eq('product_id', id)
+      await supabase.from('products').delete().eq('id', id)
       toast.success('ลบสินค้าแล้ว'); navigate('/inventory')
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
@@ -592,10 +640,17 @@ export default function ProductDetail() {
             className="w-full btn-ghost py-3 text-sm">ยกเลิกการจอง → พร้อมขาย</button>
         )}
 
-        {product.status==='Sold' && (
+        {product.status==='Sold' && !product.trade_ref_id && (
           <button onClick={cancelSale} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
             ↩️ ยกเลิกการขาย (คืนสถานะ + หักยอดเงิน)
+          </button>
+        )}
+
+        {((product.status==='Sold' && product.trade_ref_id) || product.is_trade_in) && (
+          <button onClick={cancelTrade} disabled={saving}
+            className="w-full flex items-center justify-center gap-2 text-sm text-blue-500 border border-blue-200 rounded-xl py-2.5 hover:bg-blue-50 transition-colors">
+            ↩️ ยกเลิกการแลกเปลี่ยน (คืนสถานะ + ลบสินค้า B)
           </button>
         )}
 
