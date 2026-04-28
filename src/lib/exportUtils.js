@@ -341,15 +341,32 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
     zip.file(`รายการบัญชี_${s}.pdf`, await buildTransactionsPDF(filtered))
   }
 
-  // Receipt images — grouped by day
-  const imgRoot = zip.folder('รูปใบเสร็จ')
-  const total   = filtered.reduce((a, t) => a + (t.images?.length || 0), 0)
+  // Deduplicate product images by product_id
+  const productImgMap = new Map()
+  for (const t of filtered) {
+    if (!t.product_id || !t.products?.images?.length) continue
+    if (!productImgMap.has(t.product_id)) {
+      productImgMap.set(t.product_id, {
+        images:     t.products.images,
+        model:      t.products.model,
+        created_at: t.products.created_at,
+        sold_date:  t.products.sold_date,
+        date:       t.date,
+      })
+    }
+  }
+
+  const totalReceipt = filtered.reduce((a, t) => a + (t.images?.length || 0), 0)
+  const totalProduct = [...productImgMap.values()].reduce((a, p) => a + p.images.length, 0)
+  const grandTotal   = totalReceipt + totalProduct
   let done = 0
 
+  // Receipt images — grouped by day
+  const receiptRoot = zip.folder('รูปใบเสร็จ')
   for (const t of filtered) {
     if (!t.images?.length) continue
     const dayKey    = new Date(t.date).toISOString().slice(0, 10)
-    const dayFolder = imgRoot.folder(dayKey)
+    const dayFolder = receiptRoot.folder(dayKey)
     const dateStr   = dayKey.replace(/-/g, '')
     const label     = safeStr(t.products?.model || t.category)
 
@@ -361,7 +378,28 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
         dayFolder.file(`${label}_${dateStr}_${Number(t.amount).toLocaleString('th-TH')}_${i + 1}.${ext}`, buf)
       } catch { /* skip */ }
       done++
-      onProgress?.(done, total)
+      onProgress?.(done, grandTotal)
+    }
+  }
+
+  // Product images — grouped by day, deduplicated by product_id
+  const productRoot = zip.folder('รูปสินค้า')
+  for (const [, p] of productImgMap) {
+    const dayKey    = new Date(p.sold_date || p.date || p.created_at).toISOString().slice(0, 10)
+    const dayFolder = productRoot.folder(dayKey)
+    const model     = safeStr(p.model)
+    const buyPart   = p.created_at ? new Date(p.created_at).toISOString().slice(0, 10).replace(/-/g, '') : 'nodate'
+    const sellPart  = p.sold_date  ? new Date(p.sold_date).toISOString().slice(0, 10).replace(/-/g, '')  : '-'
+
+    for (let i = 0; i < p.images.length; i++) {
+      try {
+        const res = await fetch(p.images[i])
+        const buf = await res.arrayBuffer()
+        const ext = (p.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
+        dayFolder.file(`${model}_ซื้อ${buyPart}_ขาย${sellPart}_${i + 1}.${ext}`, buf)
+      } catch { /* skip */ }
+      done++
+      onProgress?.(done, grandTotal)
     }
   }
 
