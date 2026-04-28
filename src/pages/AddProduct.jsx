@@ -11,6 +11,7 @@ const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุ�
 export default function AddProduct() {
   const navigate = useNavigate()
   const [form, setForm] = useState({ serial_number:'', model:'', condition:5, base_cost:'', notes:'', category:'กล้อง', created_at:'' })
+  const [payMethod, setPayMethod] = useState('โอน')
   const [files,    setFiles]    = useState([])
   const [previews, setPreviews] = useState([])
   const [saving,   setSaving]   = useState(false)
@@ -48,7 +49,25 @@ export default function AddProduct() {
         const urls = await uploadImages(supabase, p.id, files)
         await supabase.from('products').update({images:urls}).eq('id',p.id)
       }
-      toast.success('เพิ่มสินค้าสำเร็จ!')
+
+      // สร้าง transaction Buy Stock
+      await supabase.from('transactions').insert({
+        type: 'Expense', category: 'Buy Stock', amount: cost,
+        product_id: p.id, payment_method: payMethod,
+        date: insertData.created_at || new Date().toISOString(),
+        note: `ซื้อสินค้า: ${form.model.trim()} SN:${form.serial_number.trim()}`,
+      })
+
+      // หักยอด balance
+      const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
+      if (bal) {
+        const upd = payMethod === 'โอน'
+          ? { bank: Math.max(0, Number(bal.bank) - cost) }
+          : { cash: Math.max(0, Number(bal.cash) - cost) }
+        await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id','main')
+      }
+
+      toast.success(`เพิ่มสินค้าสำเร็จ — หัก${payMethod} ฿${cost.toLocaleString('th-TH')}`)
       navigate(`/inventory/${p.id}`)
     } catch(e) { toast.error(e.message) }
     finally { setSaving(false) }
@@ -116,6 +135,18 @@ export default function AddProduct() {
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">ราคาซื้อ (บาท) *</label>
           <input autoComplete="off" className="input" type="number" placeholder="0" value={form.base_cost} onChange={e=>F('base_cost',e.target.value)}/>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">ช่องทางการชำระ</label>
+          <div className="flex gap-2">
+            {['โอน','เงินสด'].map(m=>(
+              <button key={m} onClick={()=>setPayMethod(m)}
+                className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all
+                  ${payMethod===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
+                {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+              </button>
+            ))}
+          </div>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">หมายเหตุ</label>
