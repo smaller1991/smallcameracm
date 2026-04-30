@@ -1,9 +1,9 @@
-﻿import { useState } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { uploadImages } from '../lib/imageUtils'
+import { uploadReceiptImages } from '../lib/imageUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, X, ImagePlus } from 'lucide-react'
+import { ChevronLeft, ImagePlus, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -12,21 +12,20 @@ export default function AddProduct() {
   const navigate = useNavigate()
   const [form, setForm] = useState({ serial_number:'', model:'', condition:5, base_cost:'', notes:'', category:'กล้อง', created_at:'' })
   const [payMethod, setPayMethod] = useState('โอน')
-  const [files,    setFiles]    = useState([])
-  const [previews, setPreviews] = useState([])
-  const [saving,   setSaving]   = useState(false)
+  const [imgFiles,    setImgFiles]    = useState([])
+  const [imgPreviews, setImgPreviews] = useState([])
+  const [saving, setSaving] = useState(false)
 
   const F = (k,v) => setForm(f=>({...f,[k]:v}))
 
-  const addFiles = e => {
-    const f = Array.from(e.target.files)
-    setFiles(p=>[...p,...f])
-    setPreviews(p=>[...p,...f.map(x=>URL.createObjectURL(x))])
+  const addImgFiles = files => {
+    setImgFiles(p => [...p, ...files])
+    setImgPreviews(p => [...p, ...files.map(f => URL.createObjectURL(f))])
   }
   const removeImg = i => {
-    URL.revokeObjectURL(previews[i])
-    setFiles(f=>f.filter((_,j)=>j!==i))
-    setPreviews(p=>p.filter((_,j)=>j!==i))
+    URL.revokeObjectURL(imgPreviews[i])
+    setImgFiles(f => f.filter((_,j) => j !== i))
+    setImgPreviews(p => p.filter((_,j) => j !== i))
   }
 
   const save = async () => {
@@ -45,18 +44,21 @@ export default function AddProduct() {
       if (form.created_at) insertData.created_at = new Date(form.created_at).toISOString()
       const {data:p, error} = await supabase.from('products').insert(insertData).select().single()
       if (error) throw error
-      if (files.length) {
-        const urls = await uploadImages(supabase, p.id, files)
-        await supabase.from('products').update({images:urls}).eq('id',p.id)
-      }
 
       // สร้าง transaction Buy Stock
-      await supabase.from('transactions').insert({
+      const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         type: 'Expense', category: 'Buy Stock', amount: cost,
         product_id: p.id, payment_method: payMethod,
         date: insertData.created_at || new Date().toISOString(),
         note: `ซื้อสินค้า: ${form.model.trim()} SN:${form.serial_number.trim()}`,
-      })
+      }).select().single()
+      if (txErr) throw txErr
+
+      // upload รูปใบเสร็จ → receipt-images
+      if (imgFiles.length && newTx) {
+        const urls = await uploadReceiptImages(supabase, newTx.id, imgFiles)
+        await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
+      }
 
       // หักยอด balance
       const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
@@ -80,26 +82,6 @@ export default function AddProduct() {
         <h1 className="font-bold text-brand-dark text-lg">รับสินค้าเข้าสต็อก</h1>
       </div>
       <div className="px-4 py-4 space-y-4">
-        {/* Images */}
-        <div>
-          <label className="block text-sm font-medium text-gray-600 mb-2">รูปภาพ</label>
-          <div className="flex gap-2 overflow-x-auto pb-1">
-            {previews.map((src,i)=>(
-              <div key={i} className="relative flex-shrink-0 w-24 h-24 rounded-xl overflow-hidden border border-amber-200">
-                <img src={src} className="w-full h-full object-cover"/>
-                <button onClick={()=>removeImg(i)} className="absolute top-1 right-1 bg-black/60 rounded-full p-0.5">
-                  <X size={12} className="text-white"/>
-                </button>
-              </div>
-            ))}
-            <label className="flex-shrink-0 w-24 h-24 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow">
-              <ImagePlus size={22} className="text-amber-400"/>
-              <span className="text-xs text-amber-400 mt-1">เพิ่มรูป</span>
-              <input autoComplete="off" type="file" multiple accept="image/*" className="hidden" onChange={addFiles}/>
-            </label>
-          </div>
-        </div>
-
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">วันที่และเวลารับเข้า</label>
           <ThaiDatePicker value={form.created_at} onChange={v=>F('created_at',v)} showTime className="input w-full"/>
@@ -119,7 +101,7 @@ export default function AddProduct() {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-1">Serial Number *</label>
-          <input autoComplete="off" className="input" placeholder="SN..." autoComplete="off" value={form.serial_number} onChange={e=>F('serial_number',e.target.value)}/>
+          <input autoComplete="off" className="input" placeholder="SN..." value={form.serial_number} onChange={e=>F('serial_number',e.target.value)}/>
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-600 mb-2">เกรดสภาพ</label>
@@ -146,6 +128,24 @@ export default function AddProduct() {
                 {m==='โอน'?'💳 โอน':'💵 เงินสด'}
               </button>
             ))}
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-600 mb-1">รูปใบเสร็จ / หลักฐานการซื้อ</label>
+          <div className="flex gap-2 flex-wrap">
+            {imgPreviews.map((src,i)=>(
+              <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-amber-200 flex-shrink-0">
+                <img src={src} className="w-full h-full object-cover"/>
+                <button onClick={()=>removeImg(i)} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                  <X size={11} className="text-white"/>
+                </button>
+              </div>
+            ))}
+            <label className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
+              <ImagePlus size={18} className="text-amber-400"/>
+              <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
+              <input autoComplete="off" type="file" multiple accept="image/*" className="hidden" onChange={e=>addImgFiles(Array.from(e.target.files))}/>
+            </label>
           </div>
         </div>
         <div>

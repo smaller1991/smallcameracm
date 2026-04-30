@@ -1,7 +1,7 @@
 ﻿import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { uploadImages, deleteImage, deleteAllProductImages, uploadReceiptImages } from '../lib/imageUtils'
+import { uploadReceiptImages } from '../lib/imageUtils'
 import { toLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
@@ -20,28 +20,6 @@ function WarrantyBadge({expiry}) {
     : <span className="inline-flex items-center gap-1 bg-red-100 text-red-700 text-xs font-semibold px-2.5 py-0.5 rounded-full"><Shield size={11}/>หมดประกันแล้ว</span>
 }
 
-// mini image picker component
-function ImagePicker({ previews, onAdd, onRemove, label = 'เพิ่มรูป' }) {
-  return (
-    <div className="flex gap-2 flex-wrap mt-1">
-      {previews.map((src, i) => (
-        <div key={i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-amber-200 flex-shrink-0">
-          <img src={src} className="w-full h-full object-cover"/>
-          <button onClick={() => onRemove(i)}
-            className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
-            <X size={11} className="text-white"/>
-          </button>
-        </div>
-      ))}
-      <label className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
-        <ImagePlus size={18} className="text-amber-400"/>
-        <span className="text-xs text-amber-400 mt-0.5">{label}</span>
-        <input autoComplete="off" type="file" multiple accept="image/*" className="hidden"
-          onChange={e => onAdd(Array.from(e.target.files))}/>
-      </label>
-    </div>
-  )
-}
 
 export default function ProductDetail() {
   const {id} = useParams()
@@ -50,22 +28,14 @@ export default function ProductDetail() {
   const [accs,     setAccs]     = useState([])
   const [loading,  setLoading]  = useState(true)
   const [saving,   setSaving]   = useState(false)
-  const [imgIdx,   setImgIdx]   = useState(0)
   const [editing,  setEditing]  = useState(false)
   const [ef,       setEf]       = useState({})
 
-  // รูปในหน้า edit
-  const [editNewFiles,    setEditNewFiles]    = useState([])
-  const [editNewPreviews, setEditNewPreviews] = useState([])
-  const [removedUrls,     setRemovedUrls]     = useState([])
-
   // accessories
-  const [addAcc,     setAddAcc]     = useState(false)
-  const [accName,    setAccName]    = useState('')
-  const [accCost,    setAccCost]    = useState('')
+  const [addAcc,       setAddAcc]       = useState(false)
+  const [accName,      setAccName]      = useState('')
+  const [accCost,      setAccCost]      = useState('')
   const [accPayMethod, setAccPayMethod] = useState('โอน')
-  const [accFiles,   setAccFiles]   = useState([])
-  const [accPreviews,setAccPreviews] = useState([])
 
   // sell
   const [sellMode,     setSellMode]     = useState(false)
@@ -91,44 +61,14 @@ export default function ProductDetail() {
   }
   useEffect(()=>{load()},[id])
 
-  // ─── เพิ่มรูปใหม่ในหน้า edit ───────────────────────────────
-  const addEditFiles = files => {
-    setEditNewFiles(p => [...p, ...files])
-    setEditNewPreviews(p => [...p, ...files.map(f => URL.createObjectURL(f))])
-  }
-  const removeEditNew = i => {
-    URL.revokeObjectURL(editNewPreviews[i])
-    setEditNewFiles(f => f.filter((_,j)=>j!==i))
-    setEditNewPreviews(p => p.filter((_,j)=>j!==i))
-  }
-  const removeExisting = url => {
-    setRemovedUrls(r => [...r, url])
-  }
-
   // ─── save edit ─────────────────────────────────────────────
   const saveEdit = async () => {
     setSaving(true)
     try {
-      // ลบรูปที่ถูกเอาออก
-      for (const url of removedUrls) await deleteImage(supabase, url)
-
-      // upload รูปใหม่
-      const meta = { model: ef.model, serial_number: ef.serial_number,
-                     created_at: ef.created_at || product.created_at,
-                     sold_date: product.sold_date }
-      let newUrls = []
-      if (editNewFiles.length) {
-        newUrls = await uploadImages(supabase, id, editNewFiles, meta)
-      }
-
-      // merge: รูปเดิมที่ไม่ถูกลบ + รูปใหม่
-      const kept = (product.images||[]).filter(u => !removedUrls.includes(u))
-      const images = [...kept, ...newUrls]
-
       const updateData = {
         model: ef.model, serial_number: ef.serial_number,
         condition: Number(ef.condition), base_cost: parseFloat(ef.base_cost),
-        status: ef.status, notes: ef.notes, category: ef.category, images,
+        status: ef.status, notes: ef.notes, category: ef.category,
         customer_note: ef.customer_note?.trim() || null,
       }
       if (ef.created_at) updateData.created_at = new Date(ef.created_at).toISOString()
@@ -139,38 +79,17 @@ export default function ProductDetail() {
   }
 
   // ─── accessories ───────────────────────────────────────────
-  const addAccFiles = files => {
-    setAccFiles(p => [...p, ...files])
-    setAccPreviews(p => [...p, ...files.map(f => URL.createObjectURL(f))])
-  }
-  const removeAccFile = i => {
-    URL.revokeObjectURL(accPreviews[i])
-    setAccFiles(f => f.filter((_,j)=>j!==i))
-    setAccPreviews(p => p.filter((_,j)=>j!==i))
-  }
-
   const saveAcc = async () => {
     if (!accName||!accCost) return toast.error('กรุณากรอกชื่อและราคา')
     setSaving(true)
     try {
       const cost = parseFloat(accCost)
 
-      // 1. บันทึก accessory
-      const {error} = await supabase.from('accessories').insert({
-        product_id:id, name:accName, cost
-      })
+      // บันทึก accessory
+      const {error} = await supabase.from('accessories').insert({ product_id:id, name:accName, cost })
       if (error) throw error
 
-      // 2. upload รูปอุปกรณ์เสริม → รวมใน gallery สินค้าหลัก
-      if (accFiles.length) {
-        const meta = { model: product.model, serial_number: product.serial_number,
-                       created_at: product.created_at, sold_date: product.sold_date }
-        const newUrls = await uploadImages(supabase, id, accFiles, meta)
-        const images = [...(product.images||[]), ...newUrls]
-        await supabase.from('products').update({images}).eq('id',id)
-      }
-
-      // 3. สร้าง transaction Expense / Add-on
+      // สร้าง transaction Expense / Add-on
       await supabase.from('transactions').insert({
         type: 'Expense', category: 'Add-on', amount: cost,
         product_id: id, payment_method: accPayMethod,
@@ -178,7 +97,7 @@ export default function ProductDetail() {
         note: `Add-on: ${accName} — ${product.model} SN:${product.serial_number}`,
       })
 
-      // 4. หักยอด balance
+      // หักยอด balance
       const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
       if (bal) {
         const upd = accPayMethod === 'โอน'
@@ -189,7 +108,6 @@ export default function ProductDetail() {
 
       toast.success(`เพิ่ม Add-on แล้ว — หัก ${accPayMethod} ฿${cost.toLocaleString('th-TH')}`)
       setAccName(''); setAccCost(''); setAccPayMethod('โอน')
-      setAccFiles([]); setAccPreviews([])
       setAddAcc(false); load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
@@ -344,12 +262,11 @@ export default function ProductDetail() {
     } catch(e) { toast.error(e.message) } finally { setSaving(false) }
   }
 
-  // ─── delete product (ลบรูปทั้งหมดใน storage ด้วย) ─────────
+  // ─── delete product ────────────────────────────────────────
   const deleteProduct = async () => {
-    if (!confirm('ลบสินค้านี้?\nรูปภาพและรายการบัญชีทั้งหมดจะถูกลบด้วย')) return
+    if (!confirm('ลบสินค้านี้?\nรายการบัญชีทั้งหมดจะถูกลบด้วย')) return
     setSaving(true)
     try {
-      await deleteAllProductImages(supabase, id)
       await supabase.from('transactions').delete().eq('product_id', id)
       await supabase.from('products').delete().eq('id', id)
       toast.success('ลบสินค้าแล้ว'); navigate('/inventory')
@@ -359,43 +276,15 @@ export default function ProductDetail() {
   if (loading) return <div className="flex justify-center items-center h-64"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
   if (!product) return <div className="p-8 text-center text-gray-400">ไม่พบสินค้า</div>
   const profit = product.sold_price ? Number(product.sold_price)-Number(product.total_cost) : null
-  const existingImages = (product.images||[]).filter(u => !removedUrls.includes(u))
-
   return (
     <div>
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100 bg-white sticky top-0 z-10">
         <button onClick={()=>navigate(-1)}><ChevronLeft size={24}/></button>
         <span className="font-bold truncate max-w-xs">{product.model}</span>
-        <button onClick={()=>{ setEditing(!editing); setEditNewFiles([]); setEditNewPreviews([]); setRemovedUrls([]) }}
-          className="p-1.5 text-gray-400">
+        <button onClick={()=>setEditing(!editing)} className="p-1.5 text-gray-400">
           {editing ? <X size={18}/> : <Edit2 size={18}/>}
         </button>
-      </div>
-
-      {/* Gallery */}
-      <div className="bg-gray-100 relative">
-        {product.images?.length > 0 ? (
-          <>
-            <div className="flex overflow-x-auto" style={{scrollSnapType:'x mandatory',WebkitOverflowScrolling:'touch'}}
-              onScroll={e=>setImgIdx(Math.round(e.target.scrollLeft/e.target.offsetWidth))}>
-              {product.images.map((src,i)=>(
-                <div key={i} className="flex-shrink-0 w-full" style={{scrollSnapAlign:'start'}}>
-                  <img src={src} className="w-full aspect-square object-cover"/>
-                </div>
-              ))}
-            </div>
-            {product.images.length>1 && (
-              <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
-                {product.images.map((_,i)=>(
-                  <div key={i} className={"h-1.5 rounded-full transition-all "+(i===imgIdx?'bg-white w-3':'bg-white/50 w-1.5')}/>
-                ))}
-              </div>
-            )}
-          </>
-        ) : (
-          <div className="aspect-square flex items-center justify-center bg-amber-50 text-6xl">📷</div>
-        )}
       </div>
 
       <div className="px-4 py-4 space-y-3">
@@ -404,47 +293,6 @@ export default function ProductDetail() {
         <div className="card space-y-3">
           {editing ? (
             <>
-              {/* รูปภาพ section */}
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block font-medium">รูปภาพ</label>
-                {/* รูปเดิม */}
-                <div className="flex gap-2 flex-wrap">
-                  {(product.images||[]).map((url,i)=>(
-                    <div key={i} className={"relative w-20 h-20 rounded-xl overflow-hidden border flex-shrink-0 "+(removedUrls.includes(url)?'opacity-30 border-red-300':'border-amber-200')}>
-                      <img src={url} className="w-full h-full object-cover"/>
-                      {!removedUrls.includes(url) ? (
-                        <button onClick={()=>removeExisting(url)}
-                          className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
-                          <X size={11} className="text-white"/>
-                        </button>
-                      ) : (
-                        <button onClick={()=>setRemovedUrls(r=>r.filter(u=>u!==url))}
-                          className="absolute inset-0 flex items-center justify-center bg-black/40 text-white text-xs">
-                          ↩️ คืน
-                        </button>
-                      )}
-                    </div>
-                  ))}
-                  {/* รูปใหม่ที่จะเพิ่ม */}
-                  {editNewPreviews.map((src,i)=>(
-                    <div key={'new'+i} className="relative w-20 h-20 rounded-xl overflow-hidden border border-green-300 flex-shrink-0">
-                      <img src={src} className="w-full h-full object-cover"/>
-                      <button onClick={()=>removeEditNew(i)}
-                        className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
-                        <X size={11} className="text-white"/>
-                      </button>
-                    </div>
-                  ))}
-                  <label className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
-                    <ImagePlus size={18} className="text-amber-400"/>
-                    <span className="text-xs text-amber-400 mt-0.5">เพิ่มรูป</span>
-                    <input autoComplete="off" type="file" multiple accept="image/*" className="hidden" onChange={e=>addEditFiles(Array.from(e.target.files))}/>
-                  </label>
-                </div>
-                {removedUrls.length>0 && <p className="text-xs text-red-400 mt-1">จะลบ {removedUrls.length} รูป เมื่อกดบันทึก</p>}
-                {editNewFiles.length>0 && <p className="text-xs text-green-600 mt-1">จะเพิ่ม {editNewFiles.length} รูปใหม่</p>}
-              </div>
-
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">ประเภทสินค้า</label>
                 <select className="input" value={ef.category} onChange={e=>setEf({...ef,category:e.target.value})}>
@@ -564,15 +412,11 @@ export default function ProductDetail() {
                   ))}
                 </div>
               </div>
-              <div>
-                <p className="text-xs text-gray-500 mb-1">รูปภาพ (รวมใน gallery สินค้า)</p>
-                <ImagePicker previews={accPreviews} onAdd={addAccFiles} onRemove={removeAccFile} label="เพิ่มรูป"/>
-              </div>
               <div className="flex gap-2 mt-2">
                 <button onClick={saveAcc} disabled={saving} className="btn-primary flex-1 py-2 text-sm">
                   {saving?'...':'บันทึก'}
                 </button>
-                <button onClick={()=>{setAddAcc(false);setAccFiles([]);setAccPreviews([]);setAccPayMethod('โอน')}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
+                <button onClick={()=>{setAddAcc(false);setAccPayMethod('โอน')}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
               </div>
             </div>
           )}
