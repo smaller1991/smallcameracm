@@ -12,6 +12,10 @@ DROP FUNCTION IF EXISTS auto_tx_product_insert();
 DROP TRIGGER IF EXISTS trg_auto_tx_sold ON products;
 DROP FUNCTION IF EXISTS auto_tx_sold();
 
+-- trigger นี้สร้าง Add-on อัตโนมัติ แต่ ProductDetail JS ทำเองแล้ว → ซ้ำกัน
+DROP TRIGGER IF EXISTS trg_auto_tx_accessory_insert ON accessories;
+DROP FUNCTION IF EXISTS auto_tx_accessory_insert();
+
 -- ===== เพิ่ม column ที่ขาดใน transactions =====
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_method TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS images         TEXT[] DEFAULT '{}';

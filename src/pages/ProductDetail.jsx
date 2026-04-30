@@ -37,6 +37,13 @@ export default function ProductDetail() {
   const [accCost,      setAccCost]      = useState('')
   const [accPayMethod, setAccPayMethod] = useState('โอน')
 
+  // edit images
+  const [editNewFiles,    setEditNewFiles]    = useState([])
+  const [editNewPreviews, setEditNewPreviews] = useState([])
+  const [removedUrls,     setRemovedUrls]     = useState([])
+  const [txImages,        setTxImages]        = useState([])
+  const [lightboxImg,     setLightboxImg]     = useState(null)
+
   // sell
   const [sellMode,     setSellMode]     = useState(false)
   const [soldPrice,    setSoldPrice]    = useState('')
@@ -47,11 +54,13 @@ export default function ProductDetail() {
   const [sellImgPrev,  setSellImgPrev]  = useState([])
 
   const load = async () => {
-    const [{data:p},{data:a}] = await Promise.all([
+    const [{data:p},{data:a},{data:txs}] = await Promise.all([
       supabase.from('products').select('*').eq('id',id).single(),
       supabase.from('accessories').select('*').eq('product_id',id).order('created_at'),
+      supabase.from('transactions').select('id,category,images,date').eq('product_id',id).order('date'),
     ])
     setProduct(p); setAccs(a||[])
+    setTxImages((txs||[]).flatMap(t => t.images || []))
     setEf({model:p.model, serial_number:p.serial_number, condition:p.condition,
            base_cost:p.base_cost, status:p.status, notes:p.notes||'',
            category:p.category||'กล้อง', created_at:toLocal(p.created_at),
@@ -386,6 +395,19 @@ export default function ProductDetail() {
           )}
         </div>
 
+        {/* Images */}
+        {txImages.length > 0 && (
+          <div className="card">
+            <h3 className="font-semibold text-sm mb-2">รูปภาพ ({txImages.length})</h3>
+            <div className="flex gap-2 overflow-x-auto pb-1 swipe-gallery">
+              {txImages.map((url,i)=>(
+                <img key={i} src={url} onClick={()=>setLightboxImg(url)}
+                  className="w-20 h-20 rounded-xl object-cover flex-shrink-0 cursor-zoom-in active:scale-95 transition-transform"/>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Accessories */}
         <div className="card">
           <div className="flex items-center justify-between mb-2">
@@ -536,6 +558,16 @@ export default function ProductDetail() {
           <Trash2 size={15}/>ลบสินค้านี้
         </button>
       </div>
+
+      {lightboxImg && (
+        <div className="fixed inset-0 bg-black/92 z-50 flex items-center justify-center p-4"
+          onClick={()=>setLightboxImg(null)}>
+          <button className="absolute top-4 right-4 bg-black/50 rounded-full p-2 text-white z-10">
+            <X size={20}/>
+          </button>
+          <img src={lightboxImg} className="max-w-full max-h-full rounded-xl object-contain"/>
+        </div>
+      )}
     </div>
   )
 }

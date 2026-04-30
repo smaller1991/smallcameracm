@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
-import { Search, Plus, ArrowUpDown, ArrowLeftRight } from 'lucide-react'
+import { Search, Plus, ArrowUpDown, ArrowLeftRight, X } from 'lucide-react'
 
 const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Sold',label:'ขายแล้ว'}]
 const CAT_TABS = ['ทั้งหมด','กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -26,25 +26,17 @@ export default function Inventory() {
   const [sortKey, setSortKey]  = useState('created_at_desc')
   const [showSort,setShowSort] = useState(false)
   const [inventoryValue, setInventoryValue] = useState(0)
+  const [lightboxImg, setLightboxImg] = useState(null)
 
   useEffect(() => {
-    // โหลดสินค้าทั้งหมด
-    supabase.from('products').select('*')
+    supabase.from('products').select('*, transactions(images, category)')
       .then(({data}) => { setProducts(data || []); setLoading(false) })
 
-    // คำนวณมูลค่าคงคลัง Available เท่านั้น + อุปกรณ์เสริม
-    supabase.rpc('get_inventory_value')
-      .then(({data, error}) => {
-        if (!error && data !== null) {
-          setInventoryValue(Number(data))
-        } else {
-          // fallback กรณี function ยังไม่ได้ run migration_v3
-          supabase.from('products').select('total_cost, status')
-            .eq('status', 'Available')
-            .then(({data: p}) => {
-              setInventoryValue((p||[]).reduce((a,x) => a + Number(x.total_cost), 0))
-            })
-        }
+    // มูลค่าสินค้าคงคลัง = Available + Reserved (ยังไม่ขาย) — ตรงกับหน้าบัญชีและ Dashboard
+    supabase.from('products').select('total_cost, status')
+      .neq('status', 'Sold')
+      .then(({data: p}) => {
+        setInventoryValue((p||[]).reduce((a,x) => a + Number(x.total_cost), 0))
       })
   }, [])
 
@@ -130,38 +122,53 @@ export default function Inventory() {
         ? <div className="flex justify-center pt-20"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
         : filtered.length===0
           ? <div className="flex flex-col items-center pt-24 text-gray-400"><span className="text-5xl mb-3">📷</span><p>ไม่พบสินค้า</p></div>
-          : <div className="px-4 pb-4 space-y-2 mt-1">
-              {filtered.map(p=>(
-                <div key={p.id} onClick={()=>navigate(`/inventory/${p.id}`)}
-                  className={`card flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform ${p.is_trade_in?'border-blue-300 border-2':''}`}>
-                  {p.images?.[0]
-                    ? <img src={p.images[0]} className="w-16 h-16 rounded-xl object-cover flex-shrink-0"/>
-                    : <div className={`w-16 h-16 rounded-xl flex items-center justify-center text-3xl flex-shrink-0 ${p.is_trade_in?'bg-blue-100':'bg-amber-100'}`}>📷</div>}
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <p className="font-semibold text-sm truncate flex-1">{p.model}</p>
-                      <div className="flex gap-1 flex-shrink-0">
-                        {p.is_trade_in && <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">🔄 แลก</span>}
-                        <span className={`${STATUS_CLASS[p.status]} text-xs font-semibold px-2 py-0.5 rounded-full`}>{STATUS_LABEL[p.status]}</span>
+          : <div className="px-4 pb-4 space-y-1.5 mt-1">
+              {filtered.map(p=>{
+                const coverImg = p.transactions?.find(t=>t.category==='Buy Stock')?.images?.[0]
+                return (
+                  <div key={p.id} onClick={()=>navigate(`/inventory/${p.id}`)}
+                    className={`card p-2.5 flex items-center gap-2.5 cursor-pointer active:scale-[0.98] transition-transform ${p.is_trade_in?'border-blue-300 border-2':''}`}>
+                    <div className="flex-shrink-0">
+                      {coverImg
+                        ? <img src={coverImg}
+                            onClick={e=>{e.stopPropagation();setLightboxImg(coverImg)}}
+                            className="w-12 h-12 rounded-xl object-cover cursor-zoom-in"/>
+                        : <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${p.is_trade_in?'bg-blue-100':'bg-amber-100'}`}>📷</div>}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <p className="font-semibold text-sm truncate flex-1">{p.model}</p>
+                        <div className="flex gap-1 flex-shrink-0">
+                          {p.is_trade_in && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">🔄</span>}
+                          <span className={`${STATUS_CLASS[p.status]} text-xs font-semibold px-2 py-0.5 rounded-full`}>{STATUS_LABEL[p.status]}</span>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-md font-medium">{p.category||'กล้อง'}</span>
+                        <span className="text-xs text-gray-400 truncate">SN: {p.serial_number}</span>
+                      </div>
+                      <div className="flex justify-between mt-0.5">
+                        <p className="text-xs text-gray-500">฿{fmt(p.total_cost)} · เกรด {p.condition}</p>
+                        {p.sold_date
+                          ? <p className="text-xs text-gray-300">📤 {thDateShort(p.sold_date)}</p>
+                          : p.created_at && <p className="text-xs text-gray-300">📥 {thDateShort(p.created_at)}</p>}
                       </div>
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5">
-                      <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded-md font-medium">{p.category||'กล้อง'}</span>
-                      <span className="text-xs text-gray-400 truncate">SN: {p.serial_number}</span>
-                    </div>
-                    <div className="flex justify-between mt-1">
-                      <p className="text-xs text-gray-500">ต้นทุน ฿{fmt(p.total_cost)}</p>
-                      <p className="text-xs font-semibold text-amber-600">เกรด {p.condition}</p>
-                    </div>
-                    <div className="flex gap-2 mt-0.5">
-                      {p.created_at && <p className="text-xs text-gray-300">📥 {thDateShort(p.created_at)}</p>}
-                      {p.sold_date   && <p className="text-xs text-gray-300">📤 {thDateShort(p.sold_date)}</p>}
-                    </div>
                   </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
       }
+
+      {lightboxImg && (
+        <div className="fixed inset-0 bg-black/92 z-50 flex items-center justify-center p-4"
+          onClick={()=>setLightboxImg(null)}>
+          <button className="absolute top-4 right-4 bg-black/50 rounded-full p-2 text-white z-10">
+            <X size={20}/>
+          </button>
+          <img src={lightboxImg} className="max-w-full max-h-full rounded-xl object-contain"/>
+        </div>
+      )}
     </div>
   )
 }
