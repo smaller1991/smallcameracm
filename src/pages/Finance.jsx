@@ -88,10 +88,17 @@ export default function Finance() {
   }
   useEffect(()=>{load()},[])
 
+  // แปลง UTC timestamp → local YYYY-MM-DD string สำหรับเปรียบเทียบวัน (timezone-safe)
+  const toLocalDateStr = iso => {
+    const d = new Date(iso)
+    return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  }
+
   // filter by date
   const filtered = txs.filter(t => {
-    if (dateFrom && new Date(t.date)<new Date(dateFrom)) return false
-    if (dateTo   && new Date(t.date)>new Date(dateTo+'T23:59:59')) return false
+    const dateStr = toLocalDateStr(t.date)
+    if (dateFrom && dateStr < dateFrom) return false
+    if (dateTo   && dateStr > dateTo) return false
     if (selTypes.length>0 && !selTypes.includes(t.type)) return false
     if (selCats.length>0  && !selCats.includes(t.category)) return false
     if (selProdCats.length>0) {
@@ -120,8 +127,9 @@ export default function Finance() {
   // sold items filtered by profit date range
   const filteredSoldItems = soldItems.filter(p => {
     if (!p.sold_date) return false
-    if (profitFrom && new Date(p.sold_date)<new Date(profitFrom)) return false
-    if (profitTo   && new Date(p.sold_date)>new Date(profitTo+'T23:59:59')) return false
+    const ds = toLocalDateStr(p.sold_date)
+    if (profitFrom && ds < profitFrom) return false
+    if (profitTo   && ds > profitTo) return false
     return true
   })
   const filteredGross      = filteredSoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
@@ -129,8 +137,9 @@ export default function Finance() {
     cat,
     amount: txs.filter(t => {
       if (t.category !== cat || t.type !== 'Expense') return false
-      if (profitFrom && new Date(t.date)<new Date(profitFrom)) return false
-      if (profitTo   && new Date(t.date)>new Date(profitTo+'T23:59:59')) return false
+      const ds = toLocalDateStr(t.date)
+      if (profitFrom && ds < profitFrom) return false
+      if (profitTo   && ds > profitTo) return false
       return true
     }).reduce((a,t)=>a+Number(t.amount),0)
   })).filter(d => d.amount > 0)
@@ -335,8 +344,9 @@ export default function Finance() {
         {showIncome && (() => {
           const items = txs.filter(t=>{
             if (t.type!=='Income') return false
-            if (detailFrom && new Date(t.date)<new Date(detailFrom)) return false
-            if (detailTo   && new Date(t.date)>new Date(detailTo+'T23:59:59')) return false
+            const ds = toLocalDateStr(t.date)
+            if (detailFrom && ds < detailFrom) return false
+            if (detailTo   && ds > detailTo) return false
             return true
           })
           const total = items.reduce((a,t)=>a+Number(t.amount),0)
@@ -382,8 +392,9 @@ export default function Finance() {
         {showExpense && (() => {
           const items = txs.filter(t=>{
             if (t.type!=='Expense') return false
-            if (detailFrom && new Date(t.date)<new Date(detailFrom)) return false
-            if (detailTo   && new Date(t.date)>new Date(detailTo+'T23:59:59')) return false
+            const ds = toLocalDateStr(t.date)
+            if (detailFrom && ds < detailFrom) return false
+            if (detailTo   && ds > detailTo) return false
             return true
           })
           const total = items.reduce((a,t)=>a+Number(t.amount),0)
