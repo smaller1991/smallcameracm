@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
-import { LayoutDashboard, Package, DollarSign, Download, Upload, LogOut, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, Package, DollarSign, Download, LogOut, Sun, Moon } from 'lucide-react'
 
 const nav = [
   { to: '/',         icon: LayoutDashboard, label: 'หน้าหลัก' },
   { to: '/inventory',icon: Package,         label: 'สต็อก'    },
   { to: '/finance',  icon: DollarSign,      label: 'บัญชี'    },
-  { to: '/export',   icon: Download,        label: 'ส่งออก'   },
-  { to: '/import',   icon: Upload,          label: 'นำเข้า'   },
+  { to: '/export',   icon: Download,        label: 'ข้อมูล'   },
 ]
 
 const FONT_SIZES = [14, 16, 18, 20]
