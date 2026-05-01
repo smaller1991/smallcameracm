@@ -55,6 +55,8 @@ export default function Finance() {
   const [editBal,    setEditBal]    = useState(false)
   const [balForm,    setBalForm]    = useState({bank:'',cash:''})
 
+  const [lightbox,     setLightbox]     = useState(null) // {imgs:[], idx:0}
+
   const [stockValue,   setStockValue]   = useState(0)
   const [soldProfit,   setSoldProfit]   = useState(0)
   const [soldItems,    setSoldItems]    = useState([])
@@ -801,6 +803,15 @@ export default function Finance() {
                           ))}
                         </div>
                       )}
+                      {tx.images?.length > 0 && (
+                        <div className="flex gap-1 mt-1 overflow-x-auto">
+                          {tx.images.map((url,i)=>(
+                            <img key={i} src={url}
+                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-200 cursor-zoom-in"
+                              onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
+                          ))}
+                        </div>
+                      )}
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
                     </div>
                     <div className="flex flex-col gap-1 flex-shrink-0">
@@ -852,8 +863,9 @@ export default function Finance() {
                   {tx.images?.length > 0 && (
                     <div className="flex gap-1 mt-1 overflow-x-auto">
                       {tx.images.map((url,i)=>(
-                        <img key={i} src={url} className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-amber-100"
-                          onClick={()=>window.open(url,'_blank')}/>
+                        <img key={i} src={url}
+                          className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-amber-100 cursor-zoom-in"
+                          onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
                       ))}
                     </div>
                   )}
@@ -867,6 +879,30 @@ export default function Finance() {
             )})}
           </div>
       }
+
+      {/* Lightbox */}
+      {lightbox && (
+        <div className="fixed inset-0 bg-black/92 z-[60] flex items-center justify-center p-4"
+          onClick={()=>setLightbox(null)}>
+          <button className="absolute top-4 right-4 bg-black/50 rounded-full p-2 text-white z-10">
+            <X size={20}/>
+          </button>
+          {lightbox.imgs.length > 1 && <>
+            <button
+              onClick={e=>{e.stopPropagation();setLightbox(l=>({...l,idx:(l.idx-1+l.imgs.length)%l.imgs.length}))}}
+              className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 rounded-full w-10 h-10 flex items-center justify-center text-white text-2xl z-10">‹</button>
+            <button
+              onClick={e=>{e.stopPropagation();setLightbox(l=>({...l,idx:(l.idx+1)%l.imgs.length}))}}
+              className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 rounded-full w-10 h-10 flex items-center justify-center text-white text-2xl z-10">›</button>
+            <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-sm">
+              {lightbox.idx+1} / {lightbox.imgs.length}
+            </div>
+          </>}
+          <img src={lightbox.imgs[lightbox.idx]}
+            className="max-w-full max-h-full rounded-xl object-contain"
+            onClick={e=>e.stopPropagation()}/>
+        </div>
+      )}
     </div>
   )
 }
