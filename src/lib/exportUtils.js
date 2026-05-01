@@ -2,7 +2,7 @@ import * as XLSX from 'xlsx'
 import JSZip from 'jszip'
 import { thDate } from './dateUtils'
 
-const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง', Sold: 'ขายแล้ว' }
+const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง', Sold: 'ขายแล้ว', Pending: 'รอชำระ' }
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
 const safeStr = s => (s || '').replace(/[/\\:*?"<>|]/g, '_')
 

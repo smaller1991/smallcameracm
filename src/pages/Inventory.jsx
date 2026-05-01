@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
 import { Search, Plus, ArrowUpDown, ArrowLeftRight, X } from 'lucide-react'
 
-const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Sold',label:'ขายแล้ว'}]
+const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Pending',label:'รอชำระ'},{key:'Sold',label:'ขายแล้ว'}]
 const CAT_TABS = ['ทั้งหมด','กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const SORT_OPTIONS = [
   {key:'created_at_desc',label:'วันที่ล่าสุด'},{key:'created_at_asc',label:'วันที่เก่าสุด'},
@@ -12,8 +12,8 @@ const SORT_OPTIONS = [
   {key:'category_asc',label:'ประเภทสินค้า'},
   {key:'total_cost_asc',label:'ราคาน้อย→มาก'},{key:'total_cost_desc',label:'ราคามาก→น้อย'},
 ]
-const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว'}
-const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold'}
+const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว',Pending:'รอชำระ'}
+const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold',Pending:'badge-pending'}
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 
 export default function Inventory() {
@@ -32,9 +32,9 @@ export default function Inventory() {
     supabase.from('products').select('*, transactions(images, category)')
       .then(({data}) => { setProducts(data || []); setLoading(false) })
 
-    // มูลค่าสินค้าคงคลัง = Available + Reserved (ยังไม่ขาย) — ตรงกับหน้าบัญชีและ Dashboard
+    // มูลค่าสินค้าคงคลัง = Available + Reserved เท่านั้น (Pending = รอชำระ ถือว่าขายแล้ว)
     supabase.from('products').select('total_cost, status')
-      .neq('status', 'Sold')
+      .in('status', ['Available', 'Reserved'])
       .then(({data: p}) => {
         setInventoryValue((p||[]).reduce((a,x) => a + Number(x.total_cost), 0))
       })
@@ -153,6 +153,11 @@ export default function Inventory() {
                           ? <p className="text-xs text-gray-300">📤 {thDateShort(p.sold_date)}</p>
                           : p.created_at && <p className="text-xs text-gray-300">📥 {thDateShort(p.created_at)}</p>}
                       </div>
+                      {p.status==='Pending' && p.installment_total && (
+                        <p className="text-xs text-orange-500 font-medium mt-0.5">
+                          รอชำระ ฿{fmt(Number(p.installment_total)-Number(p.installment_paid||0))}
+                        </p>
+                      )}
                     </div>
                   </div>
                 )

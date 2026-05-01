@@ -8,8 +8,8 @@ import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImageP
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
-const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว'}
-const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold'}
+const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว',Pending:'รอชำระ'}
+const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold',Pending:'badge-pending'}
 const CATEGORIES    = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 
 function WarrantyBadge({expiry}) {
@@ -49,12 +49,23 @@ export default function ProductDetail() {
 
   // sell
   const [sellMode,     setSellMode]     = useState(false)
+  const [sellType,     setSellType]     = useState('full')  // 'full' | 'installment'
   const [soldPrice,    setSoldPrice]    = useState('')
+  const [installTotal, setInstallTotal] = useState('')
+  const [installFirst, setInstallFirst] = useState('')
   const [payMethod,    setPayMethod]    = useState('โอน')
   const [sellDate,     setSellDate]     = useState('')
   const [customerNote, setCustomerNote] = useState('')
   const [sellImgFiles, setSellImgFiles] = useState([])
   const [sellImgPrev,  setSellImgPrev]  = useState([])
+
+  // pay installment (for Pending products)
+  const [payMode,     setPayMode]     = useState(false)
+  const [payAmount,   setPayAmount]   = useState('')
+  const [payMethod2,  setPayMethod2]  = useState('โอน')
+  const [payDate2,    setPayDate2]    = useState('')
+  const [payImgFiles, setPayImgFiles] = useState([])
+  const [payImgPrev,  setPayImgPrev]  = useState([])
 
   const load = async () => {
     const [{data:p},{data:a},{data:txs}] = await Promise.all([
@@ -220,6 +231,131 @@ export default function ProductDetail() {
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
 
+  // ─── sell installment ──────────────────────────────────────
+  const sellInstallment = async () => {
+    const total = parseFloat(installTotal)
+    const first = parseFloat(installFirst || 0)
+    if (!installTotal || isNaN(total) || total <= 0) return toast.error('กรุณาระบุราคาตกลง')
+    if (first > total) return toast.error('ยอดชำระงวดแรกเกินราคาตกลง')
+    setSaving(true)
+    try {
+      const soldAt = sellDate ? new Date(sellDate).toISOString() : new Date().toISOString()
+      const isFullyPaid = first >= total
+
+      const {error} = await supabase.from('products').update({
+        status: isFullyPaid ? 'Sold' : 'Pending',
+        sold_price: total,
+        payment_method: payMethod,
+        sold_date: isFullyPaid ? soldAt : null,
+        warranty_expiry: isFullyPaid ? new Date(new Date(soldAt).getTime()+15*86400000).toISOString() : null,
+        installment_total: total,
+        installment_paid: first,
+        customer_note: customerNote.trim() || null,
+      }).eq('id', id)
+      if (error) throw error
+
+      if (first > 0) {
+        const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
+          date: soldAt, type:'Income', category:'Sale', amount: first,
+          product_id: id, payment_method: payMethod,
+          note: isFullyPaid
+            ? 'ขายสินค้า: '+product.model+' SN:'+product.serial_number
+            : `ผ่อนจ่ายงวดแรก: ${product.model} SN:${product.serial_number} (${fmt(first)}/${fmt(total)})`,
+        }).select().single()
+        if (txErr) throw txErr
+
+        if (sellImgFiles.length && newTx) {
+          const imgUrls = await uploadReceiptImages(supabase, newTx.id, sellImgFiles)
+          await supabase.from('transactions').update({ images: imgUrls }).eq('id', newTx.id)
+        }
+
+        const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
+        if (bal) {
+          if (payMethod==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+first,updated_at:new Date().toISOString()}).eq('id','main')
+          else                   await supabase.from('balances').update({cash:Number(bal.cash)+first,updated_at:new Date().toISOString()}).eq('id','main')
+        }
+      }
+
+      toast.success(isFullyPaid ? 'ขายสำเร็จ!' : `บันทึกผ่อนจ่ายแล้ว — ชำระแรก ฿${fmt(first)}, คงเหลือ ฿${fmt(total-first)}`)
+      setSellMode(false); setSellType('full')
+      setInstallTotal(''); setInstallFirst(''); setSoldPrice('')
+      setSellImgFiles([]); setSellImgPrev([]); setSellDate(''); setCustomerNote('')
+      load()
+    } catch(e){toast.error(e.message)} finally{setSaving(false)}
+  }
+
+  // ─── pay installment (Pending → record payment) ────────────
+  const payInstallment = async () => {
+    const amount = parseFloat(payAmount)
+    if (!payAmount || isNaN(amount) || amount <= 0) return toast.error('กรุณาระบุจำนวนเงิน')
+    setSaving(true)
+    try {
+      const newPaid = Number(product.installment_paid || 0) + amount
+      const total   = Number(product.installment_total)
+      const isFullyPaid = newPaid >= total
+      const soldAt  = payDate2 ? new Date(payDate2).toISOString() : new Date().toISOString()
+
+      await supabase.from('products').update({
+        installment_paid: newPaid,
+        status:           isFullyPaid ? 'Sold' : 'Pending',
+        sold_date:        isFullyPaid ? soldAt : null,
+        warranty_expiry:  isFullyPaid ? new Date(new Date(soldAt).getTime()+15*86400000).toISOString() : null,
+      }).eq('id', id)
+
+      const {data:newTx} = await supabase.from('transactions').insert({
+        date: soldAt, type:'Income', category:'Sale', amount,
+        product_id: id, payment_method: payMethod2,
+        note: isFullyPaid
+          ? `ชำระครบแล้ว: ${product.model} SN:${product.serial_number}`
+          : `ผ่อนจ่าย: ${product.model} SN:${product.serial_number} (${fmt(newPaid)}/${fmt(total)})`,
+      }).select().single()
+
+      if (payImgFiles.length && newTx) {
+        const urls = await uploadReceiptImages(supabase, newTx.id, payImgFiles)
+        await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
+      }
+
+      const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
+      if (bal) {
+        if (payMethod2==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+amount,updated_at:new Date().toISOString()}).eq('id','main')
+        else                    await supabase.from('balances').update({cash:Number(bal.cash)+amount,updated_at:new Date().toISOString()}).eq('id','main')
+      }
+
+      toast.success(isFullyPaid ? 'ชำระครบแล้ว! สินค้าเปลี่ยนเป็น "ขายแล้ว"' : `รับชำระ ฿${fmt(amount)} — คงเหลือ ฿${fmt(total-newPaid)}`)
+      setPayMode(false); setPayAmount(''); setPayMethod2('โอน'); setPayDate2('')
+      setPayImgFiles([]); setPayImgPrev([])
+      load()
+    } catch(e){toast.error(e.message)} finally{setSaving(false)}
+  }
+
+  // ─── cancel installment ────────────────────────────────────
+  const cancelInstallment = async () => {
+    if (!confirm('ยกเลิกผ่อนจ่าย?\nยอดเงินที่รับไปแล้วจะถูกหักคืนทั้งหมด และสินค้าจะกลับมาเป็นพร้อมขาย')) return
+    setSaving(true)
+    try {
+      const {data: saleTxs} = await supabase.from('transactions')
+        .select('*').eq('product_id', id).eq('category', 'Sale')
+
+      for (const tx of saleTxs || []) {
+        const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
+        if (bal) {
+          if (tx.payment_method==='โอน') await supabase.from('balances').update({bank:Math.max(0,Number(bal.bank)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
+          else                           await supabase.from('balances').update({cash:Math.max(0,Number(bal.cash)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
+        }
+      }
+
+      await supabase.from('transactions').delete().eq('product_id', id).eq('category', 'Sale')
+      await supabase.from('products').update({
+        status:'Available', sold_price:null, payment_method:null,
+        sold_date:null, warranty_expiry:null,
+        installment_total:null, installment_paid:null,
+      }).eq('id', id)
+
+      toast.success('ยกเลิกผ่อนจ่ายแล้ว')
+      load()
+    } catch(e){toast.error(e.message)} finally{setSaving(false)}
+  }
+
   // ─── cancel sale ───────────────────────────────────────────
   const cancelSale = async () => {
     if (!confirm('ยกเลิกการขายสินค้านี้?\nยอดเงินและรายการบัญชีจะถูกลบคืนอัตโนมัติ')) return
@@ -376,6 +512,7 @@ export default function ProductDetail() {
                   <option value="Available">พร้อมขาย</option>
                   <option value="Reserved">จอง</option>
                   <option value="Sold">ขายแล้ว</option>
+                  <option value="Pending">รอชำระ</option>
                 </select>
               </div>
               <div>
@@ -546,15 +683,59 @@ export default function ProductDetail() {
           sellMode ? (
             <div className="card space-y-3">
               <h3 className="font-semibold text-sm">ยืนยันการขาย</h3>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">ราคาขายจริง (บาท)</label>
-                <input autoComplete="off" className="input" type="number" placeholder="0" value={soldPrice} onChange={e=>setSoldPrice(e.target.value)} autoFocus/>
-                {soldPrice && (
-                  <p className={"text-xs mt-1 font-medium "+(Number(soldPrice)-Number(product.total_cost)>=0?'text-green-600':'text-red-500')}>
-                    กำไร: ฿{fmt(Number(soldPrice)-Number(product.total_cost))}
-                  </p>
-                )}
+
+              {/* ── รูปแบบการชำระ ── */}
+              <div className="flex gap-2">
+                <button onClick={()=>setSellType('full')}
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${sellType==='full'?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-400 border-gray-200'}`}>
+                  ชำระเต็มจำนวน
+                </button>
+                <button onClick={()=>setSellType('installment')}
+                  className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${sellType==='installment'?'bg-orange-500 text-white border-orange-500':'bg-white text-gray-400 border-gray-200'}`}>
+                  💳 ผ่อนจ่าย
+                </button>
               </div>
+
+              {/* ── ราคา ── */}
+              {sellType==='full' ? (
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">ราคาขายจริง (บาท)</label>
+                  <input autoComplete="off" className="input" type="number" placeholder="0" value={soldPrice} onChange={e=>setSoldPrice(e.target.value)}/>
+                  {soldPrice && (
+                    <p className={"text-xs mt-1 font-medium "+(Number(soldPrice)-Number(product.total_cost)>=0?'text-green-600':'text-red-500')}>
+                      กำไร: ฿{fmt(Number(soldPrice)-Number(product.total_cost))}
+                    </p>
+                  )}
+                </div>
+              ) : (
+                <>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">ราคาตกลง (บาท)</label>
+                    <input autoComplete="off" className="input" type="number" placeholder="0"
+                      value={installTotal} onChange={e=>setInstallTotal(e.target.value)}/>
+                    {installTotal && (
+                      <p className={"text-xs mt-1 font-medium "+(Number(installTotal)-Number(product.total_cost)>=0?'text-green-600':'text-red-500')}>
+                        กำไรประมาณ: ฿{fmt(Number(installTotal)-Number(product.total_cost))}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 mb-1 block">ชำระงวดแรก (บาท)</label>
+                    <input autoComplete="off" className="input" type="number" placeholder="0 = ยังไม่รับเงิน"
+                      value={installFirst} onChange={e=>setInstallFirst(e.target.value)}/>
+                    {installTotal && installFirst !== '' && (
+                      <p className={`text-xs mt-1 font-medium ${Number(installFirst)>Number(installTotal)?'text-red-500':Number(installFirst)>=Number(installTotal)?'text-green-600':'text-orange-500'}`}>
+                        {Number(installFirst)>Number(installTotal)
+                          ? '⚠️ เกินราคาตกลง'
+                          : Number(installFirst)>=Number(installTotal)
+                            ? '✅ ชำระเต็มจำนวน → สินค้าจะเปลี่ยนเป็น "ขายแล้ว"'
+                            : `คงเหลือ: ฿${fmt(Number(installTotal)-Number(installFirst))} → สินค้าจะเปลี่ยนเป็น "รอชำระ"`}
+                      </p>
+                    )}
+                  </div>
+                </>
+              )}
+
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลาที่ขาย</label>
                 <ThaiDatePicker value={sellDate} onChange={setSellDate} showTime className="input w-full"/>
@@ -588,7 +769,8 @@ export default function ProductDetail() {
               </div>
 
               <div>
-                <label className="text-xs text-gray-500 mb-2 block">ช่องทางการชำระเงิน</label>                <div className="flex gap-2">
+                <label className="text-xs text-gray-500 mb-2 block">ช่องทางการชำระเงิน</label>
+                <div className="flex gap-2">
                   {['โอน','เงินสด'].map(m=>(
                     <button key={m} onClick={()=>setPayMethod(m)}
                       className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200')}>
@@ -607,17 +789,115 @@ export default function ProductDetail() {
                   value={customerNote} onChange={e=>setCustomerNote(e.target.value)}/>
               </div>
               <div className="flex gap-2">
-                <button onClick={sell} disabled={saving} className="btn-primary flex-1 py-3 flex items-center justify-center gap-2">
-                  <ShoppingBag size={16}/>ยืนยันขาย
+                <button onClick={sellType==='full'?sell:sellInstallment} disabled={saving}
+                  className="btn-primary flex-1 py-3 flex items-center justify-center gap-2">
+                  <ShoppingBag size={16}/>{saving?'...':(sellType==='full'?'ยืนยันขาย':'บันทึกผ่อนจ่าย')}
                 </button>
-                <button onClick={()=>setSellMode(false)} className="btn-ghost px-4">ยกเลิก</button>
+                <button onClick={()=>{setSellMode(false);setSellType('full');setInstallTotal('');setInstallFirst('')}} className="btn-ghost px-4">ยกเลิก</button>
               </div>
             </div>
           ) : (
-            <button onClick={()=>{setSellMode(true);setSellDate('');setCustomerNote('');setSellImgFiles([]);setSellImgPrev([])}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
+            <button onClick={()=>{setSellMode(true);setSellDate('');setCustomerNote('');setSellImgFiles([]);setSellImgPrev([]);setSellType('full');setInstallTotal('');setInstallFirst('')}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
               <ShoppingBag size={18}/>ขายสินค้า
             </button>
           )
+        )}
+
+        {/* Pending — ผ่อนจ่าย */}
+        {product.status==='Pending' && (
+          <div className="card space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-sm">ผ่อนจ่าย</h3>
+              <span className="badge-pending">รอชำระ</span>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">ราคาตกลง</span>
+                <span className="font-semibold">฿{fmt(product.installment_total)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">ชำระแล้ว</span>
+                <span className="font-semibold text-green-600">฿{fmt(product.installment_paid)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">คงเหลือ</span>
+                <span className="font-bold text-orange-500">฿{fmt(Number(product.installment_total||0)-Number(product.installment_paid||0))}</span>
+              </div>
+              <div className="w-full bg-gray-100 rounded-full h-2.5 mt-1">
+                <div className="bg-orange-400 h-2.5 rounded-full transition-all"
+                  style={{width:`${Math.min(100,(Number(product.installment_paid||0)/Number(product.installment_total||1))*100)}%`}}/>
+              </div>
+              <p className="text-xs text-gray-400 text-right">
+                {Math.round((Number(product.installment_paid||0)/Number(product.installment_total||1))*100)}% ชำระแล้ว
+              </p>
+            </div>
+            {!payMode ? (
+              <button onClick={()=>{setPayMode(true);setPayAmount('');setPayMethod2('โอน');setPayDate2('');setPayImgFiles([]);setPayImgPrev([])}}
+                className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
+                💰 รับชำระงวด
+              </button>
+            ) : (
+              <div className="bg-orange-50 rounded-xl p-3 space-y-2">
+                <h4 className="text-sm font-semibold">บันทึกการรับชำระ</h4>
+                <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)"
+                  value={payAmount} onChange={e=>setPayAmount(e.target.value)} autoFocus/>
+                <div className="flex gap-2">
+                  {['โอน','เงินสด'].map(m=>(
+                    <button key={m} onClick={()=>setPayMethod2(m)}
+                      className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${payMethod2===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
+                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                    </button>
+                  ))}
+                </div>
+                <ThaiDatePicker value={payDate2} onChange={setPayDate2} showTime className="input text-sm w-full"/>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">รูปใบเสร็จ (ไม่บังคับ)</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {payImgPrev.map((src,i)=>(
+                      <div key={i} className="relative w-14 h-14 rounded-xl overflow-hidden border flex-shrink-0">
+                        <img src={src} className="w-full h-full object-cover"/>
+                        <button onClick={()=>{
+                          URL.revokeObjectURL(payImgPrev[i])
+                          setPayImgFiles(f=>f.filter((_,j)=>j!==i))
+                          setPayImgPrev(p=>p.filter((_,j)=>j!==i))
+                        }} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                          <X size={9} className="text-white"/>
+                        </button>
+                      </div>
+                    ))}
+                    <label className="w-14 h-14 rounded-xl border-2 border-dashed border-orange-300 flex flex-col items-center justify-center cursor-pointer flex-shrink-0">
+                      <ImagePlus size={14} className="text-orange-400"/>
+                      <span className="text-xs text-orange-400 mt-0.5">เพิ่ม</span>
+                      <input type="file" multiple accept="image/*" className="hidden" onChange={e=>{
+                        const files = Array.from(e.target.files)
+                        setPayImgFiles(p=>[...p,...files])
+                        setPayImgPrev(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
+                      }}/>
+                    </label>
+                  </div>
+                </div>
+                {payAmount && (
+                  <p className={`text-xs font-medium ${Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)?'text-green-600':'text-orange-500'}`}>
+                    {Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)
+                      ? '✅ ชำระครบ — สินค้าจะเปลี่ยนเป็น "ขายแล้ว" อัตโนมัติ'
+                      : `คงเหลือหลังชำระ: ฿${fmt(Number(product.installment_total||0)-Number(product.installment_paid||0)-Number(payAmount))}`}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={payInstallment} disabled={saving} className="btn-primary flex-1 py-2 text-sm">
+                    {saving?'...':'บันทึก'}
+                  </button>
+                  <button onClick={()=>{setPayMode(false);setPayAmount('');setPayImgFiles([]);setPayImgPrev([])}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
+                </div>
+              </div>
+            )}
+            {!payMode && (
+              <button onClick={cancelInstallment} disabled={saving}
+                className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
+                ↩️ ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
+              </button>
+            )}
+          </div>
         )}
 
         {product.status==='Reserved' && (
@@ -625,10 +905,17 @@ export default function ProductDetail() {
             className="w-full btn-ghost py-3 text-sm">ยกเลิกการจอง → พร้อมขาย</button>
         )}
 
-        {product.status==='Sold' && !product.trade_ref_id && (
+        {product.status==='Sold' && !product.trade_ref_id && !product.installment_total && (
           <button onClick={cancelSale} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
             ↩️ ยกเลิกการขาย (คืนสถานะ + หักยอดเงิน)
+          </button>
+        )}
+
+        {product.status==='Sold' && !product.trade_ref_id && product.installment_total && (
+          <button onClick={cancelInstallment} disabled={saving}
+            className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
+            ↩️ ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
           </button>
         )}
 

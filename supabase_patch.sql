@@ -52,6 +52,14 @@ DO $$ BEGIN
 EXCEPTION WHEN duplicate_object THEN NULL;
 END $$;
 
+-- ===== ผ่อนจ่าย: เพิ่ม Pending status + installment columns =====
+-- ลบ check constraint เก่าของ status แล้วสร้างใหม่รวม 'Pending'
+ALTER TABLE products DROP CONSTRAINT IF EXISTS products_status_check;
+ALTER TABLE products ADD CONSTRAINT products_status_check
+  CHECK (status IN ('Available','Reserved','Sold','Pending'));
+ALTER TABLE products ADD COLUMN IF NOT EXISTS installment_total NUMERIC(12,2);
+ALTER TABLE products ADD COLUMN IF NOT EXISTS installment_paid  NUMERIC(12,2) DEFAULT 0;
+
 -- ===== Storage bucket: receipt-images (ถ้ายังไม่มี) =====
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('receipt-images','receipt-images', true, 10485760, ARRAY['image/jpeg','image/png','image/webp'])

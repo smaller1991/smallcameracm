@@ -27,7 +27,7 @@ export default function Dashboard() {
       const soldM      = products?.filter(p => p.status === 'Sold' && p.sold_date >= ms).length ?? 0
       const income     = txs?.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0) ?? 0
       const expense    = txs?.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0) ?? 0
-      const stockValue = (products || []).filter(p => p.status !== 'Sold').reduce((a, p) => a + Number(p.total_cost || 0), 0)
+      const stockValue = (products || []).filter(p => p.status === 'Available' || p.status === 'Reserved').reduce((a, p) => a + Number(p.total_cost || 0), 0)
       const bank       = Number(bal?.bank || 0)
       const cash       = Number(bal?.cash || 0)
       setData({ avail, soldM, income, expense, products: products || [], stockValue, bank, cash })

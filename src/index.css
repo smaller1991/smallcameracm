@@ -16,6 +16,7 @@
   .badge-available { @apply bg-emerald-100 text-emerald-700 text-xs font-semibold px-2.5 py-0.5 rounded-full; }
   .badge-reserved  { @apply bg-amber-100 text-amber-700 text-xs font-semibold px-2.5 py-0.5 rounded-full; }
   .badge-sold      { @apply bg-rose-100 text-rose-700 text-xs font-semibold px-2.5 py-0.5 rounded-full; }
+  .badge-pending   { @apply bg-orange-100 text-orange-600 text-xs font-semibold px-2.5 py-0.5 rounded-full; }
 }
 
 .swipe-gallery { scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch; }
@@ -92,6 +93,7 @@
 .dark .badge-available { background: #14321E !important; color: #4ADE80 !important; }
 .dark .badge-reserved  { background: #2D2300 !important; color: #FCD34D !important; }
 .dark .badge-sold      { background: #2D1212 !important; color: #F87171 !important; }
+.dark .badge-pending   { background: #2D1800 !important; color: #FB923C !important; }
 
 /* inline badge variants */
 .dark [class*="bg-emerald-100"] { background-color: #14321E !important; }
