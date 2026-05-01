@@ -2,7 +2,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
-import { toLocal, thDateShort } from '../lib/dateUtils'
+import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -36,6 +36,7 @@ export default function ProductDetail() {
   const [accName,      setAccName]      = useState('')
   const [accCost,      setAccCost]      = useState('')
   const [accPayMethod, setAccPayMethod] = useState('โอน')
+  const [accDate,      setAccDate]      = useState('')
   const [accImgFiles,  setAccImgFiles]  = useState([])
   const [accImgPrev,   setAccImgPrev]   = useState([])
 
@@ -108,7 +109,7 @@ export default function ProductDetail() {
       const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         type: 'Expense', category: 'Add-on', amount: cost,
         product_id: id, payment_method: accPayMethod,
-        date: new Date().toISOString(),
+        date: accDate ? new Date(accDate).toISOString() : new Date().toISOString(),
         note: `Add-on: ${accName} — ${product.model} SN:${product.serial_number}`,
       }).select().single()
       if (txErr) throw txErr
@@ -131,7 +132,7 @@ export default function ProductDetail() {
       toast.success(`เพิ่ม Add-on แล้ว — หัก ${accPayMethod} ฿${cost.toLocaleString('th-TH')}`)
       setAccName(''); setAccCost(''); setAccPayMethod('โอน')
       setAccImgFiles([]); setAccImgPrev([])
-      setAddAcc(false); load()
+      setAccDate(''); setAddAcc(false); load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
 
@@ -489,6 +490,11 @@ export default function ProductDetail() {
                 </div>
               </div>
               <div>
+                <p className="text-xs text-gray-500 mb-1">วันที่และเวลา (ไม่บังคับ)</p>
+                <ThaiDatePicker value={accDate} onChange={setAccDate} showTime className="input text-sm w-full"/>
+                {!accDate && <p className="text-xs text-gray-400 mt-0.5">หากไม่ระบุจะใช้เวลาปัจจุบัน</p>}
+              </div>
+              <div>
                 <p className="text-xs text-gray-500 mb-1">รูปใบเสร็จ (ไม่บังคับ)</p>
                 <div className="flex gap-2 flex-wrap">
                   {accImgPrev.map((src,i)=>(
@@ -518,7 +524,7 @@ export default function ProductDetail() {
                 <button onClick={saveAcc} disabled={saving} className="btn-primary flex-1 py-2 text-sm">
                   {saving?'...':'บันทึก'}
                 </button>
-                <button onClick={()=>{setAddAcc(false);setAccPayMethod('โอน');setAccImgFiles([]);setAccImgPrev([])}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
+                <button onClick={()=>{setAddAcc(false);setAccPayMethod('โอน');setAccDate('');setAccImgFiles([]);setAccImgPrev([])}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
               </div>
             </div>
           )}
