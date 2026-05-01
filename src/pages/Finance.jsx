@@ -6,18 +6,19 @@ import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import toast from 'react-hot-toast'
 
-const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other']
+const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','ไม่นับกำไร']
 const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
 const PROD_CATS = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const TX_TYPES  = ['Income','Expense']
 const fmt  = n => Number(n||0).toLocaleString('th-TH')
 
 const CAT_COLOR = {
-  'Sale':      'bg-green-100 text-green-700 border-green-200',
-  'Buy Stock': 'bg-red-100 text-red-700 border-red-200',
-  'Add-on':    'bg-yellow-100 text-yellow-700 border-yellow-200',
-  'Trade':     'bg-blue-100 text-blue-700 border-blue-200',
-  'Shipping':  'bg-orange-100 text-orange-700 border-orange-200',
+  'Sale':        'bg-green-100 text-green-700 border-green-200',
+  'Buy Stock':   'bg-red-100 text-red-700 border-red-200',
+  'Add-on':      'bg-yellow-100 text-yellow-700 border-yellow-200',
+  'Trade':       'bg-blue-100 text-blue-700 border-blue-200',
+  'Shipping':    'bg-orange-100 text-orange-700 border-orange-200',
+  'ไม่นับกำไร': 'bg-gray-100 text-gray-500 border-gray-200',
 }
 const catColor = cat => CAT_COLOR[cat] || 'bg-gray-100 text-gray-600 border-gray-200'
 const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400', 'Shipping':'bg-orange-400' }
