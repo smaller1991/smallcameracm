@@ -1,33 +1,29 @@
-﻿import { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { toLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, Search, ArrowLeftRight, Plus, Minus, ImagePlus, X } from 'lucide-react'
+import { ChevronLeft, Search, ArrowLeftRight, Plus, Minus, ImagePlus, X, Trash2 } from 'lucide-react'
 import { uploadReceiptImages } from '../lib/imageUtils'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const nowLocal = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16) }
+const newB = () => ({ _id: Math.random().toString(36).slice(2), model:'', serial_number:'', category:'กล้องดิจิตอลเก่า', condition:1, buy_price:'', notes:'' })
 
 export default function TradeIn() {
   const navigate = useNavigate()
 
-  // A = สินค้าร้านที่ลูกค้าเอาไป
-  const [products,    setProducts]    = useState([])
-  const [search,      setSearch]      = useState('')
-  const [loadingList, setLoadingList] = useState(false)
-  const [selectedOut, setSelectedOut] = useState(null)
-  const [sellPriceA,  setSellPriceA]  = useState('')   // ราคาที่ขายได้จริง
+  // A: selected shop products (multiple)
+  const [itemsA, setItemsA]   = useState([]) // [{product, sellPrice:''}]
+  const [products, setProducts] = useState([])
+  const [search,   setSearch]   = useState('')
+  const [loading,  setLoading]  = useState(false)
 
-  // B = สินค้าลูกค้าเอามาแลก
-  const [tradeForm, setTradeForm] = useState({
-    model: '', serial_number: '', category: 'กล้องดิจิตอลเก่า',
-    condition: 1, buy_price: '', notes: '',
-  })
+  // B: customer trade-in items (multiple)
+  const [itemsB, setItemsB] = useState([newB()])
 
-  // ส่วนกลาง
+  // common
   const [tradeDate, setTradeDate] = useState(nowLocal())
   const [payMethod, setPayMethod] = useState('โอน')
   const [saving,    setSaving]    = useState(false)
@@ -35,119 +31,110 @@ export default function TradeIn() {
   const [imgPrev,   setImgPrev]   = useState([])
 
   const loadProducts = async (q='') => {
-    setLoadingList(true)
+    setLoading(true)
     let query = supabase.from('products').select('*').eq('status','Available').order('created_at',{ascending:false})
     if (q) query = query.or(`model.ilike.%${q}%,serial_number.ilike.%${q}%`)
     const { data } = await query
     setProducts(data||[])
-    setLoadingList(false)
+    setLoading(false)
   }
-  useEffect(()=>{ loadProducts() },[])
+  useEffect(() => { loadProducts() }, [])
 
-  // A: กำไรจาก A = ราคาขาย - total_cost
-  const totalCostA = Number(selectedOut?.total_cost || 0)
-  const sellA      = Number(sellPriceA || 0)
-  const profitA    = sellA - totalCostA
+  // Derived totals
+  const selectedIds  = new Set(itemsA.map(x => x.product.id))
+  const displayProds = products.filter(p => !selectedIds.has(p.id))
+  const totalSellA   = itemsA.reduce((a,x) => a + Number(x.sellPrice||0), 0)
+  const totalCostA   = itemsA.reduce((a,x) => a + Number(x.product.total_cost||0), 0)
+  const totalProfitA = totalSellA - totalCostA
+  const totalBuyB    = itemsB.reduce((a,x) => a + Number(x.buy_price||0), 0)
+  const diff         = totalSellA - totalBuyB
 
-  // B: ต้นทุน B = ราคาที่รับซื้อมา
-  const buyB    = Number(tradeForm.buy_price || 0)
+  const addA        = p  => setItemsA(prev => [...prev, { product: p, sellPrice: '' }])
+  const removeA     = idx => setItemsA(prev => prev.filter((_,i) => i !== idx))
+  const updateSellA = (idx, v) => setItemsA(prev => prev.map((x,i) => i===idx ? {...x, sellPrice:v} : x))
 
-  // ส่วนต่าง = ราคาขาย A - ราคารับซื้อ B
-  // บวก = ลูกค้าต้องจ่ายเพิ่ม, ลบ = ร้านจ่ายคืน
-  const diff = sellA - buyB
+  const addBItem = () => setItemsB(prev => [...prev, newB()])
+  const removeB  = id  => setItemsB(prev => prev.filter(x => x._id !== id))
+  const updateB  = (id, field, val) => setItemsB(prev => prev.map(x => x._id===id ? {...x,[field]:val} : x))
+
+  const profitColor = p => p > 0 ? 'text-green-600' : p < 0 ? 'text-red-500' : 'text-gray-500'
 
   const doTradeIn = async () => {
-    if (!selectedOut)            return toast.error('กรุณาเลือกสินค้า A')
-    if (!sellPriceA)             return toast.error('กรุณากรอกราคาขายสินค้า A')
-    if (!tradeForm.model)        return toast.error('กรุณากรอกชื่อสินค้า B')
-    if (!tradeForm.serial_number)return toast.error('กรุณากรอก Serial สินค้า B')
-    if (!tradeForm.buy_price)    return toast.error('กรุณากรอกราคารับซื้อสินค้า B')
+    if (!itemsA.length)                      return toast.error('กรุณาเลือกสินค้าร้านอย่างน้อย 1 รายการ')
+    if (itemsA.some(x => !x.sellPrice))      return toast.error('กรุณากรอกราคาขายสินค้า A ให้ครบ')
+    if (itemsB.some(x => !x.model))          return toast.error('กรุณากรอกชื่อสินค้า B ให้ครบ')
+    if (itemsB.some(x => !x.serial_number))  return toast.error('กรุณากรอก Serial สินค้า B ให้ครบ')
+    if (itemsB.some(x => !x.buy_price))      return toast.error('กรุณากรอกราคารับซื้อสินค้า B ให้ครบ')
 
     setSaving(true)
     try {
-      const now = tradeDate ? new Date(tradeDate).toISOString() : new Date().toISOString()
-      const warranty = new Date(new Date(now).getTime()+15*86400000).toISOString()
+      const now      = tradeDate ? new Date(tradeDate).toISOString() : new Date().toISOString()
+      const warranty = new Date(new Date(now).getTime() + 15*86400000).toISOString()
 
       const tradeNote = [
         `🔄 แลกเปลี่ยน`,
-        `A: ${selectedOut.model} SN:${selectedOut.serial_number} ขายได้ ฿${fmt(sellA)} (กำไร ${profitA>=0?'+':''}฿${fmt(profitA)})`,
-        `B: ${tradeForm.model} SN:${tradeForm.serial_number} รับซื้อ ฿${fmt(buyB)}`,
+        `A: ${itemsA.map(x=>`${x.product.model} ฿${fmt(Number(x.sellPrice))}`).join(', ')}`,
+        `B: ${itemsB.map(x=>`${x.model} ฿${fmt(Number(x.buy_price))}`).join(', ')}`,
         diff>0 ? `ลูกค้าจ่ายเพิ่ม ฿${fmt(diff)} (${payMethod})` : diff<0 ? `ร้านจ่ายคืน ฿${fmt(Math.abs(diff))} (${payMethod})` : `แลกเท่ากันพอดี`,
       ].join(' | ')
 
-      // ── 1. เพิ่มสินค้า B เข้าสต็อก (is_trade_in=true) ──
-      const { data: productB, error: e1 } = await supabase.from('products').insert({
-        model:         tradeForm.model.trim(),
-        serial_number: tradeForm.serial_number.trim(),
-        category:      tradeForm.category,
-        condition:     Number(tradeForm.condition),
-        base_cost:     buyB,
-        total_cost:    buyB,
-        status:        'Available',
-        is_trade_in:   true,
-        trade_ref_id:  selectedOut.id,
-        notes:         tradeForm.notes || tradeNote,
-        created_at:    now,
-        images:        [],
-      }).select().single()
-      if (e1) throw e1
+      // 1. Insert B products into stock
+      const bIds = []
+      for (const b of itemsB) {
+        const buyB = Number(b.buy_price||0)
+        const { data: pb, error: e1 } = await supabase.from('products').insert({
+          model: b.model.trim(), serial_number: b.serial_number.trim(),
+          category: b.category, condition: Number(b.condition),
+          base_cost: buyB, total_cost: buyB,
+          status: 'Available', is_trade_in: true,
+          notes: b.notes || tradeNote, created_at: now, images: [],
+        }).select().single()
+        if (e1) throw e1
+        await supabase.from('transactions').delete()
+          .eq('product_id', pb.id).eq('category','Buy Stock')
+        bIds.push(pb.id)
+      }
 
-      // ลบ Buy Stock ที่ trigger สร้างอัตโนมัติ (จะสร้างเองใน transaction รวม)
-      await supabase.from('transactions').delete()
-        .eq('product_id', productB.id).eq('category','Buy Stock')
+      // 2. Mark A products as Sold
+      for (const x of itemsA) {
+        const { error: e2 } = await supabase.from('products').update({
+          status: 'Sold', sold_price: Number(x.sellPrice),
+          sold_date: now, warranty_expiry: warranty,
+          payment_method: payMethod, trade_ref_id: bIds[0]||null,
+        }).eq('id', x.product.id)
+        if (e2) throw e2
+      }
 
-      // ── 2. เปลี่ยนสถานะสินค้า A เป็น Sold ──
-      const { error: e2 } = await supabase.from('products').update({
-        status:          'Sold',
-        sold_price:      sellA,
-        sold_date:       now,
-        warranty_expiry: warranty,
-        payment_method:  payMethod,
-        trade_ref_id:    productB.id,
-      }).eq('id', selectedOut.id)
-      if (e2) throw e2
-
-      // ── 3. Transaction รวมอันเดียว สีน้ำเงิน (category='Trade') ──
-
+      // 3. One combined Trade transaction
       const { data: tradeTx, error: eTx } = await supabase.from('transactions').insert({
-        date:           now,
-        type:           diff >= 0 ? 'Income' : 'Expense',
-        category:       'Trade',
-        amount:         Math.abs(diff) || sellA,
-        product_id:     selectedOut.id,
+        date: now,
+        type: diff >= 0 ? 'Income' : 'Expense',
+        category: 'Trade',
+        amount: Math.abs(diff) || totalSellA,
+        product_id: itemsA[0].product.id,
         payment_method: payMethod,
-        note:           tradeNote,
-        trade_sell_a:   sellA,
-        trade_profit_a: profitA,
+        note: tradeNote,
+        trade_sell_a: totalSellA,
+        trade_profit_a: totalProfitA,
       }).select().single()
       if (eTx) throw eTx
 
-      // upload รูปใบเสร็จ
+      // Upload receipt images
       if (imgFiles.length && tradeTx) {
         const urls = await uploadReceiptImages(supabase, tradeTx.id, imgFiles)
         await supabase.from('transactions').update({ images: urls }).eq('id', tradeTx.id)
       }
 
-      // ── 4. อัปเดต balance ──
-      // รับเงินจากการขาย A เต็มจำนวน แล้วหัก B (ถ้าร้านจ่ายเพิ่ม)
+      // 4. Update balance
       const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
       if (bal) {
-        let bank = Number(bal.bank)
-        let cash = Number(bal.cash)
-
-        if (diff > 0) {
-          // ลูกค้าจ่ายเพิ่ม → รับเงินส่วนต่างเข้า
-          if (payMethod==='โอน') bank += diff
-          else cash += diff
-        } else if (diff < 0) {
-          // ร้านจ่ายคืนลูกค้า → เงินออก
+        let bank = Number(bal.bank), cash = Number(bal.cash)
+        if (diff > 0) { if (payMethod==='โอน') bank += diff; else cash += diff }
+        else if (diff < 0) {
           const amt = Math.abs(diff)
-          if (payMethod==='โอน') bank = Math.max(0, bank - amt)
-          else cash = Math.max(0, cash - amt)
+          if (payMethod==='โอน') bank = Math.max(0, bank-amt); else cash = Math.max(0, cash-amt)
         }
-        // diff === 0 → แลกเท่ากันพอดี ไม่มีเงินเข้าออก
-
-        await supabase.from('balances').update({bank, cash, updated_at:now}).eq('id','main')
+        await supabase.from('balances').update({bank, cash, updated_at: now}).eq('id','main')
       }
 
       toast.success('บันทึกการแลกเปลี่ยนสำเร็จ!')
@@ -156,7 +143,8 @@ export default function TradeIn() {
     finally { setSaving(false) }
   }
 
-  const profitColor = p => p > 0 ? 'text-green-600' : p < 0 ? 'text-red-500' : 'text-gray-500'
+  const canSubmit = itemsA.length > 0 && itemsA.every(x=>x.sellPrice) &&
+    itemsB.every(x=>x.model&&x.serial_number&&x.buy_price)
 
   return (
     <div>
@@ -169,126 +157,149 @@ export default function TradeIn() {
 
       <div className="px-4 py-4 space-y-4">
 
-        {/* วันที่ */}
+        {/* Date */}
         <div className="card">
           <label className="text-xs text-gray-500 mb-1 block font-medium">วันที่และเวลาแลกเปลี่ยน</label>
           <ThaiDatePicker value={tradeDate} onChange={setTradeDate} showTime className="input w-full"/>
-          <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้เวลาปัจจุบัน</p>
         </div>
 
-        {/* ── สินค้า A ── */}
+        {/* ── A: Shop products ── */}
         <div className="card space-y-3">
           <div className="flex items-center gap-2">
             <span className="w-7 h-7 rounded-full bg-brand-dark text-brand-yellow text-xs font-bold flex items-center justify-center">A</span>
             <h2 className="font-semibold">สินค้าร้านที่ลูกค้าต้องการ</h2>
+            {itemsA.length > 0 && <span className="ml-auto text-xs text-gray-400">{itemsA.length} รายการ</span>}
           </div>
 
-          {selectedOut ? (
-            <>
-              <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="font-semibold">{selectedOut.model}</p>
-                    <p className="text-xs text-gray-400">SN: {selectedOut.serial_number}</p>
-                    <p className="text-xs text-gray-500 mt-0.5">ต้นทุน ฿{fmt(totalCostA)}</p>
+          {/* Selected A items */}
+          {itemsA.map((x, idx) => {
+            const costA = Number(x.product.total_cost||0)
+            const sellA = Number(x.sellPrice||0)
+            const profA = sellA - costA
+            return (
+              <div key={x.product.id} className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+                <div className="flex items-start justify-between">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm truncate">{x.product.model}</p>
+                    <p className="text-xs text-gray-400">SN: {x.product.serial_number} · ต้นทุน ฿{fmt(costA)}</p>
                   </div>
-                  <button onClick={()=>{ setSelectedOut(null); setSellPriceA('') }}
-                    className="text-gray-400 p-1 text-lg">✕</button>
+                  <button onClick={()=>removeA(idx)} className="text-gray-400 p-1 flex-shrink-0 ml-2"><X size={15}/></button>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">ราคาที่ขายได้จริง (บาท) *</label>
+                  <input autoComplete="off" className="input text-sm py-1.5" type="number" placeholder="0"
+                    value={x.sellPrice} onChange={e=>updateSellA(idx,e.target.value)}/>
+                  {x.sellPrice && (
+                    <div className="flex justify-between mt-1 text-xs">
+                      <span className="text-gray-400">กำไร = ฿{fmt(sellA)} - ฿{fmt(costA)}</span>
+                      <span className={`font-bold ${profitColor(profA)}`}>{profA>=0?'+':''}฿{fmt(profA)}</span>
+                    </div>
+                  )}
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 mb-1 block">ราคาที่ขายได้จริง (บาท) *</label>
-                <input autoComplete="off" className="input" type="number" placeholder="0" value={sellPriceA}
-                  onChange={e=>setSellPriceA(e.target.value)}/>
-                {sellPriceA && (
-                  <div className="flex justify-between mt-1.5 text-xs">
-                    <span className="text-gray-400">กำไร A = ฿{fmt(sellA)} - ฿{fmt(totalCostA)}</span>
-                    <span className={`font-bold ${profitColor(profitA)}`}>
-                      {profitA>=0?'+':''}฿{fmt(profitA)}
-                    </span>
-                  </div>
-                )}
-              </div>
-            </>
-          ) : (
-            <>
-              <div className="relative">
-                <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
-                <input autoComplete="off" className="input pl-9 text-sm" placeholder="ค้นหารุ่นหรือ Serial..."
-                  value={search} onChange={e=>{ setSearch(e.target.value); loadProducts(e.target.value) }}/>
-              </div>
-              <div className="max-h-48 overflow-y-auto space-y-1.5">
-                {loadingList
-                  ? <p className="text-xs text-center text-gray-400 py-4">กำลังโหลด...</p>
-                  : products.length===0
-                    ? <p className="text-xs text-center text-gray-400 py-4">ไม่พบสินค้า</p>
-                    : products.map(p=>(
-                        <button key={p.id} onClick={()=>setSelectedOut(p)}
-                          className="w-full text-left bg-gray-50 hover:bg-amber-50 rounded-xl px-3 py-2.5 transition-colors border border-transparent hover:border-amber-200">
-                          <p className="font-medium text-sm">{p.model}</p>
-                          <div className="flex justify-between mt-0.5">
-                            <p className="text-xs text-gray-400">SN: {p.serial_number}</p>
-                            <p className="text-xs font-semibold text-amber-600">ต้นทุน ฿{fmt(p.total_cost)}</p>
-                          </div>
-                        </button>
-                      ))
-                }
-              </div>
-            </>
-          )}
+            )
+          })}
+
+          {/* Search to add A */}
+          <div className="space-y-2">
+            {itemsA.length > 0 && <p className="text-xs text-gray-400 font-medium">ค้นหาเพิ่มเติม</p>}
+            <div className="relative">
+              <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
+              <input autoComplete="off" className="input pl-9 text-sm" placeholder="ค้นหารุ่นหรือ Serial..."
+                value={search} onChange={e=>{setSearch(e.target.value);loadProducts(e.target.value)}}/>
+            </div>
+            <div className="max-h-48 overflow-y-auto space-y-1.5">
+              {loading
+                ? <p className="text-xs text-center text-gray-400 py-4">กำลังโหลด...</p>
+                : displayProds.length===0
+                  ? <p className="text-xs text-center text-gray-400 py-4">ไม่พบสินค้า</p>
+                  : displayProds.map(p=>(
+                      <button key={p.id} onClick={()=>addA(p)}
+                        className="w-full text-left bg-gray-50 hover:bg-amber-50 rounded-xl px-3 py-2.5 transition-colors border border-transparent hover:border-amber-200">
+                        <p className="font-medium text-sm">{p.model}</p>
+                        <div className="flex justify-between mt-0.5">
+                          <p className="text-xs text-gray-400">SN: {p.serial_number}</p>
+                          <p className="text-xs font-semibold text-amber-600">ต้นทุน ฿{fmt(p.total_cost)}</p>
+                        </div>
+                      </button>
+                    ))
+              }
+            </div>
+          </div>
         </div>
 
-        {/* ── สินค้า B ── */}
+        {/* ── B: Customer trade-in items ── */}
         <div className="card space-y-3">
           <div className="flex items-center gap-2">
             <span className="w-7 h-7 rounded-full bg-blue-600 text-white text-xs font-bold flex items-center justify-center">B</span>
             <h2 className="font-semibold">สินค้าที่ลูกค้าเอามาแลก</h2>
+            <button onClick={addBItem}
+              className="ml-auto flex items-center gap-1 text-xs text-blue-600 font-medium border border-blue-300 px-2 py-1 rounded-lg active:scale-95 transition-all">
+              <Plus size={12}/>เพิ่มรายการ
+            </button>
           </div>
 
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">ชื่อรุ่น *</label>
-            <input autoComplete="off" className="input" placeholder="เช่น Canon 600D" value={tradeForm.model}
-              onChange={e=>setTradeForm({...tradeForm,model:e.target.value})}/>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Serial Number *</label>
-            <input autoComplete="off" className="input" placeholder="SN..." value={tradeForm.serial_number}
-              onChange={e=>setTradeForm({...tradeForm,serial_number:e.target.value})}/>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">ประเภท</label>
-            <select className="input" value={tradeForm.category}
-              onChange={e=>setTradeForm({...tradeForm,category:e.target.value})}>
-              {CATEGORIES.map(c=><option key={c}>{c}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-2 block">เกรดสภาพ</label>
-            <div className="flex gap-2">
-              {[5,4,3,2,1].map(c=>(
-                <button key={c} onClick={()=>setTradeForm({...tradeForm,condition:c})}
-                  className={`flex-1 py-1.5 rounded-lg text-sm font-semibold border transition-all
-                    ${tradeForm.condition===c?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-400 border-gray-200'}`}>
-                  {c}
-                </button>
-              ))}
+          {itemsB.map((b, idx) => (
+            <div key={b._id} className="border border-blue-200 rounded-xl p-3 space-y-2.5">
+              <div className="flex items-center justify-between mb-0.5">
+                <p className="text-xs font-semibold text-blue-700">
+                  {b.model ? b.model : `สินค้า B${idx+1}`}
+                  {b.buy_price ? ` — ฿${fmt(Number(b.buy_price))}` : ''}
+                </p>
+                {itemsB.length > 1 && (
+                  <button onClick={()=>removeB(b._id)} className="text-red-400 p-0.5"><Trash2 size={14}/></button>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 mb-1 block">ชื่อรุ่น *</label>
+                  <input autoComplete="off" className="input text-sm py-1.5" placeholder="เช่น Canon 600D"
+                    value={b.model} onChange={e=>updateB(b._id,'model',e.target.value)}/>
+                </div>
+                <div className="col-span-2">
+                  <label className="text-xs text-gray-500 mb-1 block">Serial Number *</label>
+                  <input autoComplete="off" className="input text-sm py-1.5" placeholder="SN..."
+                    value={b.serial_number} onChange={e=>updateB(b._id,'serial_number',e.target.value)}/>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">ประเภท</label>
+                  <select className="input text-sm py-1.5" value={b.category}
+                    onChange={e=>updateB(b._id,'category',e.target.value)}>
+                    {CATEGORIES.map(c=><option key={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">ราคารับซื้อ (บาท) *</label>
+                  <input autoComplete="off" className="input text-sm py-1.5" type="number" placeholder="0"
+                    value={b.buy_price} onChange={e=>updateB(b._id,'buy_price',e.target.value)}/>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1.5 block">เกรดสภาพ</label>
+                <div className="flex gap-2">
+                  {[5,4,3,2,1].map(c=>(
+                    <button key={c} onClick={()=>updateB(b._id,'condition',c)}
+                      className={`flex-1 py-1.5 rounded-lg text-sm font-semibold border transition-all
+                        ${b.condition===c?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-400 border-gray-200'}`}>
+                      {c}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">หมายเหตุ</label>
+                <input autoComplete="off" className="input text-sm py-1.5" placeholder="สภาพ, อุปกรณ์ที่มาด้วย..."
+                  value={b.notes} onChange={e=>updateB(b._id,'notes',e.target.value)}/>
+              </div>
             </div>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">ราคารับซื้อ / มูลค่าแลก (บาท) *</label>
-            <input autoComplete="off" className="input" type="number" placeholder="0" value={tradeForm.buy_price}
-              onChange={e=>setTradeForm({...tradeForm,buy_price:e.target.value})}/>
-            <p className="text-xs text-gray-400 mt-1">ราคานี้จะเป็นต้นทุนของสินค้า B ในสต็อก</p>
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">หมายเหตุ</label>
-            <input autoComplete="off" className="input" placeholder="สภาพ, อุปกรณ์ที่มาด้วย..." value={tradeForm.notes}
-              onChange={e=>setTradeForm({...tradeForm,notes:e.target.value})}/>
-          </div>
+          ))}
         </div>
 
-        {/* ── สรุปการแลกเปลี่ยน ── */}
-        {selectedOut && sellPriceA && tradeForm.buy_price && (
+        {/* ── Summary ── */}
+        {itemsA.length > 0 && totalSellA > 0 && (
           <div className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-4 space-y-3">
             <h3 className="font-bold text-blue-800 flex items-center gap-2">
               <ArrowLeftRight size={16}/>สรุปการแลกเปลี่ยน
@@ -297,51 +308,49 @@ export default function TradeIn() {
             <div className="space-y-2 text-sm">
               {/* A */}
               <div className="bg-white/70 rounded-xl p-3">
-                <p className="text-xs text-gray-500 mb-1 font-medium">A — {selectedOut.model}</p>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">ราคาขาย</span>
-                  <span className="font-semibold">฿{fmt(sellA)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">ต้นทุน</span>
-                  <span className="text-gray-500">฿{fmt(totalCostA)}</span>
-                </div>
-                <div className="flex justify-between border-t border-gray-100 pt-1 mt-1">
-                  <span className="font-medium">กำไร A</span>
-                  <span className={`font-bold ${profitColor(profitA)}`}>{profitA>=0?'+':''}฿{fmt(profitA)}</span>
+                <p className="text-xs text-gray-500 mb-1.5 font-medium">A — สินค้าร้าน ({itemsA.length} ชิ้น)</p>
+                {itemsA.map(x => {
+                  const profA = Number(x.sellPrice||0) - Number(x.product.total_cost||0)
+                  return (
+                    <div key={x.product.id} className="flex justify-between py-0.5 text-xs">
+                      <span className="text-gray-600 truncate max-w-[55%]">{x.product.model}</span>
+                      <div className="flex gap-3 items-center">
+                        <span className="text-gray-400">฿{fmt(Number(x.sellPrice||0))}</span>
+                        <span className={`font-semibold ${profitColor(profA)}`}>{profA>=0?'+':''}฿{fmt(profA)}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+                <div className="flex justify-between border-t border-gray-100 pt-1.5 mt-1.5">
+                  <span className="font-medium text-xs">รวมกำไร A</span>
+                  <span className={`font-bold text-sm ${profitColor(totalProfitA)}`}>{totalProfitA>=0?'+':''}฿{fmt(totalProfitA)}</span>
                 </div>
               </div>
 
               {/* B */}
               <div className="bg-white/70 rounded-xl p-3">
-                <p className="text-xs text-gray-500 mb-1 font-medium">B — {tradeForm.model||'...'}</p>
-                <div className="flex justify-between">
-                  <span className="text-gray-600">รับซื้อ (ต้นทุน)</span>
-                  <span className="font-semibold">฿{fmt(buyB)}</span>
+                <p className="text-xs text-gray-500 mb-1.5 font-medium">B — สินค้าลูกค้า ({itemsB.length} ชิ้น)</p>
+                {itemsB.map(b=>(
+                  <div key={b._id} className="flex justify-between py-0.5 text-xs">
+                    <span className="text-gray-600 truncate max-w-[60%]">{b.model||'...'}</span>
+                    <span className="text-gray-500">฿{fmt(Number(b.buy_price||0))}</span>
+                  </div>
+                ))}
+                <div className="flex justify-between border-t border-gray-100 pt-1.5 mt-1.5">
+                  <span className="font-medium text-xs">รวมรับซื้อ B</span>
+                  <span className="font-bold text-sm text-blue-600">฿{fmt(totalBuyB)}</span>
                 </div>
-                <p className="text-xs text-blue-500 mt-1">เข้าสต็อกเป็น Available สีน้ำเงิน</p>
               </div>
 
-              {/* ส่วนต่าง */}
-              <div className={`rounded-xl p-3 border-2 ${
-                diff>0?'bg-green-50 border-green-300':diff<0?'bg-red-50 border-red-300':'bg-blue-50 border-blue-200'}`}>
+              {/* Net diff */}
+              <div className={`rounded-xl p-3 border-2 ${diff>0?'bg-green-50 border-green-300':diff<0?'bg-red-50 border-red-300':'bg-blue-50 border-blue-200'}`}>
                 <div className="flex items-center justify-between">
-                  {diff>0 ? (
-                    <>
-                      <span className="font-bold text-green-700 flex items-center gap-1"><Plus size={14}/>ลูกค้าต้องจ่ายเพิ่ม</span>
-                      <span className="font-bold text-green-700 text-lg">฿{fmt(diff)}</span>
-                    </>
-                  ) : diff<0 ? (
-                    <>
-                      <span className="font-bold text-red-600 flex items-center gap-1"><Minus size={14}/>ร้านต้องจ่ายคืน</span>
-                      <span className="font-bold text-red-600 text-lg">฿{fmt(Math.abs(diff))}</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="font-bold text-blue-600">แลกเท่ากันพอดี</span>
-                      <span className="font-bold text-blue-600 text-lg">฿0</span>
-                    </>
-                  )}
+                  {diff>0
+                    ? <><span className="font-bold text-green-700 flex items-center gap-1"><Plus size={14}/>ลูกค้าต้องจ่ายเพิ่ม</span><span className="font-bold text-green-700 text-lg">฿{fmt(diff)}</span></>
+                    : diff<0
+                      ? <><span className="font-bold text-red-600 flex items-center gap-1"><Minus size={14}/>ร้านต้องจ่ายคืน</span><span className="font-bold text-red-600 text-lg">฿{fmt(Math.abs(diff))}</span></>
+                      : <><span className="font-bold text-blue-600">แลกเท่ากันพอดี</span><span className="font-bold text-blue-600 text-lg">฿0</span></>
+                  }
                 </div>
               </div>
             </div>
@@ -365,7 +374,7 @@ export default function TradeIn() {
           </div>
         )}
 
-        {/* รูปใบเสร็จ */}
+        {/* Receipt images */}
         <div className="card space-y-2">
           <p className="text-sm font-medium text-gray-600">รูปใบเสร็จ / หลักฐาน (ไม่บังคับ)</p>
           <div className="flex gap-2 flex-wrap">
@@ -393,8 +402,7 @@ export default function TradeIn() {
           </div>
         </div>
 
-        <button onClick={doTradeIn}
-          disabled={saving||!selectedOut||!sellPriceA||!tradeForm.model||!tradeForm.serial_number||!tradeForm.buy_price}
+        <button onClick={doTradeIn} disabled={saving||!canSubmit}
           className="btn-primary w-full py-3 text-base flex items-center justify-center gap-2 disabled:opacity-50">
           <ArrowLeftRight size={18}/>
           {saving?'กำลังบันทึก...':'ยืนยันการแลกเปลี่ยน'}
