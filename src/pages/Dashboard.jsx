@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
-import { TrendingUp, TrendingDown, Package, ShoppingBag, Plus, AlertCircle } from 'lucide-react'
+import ThaiDatePicker from '../components/ThaiDatePicker'
+import { TrendingUp, TrendingDown, Package, ShoppingBag, AlertCircle, X } from 'lucide-react'
 
 const fmt = n => Number(n || 0).toLocaleString('th-TH')
-const STATUS_CLASS = { Available: 'badge-available', Reserved: 'badge-reserved', Sold: 'badge-sold' }
 
 export default function Dashboard() {
-  const navigate = useNavigate()
-  const [data, setData]     = useState(null)
+  const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
+  const [dateFrom,setDateFrom]= useState('')
+  const [dateTo,  setDateTo]  = useState('')
+
   const now = new Date()
   const ms  = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
   const me  = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
-  const firstDay = thDateShort(ms)
-  const lastDay  = thDateShort(me)
-  const monthLabel = `${firstDay} — ${lastDay}`
+  const monthLabel = `${thDateShort(ms)} — ${thDateShort(me)}`
 
   useEffect(() => {
     Promise.all([
@@ -39,19 +38,66 @@ export default function Dashboard() {
   if (loading) return <div className="flex justify-center items-center h-64"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
 
   const net = data.income - data.expense
+
   const expiring = data.products.filter(p => {
     if (!p.warranty_expiry || p.status !== 'Sold') return false
     const d = Math.ceil((new Date(p.warranty_expiry) - new Date()) / 86400000)
     return d >= 0 && d <= 3
   })
 
+  // ── Insights ──
+  const soldAll = data.products.filter(p => p.status === 'Sold' && p.sold_date)
+  const filtered = soldAll.filter(p => {
+    if (dateFrom && new Date(p.sold_date) < new Date(dateFrom)) return false
+    if (dateTo   && new Date(p.sold_date) > new Date(dateTo + 'T23:59:59')) return false
+    return true
+  })
+  const withDays = filtered.map(p => ({
+    ...p,
+    days:   Math.max(0, Math.ceil((new Date(p.sold_date) - new Date(p.created_at)) / 86400000)),
+    profit: Number(p.sold_price || 0) - Number(p.total_cost),
+  }))
+  const byModel = {}
+  withDays.forEach(p => {
+    if (!byModel[p.model]) byModel[p.model] = { model: p.model, items: [] }
+    byModel[p.model].items.push(p)
+  })
+  const models = Object.values(byModel).map(g => ({
+    model: g.model, count: g.items.length,
+    avgDays:     Math.round(g.items.reduce((a, p) => a + p.days,   0) / g.items.length),
+    totalProfit: g.items.reduce((a, p) => a + p.profit, 0),
+  }))
+  const hot    = [...models].sort((a, b) => a.avgDays - b.avgDays).slice(0, 5)
+  const profit = [...models].sort((a, b) => b.totalProfit - a.totalProfit).slice(0, 5)
+  const maxDays = Math.max(...hot.map(m => m.avgDays), 1)
+  const maxProf = Math.max(...profit.map(m => m.totalProfit), 1)
+  const avgDays     = withDays.length ? Math.round(withDays.reduce((a, p) => a + p.days, 0) / withDays.length) : 0
+  const totalProfit = withDays.reduce((a, p) => a + p.profit, 0)
+
+  const Bar = ({ items, max, color, valFn }) => items.length
+    ? items.map((m, i) => (
+        <div key={m.model} className="mb-2.5">
+          <div className="flex justify-between text-sm mb-1">
+            <span className="truncate max-w-[70%] font-medium">{i + 1}. {m.model}</span>
+            <span className="text-gray-500 text-xs">{valFn(m)}</span>
+          </div>
+          <div className="h-2 bg-amber-50 rounded-full overflow-hidden">
+            <div className={`h-full rounded-full ${color}`}
+              style={{ width: `${Math.round((m.avgDays != null ? m.avgDays : m.totalProfit) / max * 100)}%` }}/>
+          </div>
+        </div>
+      ))
+    : <p className="text-xs text-gray-400 text-center py-4">ยังไม่มีข้อมูล</p>
+
   return (
     <div className="pb-4">
+      {/* Header */}
       <div className="bg-brand-dark px-4 pt-4 pb-6">
         <p className="text-white/50 text-xs mb-1">สรุปประจำเดือน</p>
         <h2 className="text-brand-yellow font-bold text-xl">{monthLabel}</h2>
       </div>
 
+      {/* Warranty alert */}
       {expiring.length > 0 && (
         <div className="mx-4 mt-3 bg-red-50 border border-red-200 rounded-2xl p-3 flex gap-2">
           <AlertCircle size={18} className="text-brand-red flex-shrink-0 mt-0.5"/>
@@ -65,6 +111,7 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Stats grid */}
       <div className="grid grid-cols-2 gap-3 px-4 mt-4">
         {[
           { label: 'สินค้าพร้อมขาย', value: `${data.avail} ชิ้น`, icon: Package,      color: 'bg-amber-100 text-amber-600' },
@@ -85,6 +132,7 @@ export default function Dashboard() {
         ))}
       </div>
 
+      {/* Net profit */}
       <div className="mx-4 mt-3 card bg-brand-dark text-center">
         <p className="text-white/50 text-xs mb-1">กำไรสุทธิเดือนนี้</p>
         <p className={`text-2xl font-bold ${net >= 0 ? 'text-brand-yellow' : 'text-brand-red'}`}>
@@ -97,9 +145,9 @@ export default function Dashboard() {
         const total = data.stockValue + data.bank + data.cash
         const pct   = v => total > 0 ? (v / total * 100) : 0
         const segments = [
-          { label: 'สต็อกสินค้า',      value: data.stockValue, pct: pct(data.stockValue), color: 'bg-amber-400',  dot: 'bg-amber-400',  text: 'text-amber-600'  },
-          { label: 'ยอดโอน (ธนาคาร)', value: data.bank,       pct: pct(data.bank),       color: 'bg-blue-400',   dot: 'bg-blue-400',   text: 'text-blue-600'   },
-          { label: 'เงินสด',           value: data.cash,       pct: pct(data.cash),       color: 'bg-green-400',  dot: 'bg-green-400',  text: 'text-green-600'  },
+          { label: 'สต็อกสินค้า',      value: data.stockValue, pct: pct(data.stockValue), color: 'bg-amber-400', dot: 'bg-amber-400', text: 'text-amber-600' },
+          { label: 'ยอดโอน (ธนาคาร)', value: data.bank,       pct: pct(data.bank),       color: 'bg-blue-400',  dot: 'bg-blue-400',  text: 'text-blue-600'  },
+          { label: 'เงินสด',           value: data.cash,       pct: pct(data.cash),       color: 'bg-green-400', dot: 'bg-green-400', text: 'text-green-600' },
         ]
         return (
           <div className="mx-4 mt-3 card space-y-3">
@@ -107,29 +155,19 @@ export default function Dashboard() {
               <p className="text-sm font-semibold text-brand-dark">สัดส่วนมูลค่ารวม</p>
               <p className="text-sm font-bold text-brand-dark">฿{fmt(total)}</p>
             </div>
-
-            {/* Stacked bar */}
             <div className="flex h-4 rounded-full overflow-hidden gap-0.5">
               {segments.map(s => s.value > 0 && (
-                <div key={s.label}
-                  className={`${s.color} transition-all`}
-                  style={{ width: `${s.pct}%` }}
-                  title={`${s.label}: ${s.pct.toFixed(1)}%`}
-                />
+                <div key={s.label} className={`${s.color} transition-all`} style={{ width: `${s.pct}%` }}/>
               ))}
               {total === 0 && <div className="bg-gray-100 w-full"/>}
             </div>
-
-            {/* Legend rows */}
             <div className="space-y-2">
               {segments.map(s => (
                 <div key={s.label} className="flex items-center gap-2">
                   <div className={`w-3 h-3 rounded-full flex-shrink-0 ${s.dot}`}/>
                   <p className="text-xs text-gray-500 flex-1">{s.label}</p>
                   <div className="text-right">
-                    <span className={`text-xs font-bold ${s.text}`}>
-                      {s.pct.toFixed(1)}%
-                    </span>
+                    <span className={`text-xs font-bold ${s.text}`}>{s.pct.toFixed(1)}%</span>
                     <span className="text-xs text-gray-400 ml-2">฿{fmt(s.value)}</span>
                   </div>
                 </div>
@@ -139,29 +177,53 @@ export default function Dashboard() {
         )
       })()}
 
-      <div className="px-4 mt-3">
-        <button onClick={() => navigate('/inventory/add')} className="btn-primary w-full flex items-center justify-center gap-2 py-3">
-          <Plus size={18}/>รับสินค้าเข้าสต็อก
-        </button>
-      </div>
+      {/* ── Insights ── */}
+      <div className="px-4 mt-5 space-y-3">
+        <h3 className="font-bold text-brand-dark text-lg">สถิติร้าน</h3>
 
-      <div className="px-4 mt-5">
-        <h3 className="font-semibold text-brand-dark mb-2">สินค้าพร้อมขายล่าสุด</h3>
-        <div className="space-y-2">
-          {data.products.filter(p => p.status === 'Available').slice(0, 5).map(p => (
-            <div key={p.id} onClick={() => navigate(`/inventory/${p.id}`)}
-              className="card flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform">
-              {p.images?.[0]
-                ? <img src={p.images[0]} className="w-14 h-14 rounded-xl object-cover flex-shrink-0"/>
-                : <div className="w-14 h-14 rounded-xl bg-amber-100 flex items-center justify-center text-2xl flex-shrink-0">📷</div>}
-              <div className="flex-1 min-w-0">
-                <p className="font-semibold text-sm truncate">{p.model}</p>
-                <p className="text-xs text-gray-400">SN: {p.serial_number}</p>
-                <p className="text-xs text-gray-500 mt-0.5">ต้นทุน ฿{fmt(p.total_cost)}</p>
-              </div>
-              <span className={STATUS_CLASS[p.status]+' badge'}>เกรด {p.condition}</span>
-            </div>
-          ))}
+        {/* Date filter */}
+        <div className="card">
+          <p className="text-xs text-gray-500 mb-2 font-medium">กรองตามช่วงวันที่ขาย</p>
+          <div className="flex gap-2 items-center">
+            <ThaiDatePicker value={dateFrom} onChange={setDateFrom} className="input flex-1 text-sm py-1.5"/>
+            <span className="text-gray-400 text-sm">—</span>
+            <ThaiDatePicker value={dateTo}   onChange={setDateTo}   className="input flex-1 text-sm py-1.5"/>
+            {(dateFrom || dateTo) && (
+              <button onClick={() => { setDateFrom(''); setDateTo('') }} className="text-gray-400 p-1">
+                <X size={16}/>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* Summary stats */}
+        <div className="grid grid-cols-2 gap-3">
+          <div className="card text-center">
+            <p className="text-3xl font-bold text-brand-yellow">{filtered.length}</p>
+            <p className="text-xs text-gray-400 mt-1">ขายแล้ว</p>
+          </div>
+          <div className="card text-center">
+            <p className="text-3xl font-bold text-brand-yellow">{avgDays}</p>
+            <p className="text-xs text-gray-400 mt-1">เฉลี่ยวันในสต็อก</p>
+          </div>
+          <div className="card text-center col-span-2">
+            <p className={`text-2xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+              {totalProfit >= 0 ? '+' : ''}฿{fmt(totalProfit)}
+            </p>
+            <p className="text-xs text-gray-400 mt-1">กำไรรวมในช่วงนี้</p>
+          </div>
+        </div>
+
+        {/* Hot Items */}
+        <div className="card">
+          <div className="flex items-center gap-2 mb-3"><span>⚡</span><h2 className="font-semibold">Hot Items — ออกไวที่สุด</h2></div>
+          <Bar items={hot} max={maxDays} color="bg-brand-yellow" valFn={m => `${m.avgDays} วัน (${m.count} ชิ้น)`}/>
+        </div>
+
+        {/* Profit Leader */}
+        <div className="card">
+          <div className="flex items-center gap-2 mb-3"><span>📈</span><h2 className="font-semibold">Profit Leader — กำไรสูงสุด</h2></div>
+          <Bar items={profit} max={maxProf} color="bg-green-400" valFn={m => `฿${fmt(m.totalProfit)}`}/>
         </div>
       </div>
     </div>

@@ -9,7 +9,6 @@ import ProductDetail from './pages/ProductDetail'
 import AddProduct    from './pages/AddProduct'
 import Finance       from './pages/Finance'
 import Export        from './pages/Export'
-import Insights      from './pages/Insights'
 import Import        from './pages/Import'
 import TradeIn       from './pages/TradeIn'
 
@@ -37,7 +36,6 @@ export default function App() {
           <Route path="inventory/:id" element={<ProductDetail/>}/>
           <Route path="finance" element={<Finance/>}/>
           <Route path="export" element={<Export/>}/>
-          <Route path="insights" element={<Insights/>}/>
           <Route path="import" element={<Import/>}/>
           <Route path="tradein" element={<TradeIn/>}/>
         </Route>
