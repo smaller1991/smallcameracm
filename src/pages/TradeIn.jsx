@@ -1,4 +1,4 @@
-﻿import { useState } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { toLocal } from '../lib/dateUtils'
@@ -42,7 +42,7 @@ export default function TradeIn() {
     setProducts(data||[])
     setLoadingList(false)
   }
-  useState(()=>{ loadProducts() },[])
+  useEffect(()=>{ loadProducts() },[])
 
   // A: กำไรจาก A = ราคาขาย - total_cost
   const totalCostA = Number(selectedOut?.total_cost || 0)
@@ -118,7 +118,6 @@ export default function TradeIn() {
         payment_method: payMethod,
         note:           tradeNote,
         trade_sell_a:   sellA,
-        trade_buy_b:    buyB,
         trade_profit_a: profitA,
       }).select().single()
       if (eTx) throw eTx
