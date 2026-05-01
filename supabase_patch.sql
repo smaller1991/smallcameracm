@@ -16,6 +16,14 @@ DROP FUNCTION IF EXISTS auto_tx_sold();
 DROP TRIGGER IF EXISTS trg_auto_tx_accessory_insert ON accessories;
 DROP FUNCTION IF EXISTS auto_tx_accessory_insert();
 
+-- trigger บน accessories ที่อัปเดต total_cost ไม่ถูกต้อง → JS จัดการเองแล้ว
+DROP TRIGGER IF EXISTS trg_update_total_cost_on_acc_insert ON accessories;
+DROP TRIGGER IF EXISTS trg_update_total_cost_on_acc_delete ON accessories;
+DROP TRIGGER IF EXISTS trg_sync_acc_cost ON accessories;
+DROP FUNCTION IF EXISTS update_total_cost_on_acc_insert();
+DROP FUNCTION IF EXISTS update_total_cost_on_acc_delete();
+DROP FUNCTION IF EXISTS sync_acc_cost();
+
 -- ===== เพิ่ม column ที่ขาดใน transactions =====
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS payment_method TEXT;
 ALTER TABLE transactions ADD COLUMN IF NOT EXISTS images         TEXT[] DEFAULT '{}';

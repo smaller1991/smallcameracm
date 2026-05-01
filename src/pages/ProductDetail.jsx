@@ -36,6 +36,8 @@ export default function ProductDetail() {
   const [accName,      setAccName]      = useState('')
   const [accCost,      setAccCost]      = useState('')
   const [accPayMethod, setAccPayMethod] = useState('โอน')
+  const [accImgFiles,  setAccImgFiles]  = useState([])
+  const [accImgPrev,   setAccImgPrev]   = useState([])
 
   // edit images
   const [editNewFiles,    setEditNewFiles]    = useState([])
@@ -98,13 +100,24 @@ export default function ProductDetail() {
       const {error} = await supabase.from('accessories').insert({ product_id:id, name:accName, cost })
       if (error) throw error
 
+      // อัปเดต total_cost = base_cost + ทุก accessory (override trigger ที่อาจผิดพลาด)
+      const newAccSum = accs.reduce((s,a) => s + Number(a.cost), 0) + cost
+      await supabase.from('products').update({ total_cost: Number(product.base_cost) + newAccSum }).eq('id', id)
+
       // สร้าง transaction Expense / Add-on
-      await supabase.from('transactions').insert({
+      const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         type: 'Expense', category: 'Add-on', amount: cost,
         product_id: id, payment_method: accPayMethod,
         date: new Date().toISOString(),
         note: `Add-on: ${accName} — ${product.model} SN:${product.serial_number}`,
-      })
+      }).select().single()
+      if (txErr) throw txErr
+
+      // upload รูปใบเสร็จ
+      if (accImgFiles.length && newTx) {
+        const urls = await uploadReceiptImages(supabase, newTx.id, accImgFiles)
+        await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
+      }
 
       // หักยอด balance
       const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
@@ -117,6 +130,7 @@ export default function ProductDetail() {
 
       toast.success(`เพิ่ม Add-on แล้ว — หัก ${accPayMethod} ฿${cost.toLocaleString('th-TH')}`)
       setAccName(''); setAccCost(''); setAccPayMethod('โอน')
+      setAccImgFiles([]); setAccImgPrev([])
       setAddAcc(false); load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
@@ -124,6 +138,10 @@ export default function ProductDetail() {
   const deleteAcc = async (acc) => {
     if (!confirm('ลบ "'+acc.name+'"?')) return
     await supabase.from('accessories').delete().eq('id',acc.id)
+    // อัปเดต total_cost = base_cost + accessory ที่เหลือ (override trigger ที่อาจผิดพลาด)
+    const remaining = accs.filter(a => a.id !== acc.id)
+    const remainSum = remaining.reduce((s,a) => s + Number(a.cost), 0)
+    await supabase.from('products').update({ total_cost: Number(product.base_cost) + remainSum }).eq('id', id)
     toast.success('ลบแล้ว'); load()
   }
 
@@ -434,11 +452,37 @@ export default function ProductDetail() {
                   ))}
                 </div>
               </div>
+              <div>
+                <p className="text-xs text-gray-500 mb-1">รูปใบเสร็จ (ไม่บังคับ)</p>
+                <div className="flex gap-2 flex-wrap">
+                  {accImgPrev.map((src,i)=>(
+                    <div key={i} className="relative w-14 h-14 rounded-xl overflow-hidden border border-amber-200 flex-shrink-0">
+                      <img src={src} className="w-full h-full object-cover"/>
+                      <button onClick={()=>{
+                        URL.revokeObjectURL(accImgPrev[i])
+                        setAccImgFiles(f=>f.filter((_,j)=>j!==i))
+                        setAccImgPrev(p=>p.filter((_,j)=>j!==i))
+                      }} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                        <X size={9} className="text-white"/>
+                      </button>
+                    </div>
+                  ))}
+                  <label className="w-14 h-14 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
+                    <ImagePlus size={14} className="text-amber-400"/>
+                    <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={e=>{
+                      const files = Array.from(e.target.files)
+                      setAccImgFiles(p=>[...p,...files])
+                      setAccImgPrev(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
+                    }}/>
+                  </label>
+                </div>
+              </div>
               <div className="flex gap-2 mt-2">
                 <button onClick={saveAcc} disabled={saving} className="btn-primary flex-1 py-2 text-sm">
                   {saving?'...':'บันทึก'}
                 </button>
-                <button onClick={()=>{setAddAcc(false);setAccPayMethod('โอน')}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
+                <button onClick={()=>{setAddAcc(false);setAccPayMethod('โอน');setAccImgFiles([]);setAccImgPrev([])}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
               </div>
             </div>
           )}
