@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { toLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, Search, ArrowLeftRight, Plus, Minus } from 'lucide-react'
+import { ChevronLeft, Search, ArrowLeftRight, Plus, Minus, ImagePlus, X } from 'lucide-react'
+import { uploadReceiptImages } from '../lib/imageUtils'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
@@ -30,6 +31,8 @@ export default function TradeIn() {
   const [tradeDate, setTradeDate] = useState(nowLocal())
   const [payMethod, setPayMethod] = useState('โอน')
   const [saving,    setSaving]    = useState(false)
+  const [imgFiles,  setImgFiles]  = useState([])
+  const [imgPrev,   setImgPrev]   = useState([])
 
   const loadProducts = async (q='') => {
     setLoadingList(true)
@@ -106,19 +109,25 @@ export default function TradeIn() {
 
       // ── 3. Transaction รวมอันเดียว สีน้ำเงิน (category='Trade') ──
 
-      await supabase.from('transactions').insert({
+      const { data: tradeTx, error: eTx } = await supabase.from('transactions').insert({
         date:           now,
         type:           diff >= 0 ? 'Income' : 'Expense',
         category:       'Trade',
-        amount:         Math.abs(diff) || sellA, // ถ้าเท่ากันพอดีให้บันทึกยอดขาย A
+        amount:         Math.abs(diff) || sellA,
         product_id:     selectedOut.id,
         payment_method: payMethod,
         note:           tradeNote,
-        // เก็บ sold_price A และ buy_price B ไว้สำหรับคำนวณกำไร
         trade_sell_a:   sellA,
         trade_buy_b:    buyB,
         trade_profit_a: profitA,
-      })
+      }).select().single()
+      if (eTx) throw eTx
+
+      // upload รูปใบเสร็จ
+      if (imgFiles.length && tradeTx) {
+        const urls = await uploadReceiptImages(supabase, tradeTx.id, imgFiles)
+        await supabase.from('transactions').update({ images: urls }).eq('id', tradeTx.id)
+      }
 
       // ── 4. อัปเดต balance ──
       // รับเงินจากการขาย A เต็มจำนวน แล้วหัก B (ถ้าร้านจ่ายเพิ่ม)
@@ -356,6 +365,34 @@ export default function TradeIn() {
             )}
           </div>
         )}
+
+        {/* รูปใบเสร็จ */}
+        <div className="card space-y-2">
+          <p className="text-sm font-medium text-gray-600">รูปใบเสร็จ / หลักฐาน (ไม่บังคับ)</p>
+          <div className="flex gap-2 flex-wrap">
+            {imgPrev.map((src,i)=>(
+              <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-amber-200 flex-shrink-0">
+                <img src={src} className="w-full h-full object-cover"/>
+                <button onClick={()=>{
+                  URL.revokeObjectURL(imgPrev[i])
+                  setImgFiles(f=>f.filter((_,j)=>j!==i))
+                  setImgPrev(p=>p.filter((_,j)=>j!==i))
+                }} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                  <X size={10} className="text-white"/>
+                </button>
+              </div>
+            ))}
+            <label className="w-16 h-16 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
+              <ImagePlus size={16} className="text-amber-400"/>
+              <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
+              <input type="file" multiple accept="image/*" className="hidden" onChange={e=>{
+                const files = Array.from(e.target.files)
+                setImgFiles(p=>[...p,...files])
+                setImgPrev(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
+              }}/>
+            </label>
+          </div>
+        </div>
 
         <button onClick={doTradeIn}
           disabled={saving||!selectedOut||!sellPriceA||!tradeForm.model||!tradeForm.serial_number||!tradeForm.buy_price}
