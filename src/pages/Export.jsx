@@ -449,8 +449,16 @@ function exportTransactionsPDF(txs, from, to) {
   if (!filtered.length) return alert('ไม่มีข้อมูล')
   const totalIncome  = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const totalExpense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
+  const popupCounted = new Set()
   const plValues = filtered.map(t=>{
-    if (t.category==='Sale'&&t.products?.total_cost!=null) return Number(t.amount)-Number(t.products.total_cost)
+    if (t.category==='Sale'&&t.products?.total_cost!=null) {
+      if (!t.products?.installment_total) return Number(t.amount)-Number(t.products.total_cost)
+      if (t.products?.status==='Sold'&&!popupCounted.has(t.product_id)) {
+        popupCounted.add(t.product_id)
+        return Number(t.products.installment_total)-Number(t.products.total_cost)
+      }
+      return null
+    }
     if (t.category==='Trade'&&t.trade_profit_a!=null) return Number(t.trade_profit_a)
     return null
   })
