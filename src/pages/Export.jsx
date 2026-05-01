@@ -73,7 +73,10 @@ export default function Export() {
     try {
       const {data} = await supabase.from('products').select('*').order('created_at',{ascending:false})
       if (withImages) {
-        await exportInventoryWithImages(data||[], invFilter, invFmt, (done,total)=>setImgProgress({done,total}))
+        const {data: txData} = await supabase.from('transactions')
+          .select('id,product_id,date,category,amount,images')
+          .not('images', 'is', null)
+        await exportInventoryWithImages(data||[], txData||[], invFilter, invFmt, (done,total)=>setImgProgress({done,total}))
       } else if (invFmt==='xlsx') {
         exportInventory(data||[], invFilter)
       } else {

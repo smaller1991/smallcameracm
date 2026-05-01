@@ -220,7 +220,7 @@ async function buildTransactionsPDF(filtered) {
 }
 
 // ─── Export Inventory + Images as ZIP ────────────────────────
-export async function exportInventoryWithImages(products, statusFilter = 'all', format = 'xlsx', onProgress) {
+export async function exportInventoryWithImages(products, transactions = [], statusFilter = 'all', format = 'xlsx', onProgress) {
   const filtered = products.filter(p => statusFilter === 'all' || p.status === statusFilter)
   if (!filtered.length) { alert('ไม่มีข้อมูล'); return }
 
@@ -256,7 +256,12 @@ export async function exportInventoryWithImages(products, statusFilter = 'all', 
 
   // Images — group by day folder
   const imgRoot = zip.folder('รูปภาพ')
-  const total = filtered.reduce((a, p) => a + (p.images?.length || 0), 0)
+  const productIds = new Set(filtered.map(p => p.id))
+  const productModelMap = new Map(filtered.map(p => [p.id, p.model]))
+  const filteredTxs = (transactions || []).filter(t => t.product_id && productIds.has(t.product_id) && t.images?.length)
+  const totalProduct = filtered.reduce((a, p) => a + (p.images?.length || 0), 0)
+  const totalReceipt = filteredTxs.reduce((a, t) => a + (t.images?.length || 0), 0)
+  const grandTotal = totalProduct + totalReceipt
   let done = 0
 
   for (const p of filtered) {
@@ -281,7 +286,28 @@ export async function exportInventoryWithImages(products, statusFilter = 'all', 
         dayFolder.file(fname, buf)
       } catch { /* skip inaccessible image */ }
       done++
-      onProgress?.(done, total)
+      onProgress?.(done, grandTotal)
+    }
+  }
+
+  // Receipt images — grouped by day folder
+  if (filteredTxs.length) {
+    const receiptRoot = zip.folder('รูปใบเสร็จ')
+    for (const t of filteredTxs) {
+      const dayKey    = new Date(t.date).toISOString().slice(0, 10)
+      const dayFolder = receiptRoot.folder(dayKey)
+      const dateStr   = dayKey.replace(/-/g, '')
+      const label     = safeStr(productModelMap.get(t.product_id) || t.category || '')
+      for (let i = 0; i < t.images.length; i++) {
+        try {
+          const res = await fetch(t.images[i])
+          const buf = await res.arrayBuffer()
+          const ext = (t.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
+          dayFolder.file(`${label}_${dateStr}_${Number(t.amount).toLocaleString('th-TH')}_${i + 1}.${ext}`, buf)
+        } catch { /* skip */ }
+        done++
+        onProgress?.(done, grandTotal)
+      }
     }
   }
 
