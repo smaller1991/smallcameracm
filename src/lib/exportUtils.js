@@ -130,7 +130,7 @@ async function buildInventoryPDF(filtered) {
   doc.setFontSize(8); doc.setTextColor(170, 170, 170)
   doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 14, 20)
 
-  const head = [['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','หมายเหตุ']]
+  const head = [['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ']]
   const body = filtered.map(p => {
     const profit = p.sold_price ? Number(p.sold_price) - Number(p.total_cost) : ''
     return [
@@ -140,20 +140,21 @@ async function buildInventoryPDF(filtered) {
       p.sold_price ? Number(p.sold_price).toLocaleString('th-TH') : '',
       profit !== '' ? profit.toLocaleString('th-TH') : '',
       thDate(p.created_at), thDate(p.sold_date),
-      p.notes || '',
+      p.customer_note || '', p.notes || '',
     ]
   })
 
   autoTable(doc, {
     head, body, startY: 24,
-    styles:             { font: 'Sarabun', fontSize: 9, cellPadding: 2.5 },
+    styles:             { font: 'Sarabun', fontSize: 8, cellPadding: 2 },
     headStyles:         { fillColor: [26, 18, 8], textColor: [255, 184, 56], fontStyle: 'normal' },
     alternateRowStyles: { fillColor: [255, 251, 240] },
     columnStyles: {
-      0: { cellWidth: 34 }, 1: { cellWidth: 24 }, 2: { cellWidth: 20 },
-      3: { cellWidth: 12, halign: 'center' }, 4: { cellWidth: 20 },
-      5: { cellWidth: 22, halign: 'right' }, 6: { cellWidth: 20, halign: 'right' },
-      7: { cellWidth: 20, halign: 'right' }, 8: { cellWidth: 30 }, 9: { cellWidth: 30 },
+      0: { cellWidth: 30 }, 1: { cellWidth: 22 }, 2: { cellWidth: 18 },
+      3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 18 },
+      5: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 18, halign: 'right' },
+      7: { cellWidth: 18, halign: 'right' }, 8: { cellWidth: 26 }, 9: { cellWidth: 26 },
+      10: { cellWidth: 30 },
     },
     margin: { left: 14, right: 14 },
   })
@@ -169,7 +170,7 @@ async function buildTransactionsPDF(filtered) {
   doc.setFontSize(8); doc.setTextColor(170, 170, 170)
   doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 14, 20)
 
-  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','หมายเหตุ']]
+  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','รายละเอียดลูกค้า','หมายเหตุ']]
   const plValues = []
   const body = filtered.map(t => {
     let pl = ''
@@ -187,6 +188,7 @@ async function buildTransactionsPDF(filtered) {
       t.type === 'Expense' ? Number(t.amount).toLocaleString('th-TH') : '',
       pl !== '' ? pl.toLocaleString('th-TH') : '',
       t.products?.model || '',
+      t.category === 'Sale' ? (t.products?.customer_note || '') : '',
       t.note || '',
     ]
   })
@@ -197,10 +199,10 @@ async function buildTransactionsPDF(filtered) {
     headStyles:         { fillColor: [26, 18, 8], textColor: [255, 184, 56], fontStyle: 'normal' },
     alternateRowStyles: { fillColor: [255, 251, 240] },
     columnStyles: {
-      0: { cellWidth: 34 }, 1: { cellWidth: 16 }, 2: { cellWidth: 20 },
-      3: { cellWidth: 22, halign: 'right' }, 4: { cellWidth: 22, halign: 'right' },
-      5: { cellWidth: 22, halign: 'right' }, 6: { cellWidth: 24, halign: 'right' },
-      7: { cellWidth: 34 },
+      0: { cellWidth: 30 }, 1: { cellWidth: 14 }, 2: { cellWidth: 18 },
+      3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' },
+      5: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 22, halign: 'right' },
+      7: { cellWidth: 28 }, 8: { cellWidth: 30 },
     },
     margin: { left: 14, right: 14 },
   })
