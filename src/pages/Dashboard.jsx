@@ -2,29 +2,34 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { TrendingUp, TrendingDown, Package, ShoppingBag, AlertCircle, X } from 'lucide-react'
+import { TrendingUp, TrendingDown, Package, ShoppingBag, AlertCircle, X, ChevronLeft, ChevronRight } from 'lucide-react'
 
 const fmt = n => Number(n || 0).toLocaleString('th-TH')
 
 export default function Dashboard() {
-  const [data,    setData]    = useState(null)
-  const [loading, setLoading] = useState(true)
-  const [dateFrom,setDateFrom]= useState('')
-  const [dateTo,  setDateTo]  = useState('')
+  const [data,        setData]        = useState(null)
+  const [loading,     setLoading]     = useState(true)
+  const [monthOffset, setMonthOffset] = useState(0)  // 0 = current, -1 = last month, ...
+  const [dateFrom,    setDateFrom]    = useState('')
+  const [dateTo,      setDateTo]      = useState('')
 
-  const now = new Date()
-  const ms  = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
-  const me  = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString()
+  const now    = new Date()
+  const ms     = new Date(now.getFullYear(), now.getMonth() + monthOffset, 1).toISOString()
+  const me     = new Date(now.getFullYear(), now.getMonth() + monthOffset + 1, 0, 23, 59, 59).toISOString()
   const monthLabel = `${thDateShort(ms)} — ${thDateShort(me)}`
 
   useEffect(() => {
+    setLoading(true)
+    const _now = new Date()
+    const _ms  = new Date(_now.getFullYear(), _now.getMonth() + monthOffset, 1).toISOString()
+    const _me  = new Date(_now.getFullYear(), _now.getMonth() + monthOffset + 1, 0, 23, 59, 59).toISOString()
     Promise.all([
       supabase.from('products').select('*').order('created_at', { ascending: false }),
-      supabase.from('transactions').select('*').gte('date', ms).lte('date', me),
+      supabase.from('transactions').select('*').gte('date', _ms).lte('date', _me),
       supabase.from('balances').select('*').eq('id', 'main').single(),
     ]).then(([{ data: products }, { data: txs }, { data: bal }]) => {
       const avail      = products?.filter(p => p.status === 'Available').length ?? 0
-      const soldM      = products?.filter(p => p.status === 'Sold' && p.sold_date >= ms).length ?? 0
+      const soldM      = products?.filter(p => p.sold_date && p.sold_date >= _ms && p.sold_date <= _me).length ?? 0
       const income     = txs?.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0) ?? 0
       const expense    = txs?.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0) ?? 0
       const stockValue = (products || []).filter(p => p.status === 'Available' || p.status === 'Reserved').reduce((a, p) => a + Number(p.total_cost || 0), 0)
@@ -33,7 +38,7 @@ export default function Dashboard() {
       setData({ avail, soldM, income, expense, products: products || [], stockValue, bank, cash })
       setLoading(false)
     })
-  }, [])
+  }, [monthOffset])
 
   if (loading) return <div className="flex justify-center items-center h-64"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
 
@@ -94,7 +99,24 @@ export default function Dashboard() {
       {/* Header */}
       <div className="bg-brand-dark px-4 pt-4 pb-6">
         <p className="text-white/50 text-xs mb-1">สรุปประจำเดือน</p>
-        <h2 className="text-brand-yellow font-bold text-xl">{monthLabel}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <button onClick={() => setMonthOffset(o => o - 1)}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-brand-yellow hover:bg-white/10 transition-all active:scale-90">
+            <ChevronLeft size={20}/>
+          </button>
+          <h2 className="text-brand-yellow font-bold text-lg text-center flex-1">{monthLabel}</h2>
+          <button onClick={() => setMonthOffset(o => o + 1)}
+            disabled={monthOffset >= 0}
+            className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-brand-yellow hover:bg-white/10 transition-all active:scale-90 disabled:opacity-20 disabled:pointer-events-none">
+            <ChevronRight size={20}/>
+          </button>
+        </div>
+        {monthOffset < 0 && (
+          <button onClick={() => setMonthOffset(0)}
+            className="mt-2 mx-auto block text-xs text-white/40 hover:text-brand-yellow transition-colors">
+            กลับเดือนปัจจุบัน
+          </button>
+        )}
       </div>
 
       {/* Warranty alert */}
@@ -116,8 +138,8 @@ export default function Dashboard() {
         {[
           { label: 'สินค้าพร้อมขาย', value: `${data.avail} ชิ้น`, icon: Package,      color: 'bg-amber-100 text-amber-600' },
           { label: 'ขายแล้วเดือนนี้', value: `${data.soldM} ชิ้น`, icon: ShoppingBag,  color: 'bg-rose-100 text-rose-600' },
-          { label: 'รายรับ',          value: `฿${fmt(data.income)}`,  icon: TrendingUp,   color: 'bg-green-100 text-green-600', sub: 'เดือนนี้' },
-          { label: 'รายจ่าย',         value: `฿${fmt(data.expense)}`, icon: TrendingDown, color: 'bg-red-100 text-red-500',   sub: 'เดือนนี้' },
+          { label: 'รายรับ',          value: `฿${fmt(data.income)}`,  icon: TrendingUp,   color: 'bg-green-100 text-green-600', sub: monthOffset === 0 ? 'เดือนนี้' : 'เดือนนั้น' },
+          { label: 'รายจ่าย',         value: `฿${fmt(data.expense)}`, icon: TrendingDown, color: 'bg-red-100 text-red-500',   sub: monthOffset === 0 ? 'เดือนนี้' : 'เดือนนั้น' },
         ].map(({ label, value, icon: Icon, color, sub }) => (
           <div key={label} className="card flex items-start gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 ${color}`}>
@@ -134,7 +156,7 @@ export default function Dashboard() {
 
       {/* Net profit */}
       <div className="mx-4 mt-3 card bg-brand-dark text-center">
-        <p className="text-white/50 text-xs mb-1">กำไรสุทธิเดือนนี้</p>
+        <p className="text-white/50 text-xs mb-1">{monthOffset === 0 ? 'กำไรสุทธิเดือนนี้' : 'กำไรสุทธิเดือนนั้น'}</p>
         <p className={`text-2xl font-bold ${net >= 0 ? 'text-brand-yellow' : 'text-brand-red'}`}>
           {net >= 0 ? '+' : ''}฿{fmt(net)}
         </p>
