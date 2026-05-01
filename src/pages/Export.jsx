@@ -90,7 +90,7 @@ export default function Export() {
   const doExportTx = async () => {
     setBusy(true); setTxImgProgress(null)
     try {
-      const {data} = await supabase.from('transactions').select('*,products(model,category,total_cost,customer_note,images,created_at,sold_date,serial_number)').order('date',{ascending:false})
+      const {data} = await supabase.from('transactions').select('*,products(model,category,total_cost,customer_note,images,created_at,sold_date,serial_number,installment_total,status)').order('date',{ascending:false})
       if (withTxImages) {
         await exportTransactionsWithImages(data||[], from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}))
       } else if (txFmt==='xlsx') {

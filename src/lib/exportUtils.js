@@ -76,12 +76,19 @@ export function exportTransactions(transactions, from, to) {
   const totalIncome  = filtered.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0)
   const totalExpense = filtered.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0)
 
+  const countedInstall = new Set()
   const rows = filtered.map(t => {
     let pl = ''
-    if (t.category === 'Sale' && t.products?.total_cost != null)
-      pl = Number(t.amount) - Number(t.products.total_cost)
-    else if (t.category === 'Trade' && t.trade_profit_a != null)
+    if (t.category === 'Sale' && t.products?.total_cost != null) {
+      if (!t.products?.installment_total) {
+        pl = Number(t.amount) - Number(t.products.total_cost)
+      } else if (t.products?.status === 'Sold' && !countedInstall.has(t.product_id)) {
+        pl = Number(t.products.installment_total) - Number(t.products.total_cost)
+        countedInstall.add(t.product_id)
+      }
+    } else if (t.category === 'Trade' && t.trade_profit_a != null) {
       pl = Number(t.trade_profit_a)
+    }
     return {
       'วันที่':        thDate(t.date),
       'ประเภท':       t.type === 'Income' ? 'รายรับ' : 'รายจ่าย',
@@ -172,12 +179,19 @@ async function buildTransactionsPDF(filtered) {
 
   const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','รายละเอียดลูกค้า','หมายเหตุ']]
   const plValues = []
+  const pdfCountedInstall = new Set()
   const body = filtered.map(t => {
     let pl = ''
-    if (t.category === 'Sale' && t.products?.total_cost != null)
-      pl = Number(t.amount) - Number(t.products.total_cost)
-    else if (t.category === 'Trade' && t.trade_profit_a != null)
+    if (t.category === 'Sale' && t.products?.total_cost != null) {
+      if (!t.products?.installment_total) {
+        pl = Number(t.amount) - Number(t.products.total_cost)
+      } else if (t.products?.status === 'Sold' && !pdfCountedInstall.has(t.product_id)) {
+        pl = Number(t.products.installment_total) - Number(t.products.total_cost)
+        pdfCountedInstall.add(t.product_id)
+      }
+    } else if (t.category === 'Trade' && t.trade_profit_a != null) {
       pl = Number(t.trade_profit_a)
+    }
     plValues.push(pl)
     return [
       thDate(t.date),
@@ -333,12 +347,19 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
   const s   = stamp()
 
   if (format === 'xlsx') {
+    const zipCountedInstall = new Set()
     const rows = filtered.map(t => {
       let pl = ''
-      if (t.category === 'Sale' && t.products?.total_cost != null)
-        pl = Number(t.amount) - Number(t.products.total_cost)
-      else if (t.category === 'Trade' && t.trade_profit_a != null)
+      if (t.category === 'Sale' && t.products?.total_cost != null) {
+        if (!t.products?.installment_total) {
+          pl = Number(t.amount) - Number(t.products.total_cost)
+        } else if (t.products?.status === 'Sold' && !zipCountedInstall.has(t.product_id)) {
+          pl = Number(t.products.installment_total) - Number(t.products.total_cost)
+          zipCountedInstall.add(t.product_id)
+        }
+      } else if (t.category === 'Trade' && t.trade_profit_a != null) {
         pl = Number(t.trade_profit_a)
+      }
       return {
         'วันที่':            thDate(t.date),
         'ประเภท':           t.type === 'Income' ? 'รายรับ' : 'รายจ่าย',
