@@ -2,7 +2,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
-import { toLocal } from '../lib/dateUtils'
+import { toLocal, thDateShort } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -43,7 +43,7 @@ export default function ProductDetail() {
   const [editNewFiles,    setEditNewFiles]    = useState([])
   const [editNewPreviews, setEditNewPreviews] = useState([])
   const [removedUrls,     setRemovedUrls]     = useState([])
-  const [txImages,        setTxImages]        = useState([])
+  const [txList,          setTxList]          = useState([])
   const [lightboxImg,     setLightboxImg]     = useState(null)
 
   // sell
@@ -62,7 +62,7 @@ export default function ProductDetail() {
       supabase.from('transactions').select('id,category,images,date').eq('product_id',id).order('date'),
     ])
     setProduct(p); setAccs(a||[])
-    setTxImages((txs||[]).flatMap(t => t.images || []))
+    setTxList(txs||[])
     setEf({model:p.model, serial_number:p.serial_number, condition:p.condition,
            base_cost:p.base_cost, status:p.status, notes:p.notes||'',
            category:p.category||'กล้อง', created_at:toLocal(p.created_at),
@@ -143,6 +143,26 @@ export default function ProductDetail() {
     const remainSum = remaining.reduce((s,a) => s + Number(a.cost), 0)
     await supabase.from('products').update({ total_cost: Number(product.base_cost) + remainSum }).eq('id', id)
     toast.success('ลบแล้ว'); load()
+  }
+
+  // ─── receipt images per transaction ───────────────────────
+  const deleteReceiptImg = async (txId, url) => {
+    const path = url.split('/receipt-images/')[1]
+    if (path) await supabase.storage.from('receipt-images').remove([decodeURIComponent(path)])
+    const tx = txList.find(t => t.id === txId)
+    const newImgs = (tx?.images||[]).filter(u => u !== url)
+    await supabase.from('transactions').update({images: newImgs}).eq('id', txId)
+    setTxList(prev => prev.map(t => t.id === txId ? {...t, images: newImgs} : t))
+  }
+  const addImgsToTx = async (txId, files) => {
+    if (!files.length) return
+    try {
+      const urls = await uploadReceiptImages(supabase, txId, files)
+      const tx = txList.find(t => t.id === txId)
+      const newImgs = [...(tx?.images||[]), ...urls]
+      await supabase.from('transactions').update({images: newImgs}).eq('id', txId)
+      setTxList(prev => prev.map(t => t.id === txId ? {...t, images: newImgs} : t))
+    } catch(e) { toast.error(e.message) }
   }
 
   // ─── sell ──────────────────────────────────────────────────
@@ -413,16 +433,32 @@ export default function ProductDetail() {
           )}
         </div>
 
-        {/* Images */}
-        {txImages.length > 0 && (
-          <div className="card">
-            <h3 className="font-semibold text-sm mb-2">รูปภาพ ({txImages.length})</h3>
-            <div className="flex gap-2 overflow-x-auto pb-1 swipe-gallery">
-              {txImages.map((url,i)=>(
-                <img key={i} src={url} onClick={()=>setLightboxImg(url)}
-                  className="w-20 h-20 rounded-xl object-cover flex-shrink-0 cursor-zoom-in active:scale-95 transition-transform"/>
-              ))}
-            </div>
+        {/* Images — per transaction */}
+        {txList.length > 0 && (
+          <div className="card space-y-3">
+            <h3 className="font-semibold text-sm">รูปใบเสร็จ</h3>
+            {txList.map(t => (
+              <div key={t.id}>
+                <p className="text-xs text-gray-400 font-medium mb-1.5">{t.category} — {thDateShort(t.date)}</p>
+                <div className="flex gap-2 overflow-x-auto pb-1">
+                  {(t.images||[]).map((url, i) => (
+                    <div key={i} className="relative flex-shrink-0">
+                      <img src={url} onClick={()=>setLightboxImg(url)}
+                        className="w-20 h-20 rounded-xl object-cover cursor-zoom-in active:scale-95 transition-transform"/>
+                      <button onClick={()=>deleteReceiptImg(t.id, url)}
+                        className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                        <X size={10} className="text-white"/>
+                      </button>
+                    </div>
+                  ))}
+                  <label className="w-20 h-20 rounded-xl border-2 border-dashed border-amber-300 flex flex-col items-center justify-center cursor-pointer hover:border-brand-yellow flex-shrink-0">
+                    <ImagePlus size={14} className="text-amber-400"/>
+                    <span className="text-xs text-amber-400 mt-0.5">เพิ่ม</span>
+                    <input type="file" multiple accept="image/*" className="hidden" onChange={e=>addImgsToTx(t.id, Array.from(e.target.files))}/>
+                  </label>
+                </div>
+              </div>
+            ))}
           </div>
         )}
 

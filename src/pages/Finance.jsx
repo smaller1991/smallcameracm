@@ -688,9 +688,12 @@ export default function Finance() {
               </button>
             ))}
           </div>
-          <select className="input text-sm" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>
-            {CATS.map(c=><option key={c}>{c}</option>)}
-          </select>
+          {editId && form.category === 'Trade'
+            ? <div className="input text-sm bg-gray-50 text-gray-400 flex items-center">🔄 Trade (ไม่สามารถเปลี่ยนได้)</div>
+            : <select className="input text-sm" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>
+                {CATS.map(c=><option key={c}>{c}</option>)}
+              </select>
+          }
           {/* ช่องทางการชำระ */}
           <div>
             <p className="text-xs text-gray-500 mb-1">ช่องทาง</p>
@@ -801,6 +804,7 @@ export default function Finance() {
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
                     </div>
                     <div className="flex flex-col gap-1 flex-shrink-0">
+                      <button onClick={()=>openEdit(tx)} className="p-1.5 text-gray-300 hover:text-brand-dark"><Edit2 size={14}/></button>
                       <button onClick={()=>cancelTrade(tx)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
                     </div>
                   </div>
