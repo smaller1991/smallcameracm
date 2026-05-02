@@ -90,13 +90,17 @@ export default function Export() {
   const doExportTx = async () => {
     setBusy(true); setTxImgProgress(null)
     try {
-      const {data} = await supabase.from('transactions').select('*,products(model,category,total_cost,customer_note,images,created_at,sold_date,serial_number,installment_total,status)').order('date',{ascending:false})
+      const [{ data }, { data: balData }] = await Promise.all([
+        supabase.from('transactions').select('*,products(model,category,total_cost,customer_note,images,created_at,sold_date,serial_number,installment_total,status)').order('date',{ascending:false}),
+        supabase.from('balances').select('bank,cash').eq('id','main').single(),
+      ])
+      const balance = balData ? { bank: Number(balData.bank||0), cash: Number(balData.cash||0) } : null
       if (withTxImages) {
-        await exportTransactionsWithImages(data||[], from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}))
+        await exportTransactionsWithImages(data||[], from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), balance)
       } else if (txFmt==='xlsx') {
-        exportTransactions(data||[], from||undefined, to||undefined)
+        exportTransactions(data||[], from||undefined, to||undefined, balance)
       } else {
-        exportTransactionsPDF(data||[], from||undefined, to||undefined)
+        exportTransactionsPDF(data||[], from||undefined, to||undefined, balance)
       }
       toast.success('ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
@@ -440,7 +444,7 @@ function exportInventoryPDF(products, statusFilter='all') {
   makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows)
 }
 
-function exportTransactionsPDF(txs, from, to) {
+function exportTransactionsPDF(txs, from, to, balance=null) {
   const filtered = txs.filter(t=>{
     if (from&&new Date(t.date)<new Date(from)) return false
     if (to&&new Date(t.date)>new Date(to+'T23:59:59')) return false
@@ -465,6 +469,8 @@ function exportTransactionsPDF(txs, from, to) {
     return null
   })
   const totalProfit = plValues.reduce((a,v)=>v!=null?a+v:a,0)
+  const deductions  = filtered.filter(t=>t.type==='Expense'&&DEDUCT.has(t.category)).reduce((a,t)=>a+Number(t.amount),0)
+  const grossProfit = totalProfit + deductions
   const rows = filtered.map((t,i)=>{
     const pl=plValues[i]
     return [thDate(t.date),t.type==='Income'?'รายรับ':'รายจ่าย',t.category,`฿${fmt(t.amount)}`,
@@ -475,6 +481,12 @@ function exportTransactionsPDF(txs, from, to) {
   rows.push(['','','','','','','','','',''])
   rows.push(['สรุป','','รวมรายรับ','',`฿${fmt(totalIncome)}`,'','','','',''])
   rows.push(['','','รวมรายจ่าย','','',`฿${fmt(totalExpense)}`,'','','',''])
+  rows.push(['','','กำไรขาย (ก่อนหักรายจ่าย)','','','',`฿${fmt(grossProfit)}`,'','',''])
   rows.push(['','','กำไรขาดทุนสุทธิ','','','',`฿${fmt(totalProfit)}`,'','',''])
+  if (balance) {
+    rows.push(['','','','','','','','','',''])
+    rows.push(['ยอดเงิน','','ยอดโอน (ธนาคาร)',`฿${fmt(balance.bank)}`,'','','','','',''])
+    rows.push(['','','ยอดเงินสด',`฿${fmt(balance.cash)}`,'','','','','',''])
+  }
   makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','รายละเอียดลูกค้า','หมายเหตุ'],rows)
 }

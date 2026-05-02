@@ -65,7 +65,7 @@ export function exportInventory(products, statusFilter = 'all') {
   write(rows, 'สต็อกสินค้า', `สต็อกสินค้า_${stamp()}.xlsx`)
 }
 
-export function exportTransactions(transactions, from, to) {
+export function exportTransactions(transactions, from, to, balance = null) {
   const filtered = transactions.filter(t => {
     const d = new Date(t.date)
     if (from && d < new Date(from)) return false
@@ -107,12 +107,20 @@ export function exportTransactions(transactions, from, to) {
   })
 
   const totalProfit = rows.reduce((a, r) => r['กำไรขาดทุน'] !== '' ? a + r['กำไรขาดทุน'] : a, 0)
+  const deductions  = filtered.filter(t => t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)).reduce((a, t) => a + Number(t.amount), 0)
+  const grossProfit = totalProfit + deductions
 
   const empty = { 'วันที่':'','ประเภท':'','หมวดหมู่':'','จำนวนเงิน':'','รายรับ':'','รายจ่าย':'','กำไรขาดทุน':'','รุ่นกล้อง':'','รายละเอียดลูกค้า':'','หมายเหตุ':'' }
   rows.push(empty)
-  rows.push({ ...empty, 'วันที่':'สรุป', 'หมวดหมู่':'รวมรายรับ',       'รายรับ':    totalIncome  })
-  rows.push({ ...empty,                  'หมวดหมู่':'รวมรายจ่าย',      'รายจ่าย':   totalExpense })
-  rows.push({ ...empty,                  'หมวดหมู่':'กำไรขาดทุนสุทธิ', 'กำไรขาดทุน': totalProfit })
+  rows.push({ ...empty, 'วันที่':'สรุป', 'หมวดหมู่':'รวมรายรับ',               'รายรับ':      totalIncome  })
+  rows.push({ ...empty,                  'หมวดหมู่':'รวมรายจ่าย',              'รายจ่าย':     totalExpense })
+  rows.push({ ...empty,                  'หมวดหมู่':'กำไรขาย (ก่อนหักรายจ่าย)', 'กำไรขาดทุน': grossProfit  })
+  rows.push({ ...empty,                  'หมวดหมู่':'กำไรขาดทุนสุทธิ',          'กำไรขาดทุน': totalProfit  })
+  if (balance) {
+    rows.push(empty)
+    rows.push({ ...empty, 'วันที่':'ยอดเงิน', 'หมวดหมู่':'ยอดโอน (ธนาคาร)', 'จำนวนเงิน': balance.bank })
+    rows.push({ ...empty,                     'หมวดหมู่':'ยอดเงินสด',        'จำนวนเงิน': balance.cash })
+  }
 
   write(rows, 'รายการบัญชี', `รายการบัญชี_${stamp()}.xlsx`)
 }
@@ -172,7 +180,7 @@ async function buildInventoryPDF(filtered) {
 }
 
 // ─── Transactions PDF blob ────────────────────────────────────
-async function buildTransactionsPDF(filtered) {
+async function buildTransactionsPDF(filtered, balance = null) {
   const { doc, autoTable } = await initPDFDoc()
 
   doc.setFontSize(14); doc.setTextColor(26, 18, 8)
@@ -229,11 +237,18 @@ async function buildTransactionsPDF(filtered) {
   const totalIncome  = filtered.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0)
   const totalExpense = filtered.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0)
   const totalProfit  = plValues.reduce((a, v) => v !== '' ? a + v : a, 0)
+  const deductions   = filtered.filter(t => t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)).reduce((a, t) => a + Number(t.amount), 0)
+  const grossProfit  = totalProfit + deductions
   const fy = (doc.lastAutoTable?.finalY || 24) + 7
   doc.setFont('Sarabun'); doc.setFontSize(9); doc.setTextColor(26, 18, 8)
   doc.text(`รวมรายรับ: ${totalIncome.toLocaleString('th-TH')} บาท`, 14, fy)
   doc.text(`รวมรายจ่าย: ${totalExpense.toLocaleString('th-TH')} บาท`, 14, fy + 6)
-  doc.text(`กำไรขาดทุนสุทธิ: ${totalProfit.toLocaleString('th-TH')} บาท`, 14, fy + 12)
+  doc.text(`กำไรขาย (ก่อนหักรายจ่าย): ${grossProfit.toLocaleString('th-TH')} บาท`, 14, fy + 12)
+  doc.text(`กำไรขาดทุนสุทธิ: ${totalProfit.toLocaleString('th-TH')} บาท`, 14, fy + 18)
+  if (balance) {
+    doc.text(`ยอดโอน (ธนาคาร): ${balance.bank.toLocaleString('th-TH')} บาท`, 14, fy + 30)
+    doc.text(`ยอดเงินสด: ${balance.cash.toLocaleString('th-TH')} บาท`, 14, fy + 36)
+  }
 
   return doc.output('blob')
 }
@@ -340,7 +355,7 @@ export async function exportInventoryWithImages(products, transactions = [], sta
 }
 
 // ─── Export Transactions + Images as ZIP ─────────────────────
-export async function exportTransactionsWithImages(transactions, from, to, format = 'xlsx', onProgress) {
+export async function exportTransactionsWithImages(transactions, from, to, format = 'xlsx', onProgress, balance = null) {
   const filtered = transactions.filter(t => {
     if (from && new Date(t.date) < new Date(from)) return false
     if (to   && new Date(t.date) > new Date(to + 'T23:59:59')) return false
@@ -383,18 +398,26 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
     const totalIncome  = filtered.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0)
     const totalExpense = filtered.filter(t => t.type === 'Expense').reduce((a, t) => a + Number(t.amount), 0)
     const totalProfit  = rows.reduce((a, r) => r['กำไรขาดทุน'] !== '' ? a + r['กำไรขาดทุน'] : a, 0)
+    const deductions   = filtered.filter(t => t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)).reduce((a, t) => a + Number(t.amount), 0)
+    const grossProfit  = totalProfit + deductions
     const empty = Object.fromEntries(Object.keys(rows[0]).map(k => [k, '']))
     rows.push(empty)
-    rows.push({ ...empty, 'วันที่': 'สรุป', 'หมวดหมู่': 'รวมรายรับ',       'รายรับ':     totalIncome  })
-    rows.push({ ...empty,                   'หมวดหมู่': 'รวมรายจ่าย',      'รายจ่าย':    totalExpense })
-    rows.push({ ...empty,                   'หมวดหมู่': 'กำไรขาดทุนสุทธิ', 'กำไรขาดทุน': totalProfit  })
+    rows.push({ ...empty, 'วันที่': 'สรุป', 'หมวดหมู่': 'รวมรายรับ',               'รายรับ':      totalIncome  })
+    rows.push({ ...empty,                   'หมวดหมู่': 'รวมรายจ่าย',              'รายจ่าย':     totalExpense })
+    rows.push({ ...empty,                   'หมวดหมู่': 'กำไรขาย (ก่อนหักรายจ่าย)', 'กำไรขาดทุน': grossProfit  })
+    rows.push({ ...empty,                   'หมวดหมู่': 'กำไรขาดทุนสุทธิ',          'กำไรขาดทุน': totalProfit  })
+    if (balance) {
+      rows.push(empty)
+      rows.push({ ...empty, 'วันที่': 'ยอดเงิน', 'หมวดหมู่': 'ยอดโอน (ธนาคาร)', 'จำนวนเงิน': balance.bank })
+      rows.push({ ...empty,                      'หมวดหมู่': 'ยอดเงินสด',        'จำนวนเงิน': balance.cash })
+    }
     const ws = XLSX.utils.json_to_sheet(rows)
     ws['!cols'] = Object.keys(rows[0]).map(() => ({ wch: 20 }))
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'รายการบัญชี')
     zip.file(`รายการบัญชี_${s}.xlsx`, XLSX.write(wb, { bookType: 'xlsx', type: 'array' }))
   } else {
-    zip.file(`รายการบัญชี_${s}.pdf`, await buildTransactionsPDF(filtered))
+    zip.file(`รายการบัญชี_${s}.pdf`, await buildTransactionsPDF(filtered, balance))
   }
 
   // Deduplicate product images by product_id
