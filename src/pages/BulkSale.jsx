@@ -69,6 +69,8 @@ export default function BulkSale() {
 
       const batchId = items.length > 1 ? crypto.randomUUID() : null
 
+      const batchPrefix = batchId ? `ขายรวม ${items.length} ชิ้น` : null
+
       if (payType === 'full') {
         for (const x of items) {
           const price = Number(x.sellPrice)
@@ -79,10 +81,16 @@ export default function BulkSale() {
           }).eq('id', x.product.id)
           if (e1) throw e1
 
+          const txNote = [
+            batchPrefix,
+            `${x.product.model} SN:${x.product.serial_number}`,
+            `ราคา ฿${fmt(price)}`,
+          ].filter(Boolean).join(' | ')
+
           const { data: tx, error: e2 } = await supabase.from('transactions').insert({
             date: now, type: 'Income', category: 'Sale',
             amount: price, product_id: x.product.id,
-            payment_method: payMethod, note: note || x.product.model,
+            payment_method: payMethod, note: txNote,
           }).select().single()
           if (e2) throw e2
           txIds.push(tx.id)
@@ -123,10 +131,20 @@ export default function BulkSale() {
           }).eq('id', x.product.id)
           if (e1) throw e1
 
+          const txNote = newStatus === 'Sold'
+            ? [batchPrefix, `${x.product.model} SN:${x.product.serial_number}`, `ราคา ฿${fmt(price)} | ชำระครบ`].filter(Boolean).join(' | ')
+            : [
+                batchPrefix ? `${batchPrefix} ผ่อนจ่าย` : 'ผ่อนจ่าย',
+                `${x.product.model} SN:${x.product.serial_number}`,
+                `ราคาตกลง ฿${fmt(price)}`,
+                `งวดแรก ฿${fmt(productFirstPaid)}`,
+                `คงเหลือ ฿${fmt(price - productFirstPaid)}`,
+              ].filter(Boolean).join(' | ')
+
           const { data: tx, error: e2 } = await supabase.from('transactions').insert({
             date: now, type: 'Income', category: 'Sale',
             amount: productFirstPaid, product_id: x.product.id,
-            payment_method: payMethod, note: note || x.product.model,
+            payment_method: payMethod, note: txNote,
           }).select().single()
           if (e2) throw e2
           txIds.push(tx.id)

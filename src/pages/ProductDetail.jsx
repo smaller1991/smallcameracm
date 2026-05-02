@@ -266,8 +266,8 @@ export default function ProductDetail() {
           date: soldAt, type:'Income', category:'Sale', amount: first,
           product_id: id, payment_method: payMethod,
           note: isFullyPaid
-            ? 'ขายสินค้า: '+product.model+' SN:'+product.serial_number
-            : `ผ่อนจ่ายงวดแรก: ${product.model} SN:${product.serial_number} (${fmt(first)}/${fmt(total)})`,
+            ? `${product.model} SN:${product.serial_number} | ราคา ฿${fmt(total)} | ชำระครบ`
+            : `ผ่อนจ่าย | ${product.model} SN:${product.serial_number} | ราคาตกลง ฿${fmt(total)} | งวดแรก ฿${fmt(first)} | คงเหลือ ฿${fmt(total-first)}`,
         }).select().single()
         if (txErr) throw txErr
 
