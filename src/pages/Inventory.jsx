@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
-import { Search, Plus, ArrowUpDown, ArrowLeftRight, X } from 'lucide-react'
+import { Search, Plus, ArrowUpDown, ArrowLeftRight, ShoppingCart, X } from 'lucide-react'
 
 const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Pending',label:'รอชำระ'},{key:'Sold',label:'ขายแล้ว'}]
 const CAT_TABS = ['ทั้งหมด','กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -111,6 +111,10 @@ export default function Inventory() {
           <button onClick={()=>navigate('/tradein')}
             className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-semibold border border-blue-300 bg-blue-50 text-blue-600 active:scale-95 transition-all">
             <ArrowLeftRight size={14}/>แลกเปลี่ยน
+          </button>
+          <button onClick={()=>navigate('/bulk-sale')}
+            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-semibold border border-amber-300 bg-amber-50 text-amber-700 active:scale-95 transition-all">
+            <ShoppingCart size={14}/>ขายรวม
           </button>
           <button onClick={()=>navigate('/inventory/add')} className="btn-primary px-3 py-1.5 text-sm flex items-center gap-1">
             <Plus size={15}/>เพิ่มสินค้า
