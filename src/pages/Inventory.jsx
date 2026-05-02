@@ -21,7 +21,7 @@ export default function Inventory() {
   const [products,setProducts] = useState([])
   const [loading, setLoading]  = useState(true)
   const [search,  setSearch]   = useState('')
-  const [tab,     setTab]      = useState('all')
+  const [tab,     setTab]      = useState('Available')
   const [catTab,  setCatTab]   = useState('ทั้งหมด')
   const [sortKey, setSortKey]  = useState('created_at_desc')
   const [showSort,setShowSort] = useState(false)
