@@ -5,6 +5,7 @@ import { thDate } from './dateUtils'
 const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง', Sold: 'ขายแล้ว', Pending: 'รอชำระ' }
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
 const safeStr = s => (s || '').replace(/[/\\:*?"<>|]/g, '_')
+const PROFIT_DEDUCT_CATS = new Set(['Shipping','Marketing','Operating','Other'])
 
 // ─── Generate Import Template ─────────────────────────────────
 export function downloadImportTemplate() {
@@ -88,6 +89,8 @@ export function exportTransactions(transactions, from, to) {
       }
     } else if (t.category === 'Trade' && t.trade_profit_a != null) {
       pl = Number(t.trade_profit_a)
+    } else if (t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)) {
+      pl = -Number(t.amount)
     }
     return {
       'วันที่':        thDate(t.date),
@@ -191,6 +194,8 @@ async function buildTransactionsPDF(filtered) {
       }
     } else if (t.category === 'Trade' && t.trade_profit_a != null) {
       pl = Number(t.trade_profit_a)
+    } else if (t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)) {
+      pl = -Number(t.amount)
     }
     plValues.push(pl)
     return [
@@ -359,6 +364,8 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
         }
       } else if (t.category === 'Trade' && t.trade_profit_a != null) {
         pl = Number(t.trade_profit_a)
+      } else if (t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)) {
+        pl = -Number(t.amount)
       }
       return {
         'วันที่':            thDate(t.date),

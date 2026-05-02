@@ -449,6 +449,7 @@ function exportTransactionsPDF(txs, from, to) {
   if (!filtered.length) return alert('ไม่มีข้อมูล')
   const totalIncome  = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const totalExpense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
+  const DEDUCT = new Set(['Shipping','Marketing','Operating','Other'])
   const popupCounted = new Set()
   const plValues = filtered.map(t=>{
     if (t.category==='Sale'&&t.products?.total_cost!=null) {
@@ -460,6 +461,7 @@ function exportTransactionsPDF(txs, from, to) {
       return null
     }
     if (t.category==='Trade'&&t.trade_profit_a!=null) return Number(t.trade_profit_a)
+    if (t.type==='Expense'&&DEDUCT.has(t.category)) return -Number(t.amount)
     return null
   })
   const totalProfit = plValues.reduce((a,v)=>v!=null?a+v:a,0)
