@@ -716,7 +716,7 @@ export default function Finance() {
             <ThaiDatePicker value={form.date} onChange={v=>setForm({...form,date:v})} showTime className="input text-sm w-full"/>
           </div>
           <input autoComplete="off" className="input text-sm" placeholder="หมายเหตุ" value={form.note} onChange={e=>setForm({...form,note:e.target.value})}/>
-          {editId && form.category==='Sale' && (
+          {editId && form.category==='Sale' && (form.customer_note||'').trim() !== (form.note||'').trim() && (
             <div>
               <label className="text-xs text-gray-500 mb-1 block">รายละเอียดลูกค้า</label>
               <textarea className="input text-sm resize-none" rows={2} placeholder="ชื่อ / เบอร์โทร / หมายเหตุลูกค้า..."
@@ -858,7 +858,7 @@ export default function Finance() {
                     </p>
                   )}
                   {tx.note && <p className="text-xs text-gray-400 truncate">{tx.note}</p>}
-                  {tx.category==='Sale' && tx.products?.customer_note && (
+                  {tx.category==='Sale' && tx.products?.customer_note && tx.products.customer_note !== tx.note && (
                     <p className="text-xs text-blue-500 truncate">👤 {tx.products.customer_note}</p>
                   )}
                   {tx.images?.length > 0 && (
