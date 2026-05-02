@@ -67,13 +67,15 @@ export default function BulkSale() {
       const note     = customerNote.trim() || null
       const txIds    = []
 
+      const batchId = items.length > 1 ? crypto.randomUUID() : null
+
       if (payType === 'full') {
         for (const x of items) {
           const price = Number(x.sellPrice)
           const { error: e1 } = await supabase.from('products').update({
             status: 'Sold', sold_price: price, sold_date: now,
             warranty_expiry: warranty, payment_method: payMethod,
-            customer_note: note,
+            customer_note: note, sale_batch_id: batchId,
           }).eq('id', x.product.id)
           if (e1) throw e1
 
@@ -109,14 +111,15 @@ export default function BulkSale() {
           const newStatus = productFirstPaid >= price ? 'Sold' : 'Pending'
 
           const { error: e1 } = await supabase.from('products').update({
-            status:          newStatus,
-            sold_price:      newStatus === 'Sold' ? price : null,
-            sold_date:       now,
-            warranty_expiry: warranty,
-            payment_method:  payMethod,
-            customer_note:   note,
+            status:            newStatus,
+            sold_price:        newStatus === 'Sold' ? price : null,
+            sold_date:         newStatus === 'Sold' ? now : null,
+            warranty_expiry:   newStatus === 'Sold' ? warranty : null,
+            payment_method:    payMethod,
+            customer_note:     note,
             installment_total: price,
             installment_paid:  productFirstPaid,
+            sale_batch_id:     batchId,
           }).eq('id', x.product.id)
           if (e1) throw e1
 

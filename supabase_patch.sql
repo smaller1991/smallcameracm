@@ -60,6 +60,9 @@ ALTER TABLE products ADD CONSTRAINT products_status_check
 ALTER TABLE products ADD COLUMN IF NOT EXISTS installment_total NUMERIC(12,2);
 ALTER TABLE products ADD COLUMN IF NOT EXISTS installment_paid  NUMERIC(12,2) DEFAULT 0;
 
+-- ===== ขายรวม: เชื่อมสินค้าในกลุ่มเดียวกัน =====
+ALTER TABLE products ADD COLUMN IF NOT EXISTS sale_batch_id UUID;
+
 -- ===== Storage bucket: receipt-images (ถ้ายังไม่มี) =====
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 VALUES ('receipt-images','receipt-images', true, 10485760, ARRAY['image/jpeg','image/png','image/webp'])

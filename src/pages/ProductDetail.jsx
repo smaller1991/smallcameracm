@@ -46,6 +46,7 @@ export default function ProductDetail() {
   const [removedUrls,     setRemovedUrls]     = useState([])
   const [txList,          setTxList]          = useState([])
   const [lightboxImg,     setLightboxImg]     = useState(null)
+  const [batchProducts,   setBatchProducts]   = useState([])
 
   // sell
   const [sellMode,     setSellMode]     = useState(false)
@@ -75,6 +76,12 @@ export default function ProductDetail() {
     ])
     setProduct(p); setAccs(a||[])
     setTxList(txs||[])
+    if (p?.sale_batch_id) {
+      const { data: bd } = await supabase.from('products').select('*').eq('sale_batch_id', p.sale_batch_id)
+      setBatchProducts(bd || [])
+    } else {
+      setBatchProducts([])
+    }
     setEf({model:p.model, serial_number:p.serial_number, condition:p.condition,
            base_cost:p.base_cost, status:p.status, notes:p.notes||'',
            category:p.category||'กล้อง', created_at:toLocal(p.created_at),
@@ -290,38 +297,102 @@ export default function ProductDetail() {
     if (!payAmount || isNaN(amount) || amount <= 0) return toast.error('กรุณาระบุจำนวนเงิน')
     setSaving(true)
     try {
-      const newPaid = Number(product.installment_paid || 0) + amount
-      const total   = Number(product.installment_total)
-      const isFullyPaid = newPaid >= total
       const soldAt  = payDate2 ? new Date(payDate2).toISOString() : new Date().toISOString()
+      const warranty = new Date(new Date(soldAt).getTime()+15*86400000).toISOString()
+      const isBatch = product.sale_batch_id && batchProducts.length > 1
 
-      await supabase.from('products').update({
-        installment_paid: newPaid,
-        status:           isFullyPaid ? 'Sold' : 'Pending',
-        sold_date:        isFullyPaid ? soldAt : null,
-        warranty_expiry:  isFullyPaid ? new Date(new Date(soldAt).getTime()+15*86400000).toISOString() : null,
-      }).eq('id', id)
+      if (isBatch) {
+        // ── Batch payment: กระจายชำระให้ทุก Pending ในกลุ่ม ──
+        const pendingInBatch = batchProducts.filter(bp => bp.status === 'Pending')
+        const totalRemaining = pendingInBatch.reduce((a, bp) =>
+          a + Number(bp.installment_total||0) - Number(bp.installment_paid||0), 0)
 
-      const {data:newTx} = await supabase.from('transactions').insert({
-        date: soldAt, type:'Income', category:'Sale', amount,
-        product_id: id, payment_method: payMethod2,
-        note: isFullyPaid
-          ? `ชำระครบแล้ว: ${product.model} SN:${product.serial_number}`
-          : `ผ่อนจ่าย: ${product.model} SN:${product.serial_number} (${fmt(newPaid)}/${fmt(total)})`,
-      }).select().single()
+        let distributed = 0
+        let firstTxId = null
+        for (let i = 0; i < pendingInBatch.length; i++) {
+          const bp = pendingInBatch[i]
+          const bpRemaining = Number(bp.installment_total||0) - Number(bp.installment_paid||0)
+          const isLast = i === pendingInBatch.length - 1
+          const bpPayment = isLast
+            ? Math.min(bpRemaining, amount - distributed)
+            : Math.min(bpRemaining, Math.floor(amount * (bpRemaining / totalRemaining)))
+          distributed += bpPayment
 
-      if (payImgFiles.length && newTx) {
-        const urls = await uploadReceiptImages(supabase, newTx.id, payImgFiles)
-        await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
+          const newPaid = Number(bp.installment_paid||0) + bpPayment
+          const bpTotal = Number(bp.installment_total||0)
+          const isFullyPaid = newPaid >= bpTotal
+
+          await supabase.from('products').update({
+            installment_paid: newPaid,
+            status:          isFullyPaid ? 'Sold' : 'Pending',
+            sold_price:      isFullyPaid ? bpTotal : null,
+            sold_date:       isFullyPaid ? soldAt : null,
+            warranty_expiry: isFullyPaid ? warranty : null,
+          }).eq('id', bp.id)
+
+          const { data: newTx } = await supabase.from('transactions').insert({
+            date: soldAt, type: 'Income', category: 'Sale', amount: bpPayment,
+            product_id: bp.id, payment_method: payMethod2,
+            note: isFullyPaid
+              ? `ชำระครบ: ${bp.model} SN:${bp.serial_number}`
+              : `ผ่อนจ่าย: ${bp.model} SN:${bp.serial_number} (${fmt(newPaid)}/${fmt(bpTotal)})`,
+          }).select().single()
+
+          if (i === 0 && newTx) firstTxId = newTx.id
+        }
+
+        if (payImgFiles.length && firstTxId) {
+          const urls = await uploadReceiptImages(supabase, firstTxId, payImgFiles)
+          await supabase.from('transactions').update({ images: urls }).eq('id', firstTxId)
+        }
+
+        const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
+        if (bal) {
+          const actual = Math.min(amount, totalRemaining)
+          if (payMethod2==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+actual,updated_at:soldAt}).eq('id','main')
+          else                    await supabase.from('balances').update({cash:Number(bal.cash)+actual,updated_at:soldAt}).eq('id','main')
+        }
+
+        toast.success(amount >= totalRemaining
+          ? `ชำระครบทั้งกลุ่ม! สินค้าทั้งหมดเปลี่ยนเป็น "ขายแล้ว"`
+          : `รับชำระ ฿${fmt(amount)} — คงเหลือทั้งกลุ่ม ฿${fmt(Math.max(0, totalRemaining-amount))}`)
+
+      } else {
+        // ── Single product payment (เดิม) ──
+        const newPaid = Number(product.installment_paid || 0) + amount
+        const total   = Number(product.installment_total)
+        const isFullyPaid = newPaid >= total
+
+        await supabase.from('products').update({
+          installment_paid: newPaid,
+          status:           isFullyPaid ? 'Sold' : 'Pending',
+          sold_price:       isFullyPaid ? total : null,
+          sold_date:        isFullyPaid ? soldAt : null,
+          warranty_expiry:  isFullyPaid ? warranty : null,
+        }).eq('id', id)
+
+        const {data:newTx} = await supabase.from('transactions').insert({
+          date: soldAt, type:'Income', category:'Sale', amount,
+          product_id: id, payment_method: payMethod2,
+          note: isFullyPaid
+            ? `ชำระครบแล้ว: ${product.model} SN:${product.serial_number}`
+            : `ผ่อนจ่าย: ${product.model} SN:${product.serial_number} (${fmt(newPaid)}/${fmt(total)})`,
+        }).select().single()
+
+        if (payImgFiles.length && newTx) {
+          const urls = await uploadReceiptImages(supabase, newTx.id, payImgFiles)
+          await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
+        }
+
+        const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
+        if (bal) {
+          if (payMethod2==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+amount,updated_at:soldAt}).eq('id','main')
+          else                    await supabase.from('balances').update({cash:Number(bal.cash)+amount,updated_at:soldAt}).eq('id','main')
+        }
+
+        toast.success(isFullyPaid ? 'ชำระครบแล้ว! สินค้าเปลี่ยนเป็น "ขายแล้ว"' : `รับชำระ ฿${fmt(amount)} — คงเหลือ ฿${fmt(total-newPaid)}`)
       }
 
-      const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
-      if (bal) {
-        if (payMethod2==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+amount,updated_at:new Date().toISOString()}).eq('id','main')
-        else                    await supabase.from('balances').update({cash:Number(bal.cash)+amount,updated_at:new Date().toISOString()}).eq('id','main')
-      }
-
-      toast.success(isFullyPaid ? 'ชำระครบแล้ว! สินค้าเปลี่ยนเป็น "ขายแล้ว"' : `รับชำระ ฿${fmt(amount)} — คงเหลือ ฿${fmt(total-newPaid)}`)
       setPayMode(false); setPayAmount(''); setPayMethod2('โอน'); setPayDate2('')
       setPayImgFiles([]); setPayImgPrev([])
       load()
@@ -330,28 +401,36 @@ export default function ProductDetail() {
 
   // ─── cancel installment ────────────────────────────────────
   const cancelInstallment = async () => {
-    if (!confirm('ยกเลิกผ่อนจ่าย?\nยอดเงินที่รับไปแล้วจะถูกหักคืนทั้งหมด และสินค้าจะกลับมาเป็นพร้อมขาย')) return
+    const isBatchCancel = product.sale_batch_id && batchProducts.length > 1
+    const confirmMsg = isBatchCancel
+      ? `ยกเลิกผ่อนจ่ายทั้งกลุ่ม (${batchProducts.length} ชิ้น)?\nยอดเงินที่รับไปแล้วจะถูกหักคืนทั้งหมด และสินค้าทั้งหมดจะกลับมาเป็นพร้อมขาย`
+      : 'ยกเลิกผ่อนจ่าย?\nยอดเงินที่รับไปแล้วจะถูกหักคืนทั้งหมด และสินค้าจะกลับมาเป็นพร้อมขาย'
+    if (!confirm(confirmMsg)) return
     setSaving(true)
     try {
-      const {data: saleTxs} = await supabase.from('transactions')
-        .select('*').eq('product_id', id).eq('category', 'Sale')
+      const targetIds = isBatchCancel ? batchProducts.map(bp => bp.id) : [id]
 
-      for (const tx of saleTxs || []) {
-        const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
-          if (tx.payment_method==='โอน') await supabase.from('balances').update({bank:Math.max(0,Number(bal.bank)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
-          else                           await supabase.from('balances').update({cash:Math.max(0,Number(bal.cash)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
+      for (const pid of targetIds) {
+        const {data: saleTxs} = await supabase.from('transactions')
+          .select('*').eq('product_id', pid).eq('category', 'Sale')
+
+        for (const tx of saleTxs || []) {
+          const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
+          if (bal) {
+            if (tx.payment_method==='โอน') await supabase.from('balances').update({bank:Math.max(0,Number(bal.bank)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
+            else                           await supabase.from('balances').update({cash:Math.max(0,Number(bal.cash)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
+          }
         }
+
+        await supabase.from('transactions').delete().eq('product_id', pid).eq('category', 'Sale')
+        await supabase.from('products').update({
+          status:'Available', sold_price:null, payment_method:null,
+          sold_date:null, warranty_expiry:null,
+          installment_total:null, installment_paid:null, sale_batch_id:null,
+        }).eq('id', pid)
       }
 
-      await supabase.from('transactions').delete().eq('product_id', id).eq('category', 'Sale')
-      await supabase.from('products').update({
-        status:'Available', sold_price:null, payment_method:null,
-        sold_date:null, warranty_expiry:null,
-        installment_total:null, installment_paid:null,
-      }).eq('id', id)
-
-      toast.success('ยกเลิกผ่อนจ่ายแล้ว')
+      toast.success(isBatchCancel ? `ยกเลิกผ่อนจ่ายทั้งกลุ่มแล้ว (${targetIds.length} ชิ้น)` : 'ยกเลิกผ่อนจ่ายแล้ว')
       load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
@@ -460,6 +539,10 @@ export default function ProductDetail() {
   if (loading) return <div className="flex justify-center items-center h-64"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
   if (!product) return <div className="p-8 text-center text-gray-400">ไม่พบสินค้า</div>
   const profit = product.sold_price ? Number(product.sold_price)-Number(product.total_cost) : null
+  const isBatch = product.sale_batch_id && batchProducts.length > 1
+  const batchTotalInstallment = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_total||0), 0) : 0
+  const batchTotalPaid        = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_paid||0), 0) : 0
+  const batchTotalRemaining   = batchTotalInstallment - batchTotalPaid
   return (
     <div>
       {/* Header */}
@@ -807,29 +890,71 @@ export default function ProductDetail() {
         {product.status==='Pending' && (
           <div className="card space-y-3">
             <div className="flex items-center justify-between">
-              <h3 className="font-semibold text-sm">ผ่อนจ่าย</h3>
+              <div>
+                <h3 className="font-semibold text-sm">ผ่อนจ่าย</h3>
+                {isBatch && <span className="text-xs text-blue-600 font-medium">📦 ขายรวม {batchProducts.length} ชิ้น</span>}
+              </div>
               <span className="badge-pending">รอชำระ</span>
             </div>
             <div className="space-y-1.5">
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">ราคาตกลง</span>
-                <span className="font-semibold">฿{fmt(product.installment_total)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">ชำระแล้ว</span>
-                <span className="font-semibold text-green-600">฿{fmt(product.installment_paid)}</span>
-              </div>
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-500">คงเหลือ</span>
-                <span className="font-bold text-orange-500">฿{fmt(Number(product.installment_total||0)-Number(product.installment_paid||0))}</span>
-              </div>
-              <div className="w-full bg-gray-100 rounded-full h-2.5 mt-1">
-                <div className="bg-orange-400 h-2.5 rounded-full transition-all"
-                  style={{width:`${Math.min(100,(Number(product.installment_paid||0)/Number(product.installment_total||1))*100)}%`}}/>
-              </div>
-              <p className="text-xs text-gray-400 text-right">
-                {Math.round((Number(product.installment_paid||0)/Number(product.installment_total||1))*100)}% ชำระแล้ว
-              </p>
+              {isBatch ? (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">ราคาตกลง (รวมทั้งกลุ่ม)</span>
+                    <span className="font-semibold">฿{fmt(batchTotalInstallment)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">ชำระแล้ว (รวมทั้งกลุ่ม)</span>
+                    <span className="font-semibold text-green-600">฿{fmt(batchTotalPaid)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">คงเหลือ (รวมทั้งกลุ่ม)</span>
+                    <span className="font-bold text-orange-500">฿{fmt(batchTotalRemaining)}</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2.5 mt-1">
+                    <div className="bg-orange-400 h-2.5 rounded-full transition-all"
+                      style={{width:`${Math.min(100,(batchTotalPaid/Math.max(1,batchTotalInstallment))*100)}%`}}/>
+                  </div>
+                  <p className="text-xs text-gray-400 text-right">
+                    {Math.round((batchTotalPaid/Math.max(1,batchTotalInstallment))*100)}% ชำระแล้ว
+                  </p>
+                  <div className="mt-1 space-y-1 border-t border-amber-100 pt-2">
+                    {batchProducts.map(bp => {
+                      const bpRemaining = Number(bp.installment_total||0) - Number(bp.installment_paid||0)
+                      return (
+                        <div key={bp.id} className="flex items-center justify-between text-xs py-0.5">
+                          <span className="text-gray-600 truncate flex-1 mr-2">{bp.model}</span>
+                          {bp.status==='Sold'
+                            ? <span className="text-green-500 font-medium">✅ ครบ</span>
+                            : <span className="text-orange-500 font-medium">฿{fmt(bpRemaining)}</span>}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">ราคาตกลง</span>
+                    <span className="font-semibold">฿{fmt(product.installment_total)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">ชำระแล้ว</span>
+                    <span className="font-semibold text-green-600">฿{fmt(product.installment_paid)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">คงเหลือ</span>
+                    <span className="font-bold text-orange-500">฿{fmt(Number(product.installment_total||0)-Number(product.installment_paid||0))}</span>
+                  </div>
+                  <div className="w-full bg-gray-100 rounded-full h-2.5 mt-1">
+                    <div className="bg-orange-400 h-2.5 rounded-full transition-all"
+                      style={{width:`${Math.min(100,(Number(product.installment_paid||0)/Number(product.installment_total||1))*100)}%`}}/>
+                  </div>
+                  <p className="text-xs text-gray-400 text-right">
+                    {Math.round((Number(product.installment_paid||0)/Number(product.installment_total||1))*100)}% ชำระแล้ว
+                  </p>
+                </>
+              )}
             </div>
             {!payMode ? (
               <button onClick={()=>{setPayMode(true);setPayAmount('');setPayMethod2('โอน');setPayDate2('');setPayImgFiles([]);setPayImgPrev([])}}
@@ -877,10 +1002,16 @@ export default function ProductDetail() {
                   </div>
                 </div>
                 {payAmount && (
-                  <p className={`text-xs font-medium ${Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)?'text-green-600':'text-orange-500'}`}>
-                    {Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)
-                      ? '✅ ชำระครบ — สินค้าจะเปลี่ยนเป็น "ขายแล้ว" อัตโนมัติ'
-                      : `คงเหลือหลังชำระ: ฿${fmt(Number(product.installment_total||0)-Number(product.installment_paid||0)-Number(payAmount))}`}
+                  <p className={`text-xs font-medium ${isBatch
+                    ? (Number(payAmount)>=batchTotalRemaining?'text-green-600':'text-orange-500')
+                    : (Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)?'text-green-600':'text-orange-500')}`}>
+                    {isBatch
+                      ? (Number(payAmount)>=batchTotalRemaining
+                          ? '✅ ชำระครบทั้งกลุ่ม — สินค้าทั้งหมดจะเปลี่ยนเป็น "ขายแล้ว"'
+                          : `คงเหลือทั้งกลุ่มหลังชำระ: ฿${fmt(Math.max(0,batchTotalRemaining-Number(payAmount)))}`)
+                      : (Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)
+                          ? '✅ ชำระครบ — สินค้าจะเปลี่ยนเป็น "ขายแล้ว" อัตโนมัติ'
+                          : `คงเหลือหลังชำระ: ฿${fmt(Number(product.installment_total||0)-Number(product.installment_paid||0)-Number(payAmount))}`)}
                   </p>
                 )}
                 <div className="flex gap-2">
