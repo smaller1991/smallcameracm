@@ -101,6 +101,8 @@ export function exportTransactions(transactions, from, to, balance = null) {
       'รายจ่าย':      t.type === 'Expense' ? Number(t.amount) : '',
       'กำไรขาดทุน':        pl,
       'รุ่นกล้อง':         t.products?.model || '',
+      'วันที่ซื้อ':         t.products?.created_at ? thDate(t.products.created_at) : '',
+      'ราคาต้นทุน':        t.products?.total_cost != null ? Number(t.products.total_cost) : '',
       'รายละเอียดลูกค้า':  t.category === 'Sale' ? (t.products?.customer_note || '') : '',
       'หมายเหตุ':          t.note || '',
     }
@@ -110,7 +112,7 @@ export function exportTransactions(transactions, from, to, balance = null) {
   const deductions  = filtered.filter(t => t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)).reduce((a, t) => a + Number(t.amount), 0)
   const grossProfit = totalProfit + deductions
 
-  const empty = { 'วันที่':'','ประเภท':'','หมวดหมู่':'','จำนวนเงิน':'','รายรับ':'','รายจ่าย':'','กำไรขาดทุน':'','รุ่นกล้อง':'','รายละเอียดลูกค้า':'','หมายเหตุ':'' }
+  const empty = { 'วันที่':'','ประเภท':'','หมวดหมู่':'','จำนวนเงิน':'','รายรับ':'','รายจ่าย':'','กำไรขาดทุน':'','รุ่นกล้อง':'','วันที่ซื้อ':'','ราคาต้นทุน':'','รายละเอียดลูกค้า':'','หมายเหตุ':'' }
   rows.push(empty)
   rows.push({ ...empty, 'วันที่':'สรุป', 'หมวดหมู่':'รวมรายรับ',               'รายรับ':      totalIncome  })
   rows.push({ ...empty,                  'หมวดหมู่':'รวมรายจ่าย',              'รายจ่าย':     totalExpense })
@@ -188,7 +190,7 @@ async function buildTransactionsPDF(filtered, balance = null) {
   doc.setFontSize(8); doc.setTextColor(170, 170, 170)
   doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 14, 20)
 
-  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','รายละเอียดลูกค้า','หมายเหตุ']]
+  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ']]
   const plValues = []
   const pdfCountedInstall = new Set()
   const body = filtered.map(t => {
@@ -215,6 +217,8 @@ async function buildTransactionsPDF(filtered, balance = null) {
       t.type === 'Expense' ? Number(t.amount).toLocaleString('th-TH') : '',
       pl !== '' ? pl.toLocaleString('th-TH') : '',
       t.products?.model || '',
+      t.products?.created_at ? thDate(t.products.created_at) : '',
+      t.products?.total_cost != null ? Number(t.products.total_cost).toLocaleString('th-TH') : '',
       t.category === 'Sale' ? (t.products?.customer_note || '') : '',
       t.note || '',
     ]
@@ -226,10 +230,16 @@ async function buildTransactionsPDF(filtered, balance = null) {
     headStyles:         { fillColor: [26, 18, 8], textColor: [255, 184, 56], fontStyle: 'normal' },
     alternateRowStyles: { fillColor: [255, 251, 240] },
     columnStyles: {
-      0: { cellWidth: 30 }, 1: { cellWidth: 14 }, 2: { cellWidth: 18 },
-      3: { cellWidth: 20, halign: 'right' }, 4: { cellWidth: 20, halign: 'right' },
-      5: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 22, halign: 'right' },
-      7: { cellWidth: 28 }, 8: { cellWidth: 30 },
+      0: { cellWidth: 26 }, 1: { cellWidth: 12 }, 2: { cellWidth: 16 },
+      3: { cellWidth: 18, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' },
+      5: { cellWidth: 18, halign: 'right' }, 6: { cellWidth: 20, halign: 'right' },
+      7: { cellWidth: 24 }, 8: { cellWidth: 22 },
+      9: { cellWidth: 16, halign: 'right' }, 10: { cellWidth: 28 },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && data.column.index === 10 && String(data.cell.raw || '').length > 35) {
+        data.cell.styles.fontSize = 6
+      }
     },
     margin: { left: 14, right: 14 },
   })
@@ -308,15 +318,18 @@ export async function exportInventoryWithImages(products, transactions = [], sta
 
     const buyPart  = p.created_at ? new Date(p.created_at).toISOString().slice(0, 10).replace(/-/g, '') : 'nodate'
     const sellPart = p.sold_date  ? new Date(p.sold_date).toISOString().slice(0, 10).replace(/-/g, '')  : '-'
-    const price    = p.sold_price ? Number(p.sold_price) : Number(p.base_cost)
     const model    = safeStr(p.model)
+    const cat      = safeStr(p.category || 'nocat')
+    const cost     = Number(p.total_cost || p.base_cost || 0)
+    const sPrice   = p.sold_price != null ? Number(p.sold_price) : null
+    const profit   = sPrice != null ? sPrice - cost : null
 
     for (let i = 0; i < p.images.length; i++) {
       try {
         const res = await fetch(p.images[i])
         const buf = await res.arrayBuffer()
         const ext = (p.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
-        const fname = `${model}_ซื้อ${buyPart}_ขาย${sellPart}_${price}_${i + 1}.${ext}`
+        const fname = `${model}_${cat}_${buyPart}_${sellPart}_${cost}_${sPrice ?? '-'}_${profit ?? '-'}_${i + 1}.${ext}`
         dayFolder.file(fname, buf)
       } catch { /* skip inaccessible image */ }
       done++
@@ -391,6 +404,8 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
         'รายจ่าย':          t.type === 'Expense' ? Number(t.amount) : '',
         'กำไรขาดทุน':       pl,
         'รุ่นกล้อง':        t.products?.model || '',
+        'วันที่ซื้อ':        t.products?.created_at ? thDate(t.products.created_at) : '',
+        'ราคาต้นทุน':       t.products?.total_cost != null ? Number(t.products.total_cost) : '',
         'รายละเอียดลูกค้า': t.category === 'Sale' ? (t.products?.customer_note || '') : '',
         'หมายเหตุ':         t.note || '',
       }
@@ -428,8 +443,11 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
       productImgMap.set(t.product_id, {
         images:     t.products.images,
         model:      t.products.model,
+        category:   t.products.category,
         created_at: t.products.created_at,
         sold_date:  t.products.sold_date,
+        total_cost: t.products.total_cost,
+        sold_price: t.products.sold_price,
         date:       t.date,
       })
     }
@@ -467,15 +485,19 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
     const dayKey    = new Date(p.sold_date || p.date || p.created_at).toISOString().slice(0, 10)
     const dayFolder = productRoot.folder(dayKey)
     const model     = safeStr(p.model)
+    const cat       = safeStr(p.category || 'nocat')
     const buyPart   = p.created_at ? new Date(p.created_at).toISOString().slice(0, 10).replace(/-/g, '') : 'nodate'
     const sellPart  = p.sold_date  ? new Date(p.sold_date).toISOString().slice(0, 10).replace(/-/g, '')  : '-'
+    const cost      = Number(p.total_cost || 0)
+    const sPrice    = p.sold_price != null ? Number(p.sold_price) : null
+    const profit    = sPrice != null ? sPrice - cost : null
 
     for (let i = 0; i < p.images.length; i++) {
       try {
         const res = await fetch(p.images[i])
         const buf = await res.arrayBuffer()
         const ext = (p.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
-        dayFolder.file(`${model}_ซื้อ${buyPart}_ขาย${sellPart}_${i + 1}.${ext}`, buf)
+        dayFolder.file(`${model}_${cat}_${buyPart}_${sellPart}_${cost}_${sPrice ?? '-'}_${profit ?? '-'}_${i + 1}.${ext}`, buf)
       } catch { /* skip */ }
       done++
       onProgress?.(done, grandTotal)
