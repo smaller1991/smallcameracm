@@ -301,7 +301,7 @@ export async function exportInventoryWithImages(products, transactions = [], sta
   // Images — group by day folder
   const imgRoot = zip.folder('รูปภาพ')
   const productIds = new Set(filtered.map(p => p.id))
-  const productModelMap = new Map(filtered.map(p => [p.id, p.model]))
+  const productDataMap = new Map(filtered.map(p => [p.id, p]))
   const filteredTxs = (transactions || []).filter(t => t.product_id && productIds.has(t.product_id) && t.images?.length)
   const totalProduct = filtered.reduce((a, p) => a + (p.images?.length || 0), 0)
   const totalReceipt = filteredTxs.reduce((a, t) => a + (t.images?.length || 0), 0)
@@ -344,13 +344,23 @@ export async function exportInventoryWithImages(products, transactions = [], sta
       const dayKey    = new Date(t.date).toISOString().slice(0, 10)
       const dayFolder = receiptRoot.folder(dayKey)
       const dateStr   = dayKey.replace(/-/g, '')
-      const label     = safeStr(productModelMap.get(t.product_id) || t.category || '')
+      const prod      = productDataMap.get(t.product_id)
+      const rModel    = prod ? safeStr(prod.model) : safeStr(t.category || 'nocat')
+      const rCat      = prod ? safeStr(prod.category || 'nocat') : ''
+      const rBuy      = prod?.created_at ? new Date(prod.created_at).toISOString().slice(0,10).replace(/-/g,'') : '-'
+      const rSell     = prod?.sold_date  ? new Date(prod.sold_date).toISOString().slice(0,10).replace(/-/g,'')  : dateStr
+      const rCost     = prod ? Number(prod.total_cost || prod.base_cost || 0) : 0
+      const rSPrice   = prod?.sold_price != null ? Number(prod.sold_price) : null
+      const rProfit   = rSPrice != null ? rSPrice - rCost : null
       for (let i = 0; i < t.images.length; i++) {
         try {
           const res = await fetch(t.images[i])
           const buf = await res.arrayBuffer()
           const ext = (t.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
-          dayFolder.file(`${label}_${dateStr}_${Number(t.amount).toLocaleString('th-TH')}_${i + 1}.${ext}`, buf)
+          const fname = prod
+            ? `${rModel}_${rCat}_${rBuy}_${rSell}_${rCost}_${rSPrice ?? '-'}_${rProfit ?? '-'}_${i + 1}.${ext}`
+            : `${rModel}_${dateStr}_${Number(t.amount)}_${i + 1}.${ext}`
+          dayFolder.file(fname, buf)
         } catch { /* skip */ }
         done++
         onProgress?.(done, grandTotal)
@@ -465,14 +475,23 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
     const dayKey    = new Date(t.date).toISOString().slice(0, 10)
     const dayFolder = receiptRoot.folder(dayKey)
     const dateStr   = dayKey.replace(/-/g, '')
-    const label     = safeStr(t.products?.model || t.category)
+    const rModel    = t.products?.model ? safeStr(t.products.model) : safeStr(t.category || 'nocat')
+    const rCat      = t.products?.category ? safeStr(t.products.category) : ''
+    const rBuy      = t.products?.created_at ? new Date(t.products.created_at).toISOString().slice(0,10).replace(/-/g,'') : '-'
+    const rSell     = t.products?.sold_date  ? new Date(t.products.sold_date).toISOString().slice(0,10).replace(/-/g,'')  : dateStr
+    const rCost     = t.products?.total_cost != null ? Number(t.products.total_cost) : 0
+    const rSPrice   = t.products?.sold_price != null ? Number(t.products.sold_price) : null
+    const rProfit   = rSPrice != null ? rSPrice - rCost : null
 
     for (let i = 0; i < t.images.length; i++) {
       try {
         const res = await fetch(t.images[i])
         const buf = await res.arrayBuffer()
         const ext = (t.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
-        dayFolder.file(`${label}_${dateStr}_${Number(t.amount).toLocaleString('th-TH')}_${i + 1}.${ext}`, buf)
+        const fname = t.products?.model
+          ? `${rModel}_${rCat}_${rBuy}_${rSell}_${rCost}_${rSPrice ?? '-'}_${rProfit ?? '-'}_${i + 1}.${ext}`
+          : `${rModel}_${dateStr}_${Number(t.amount)}_${i + 1}.${ext}`
+        dayFolder.file(fname, buf)
       } catch { /* skip */ }
       done++
       onProgress?.(done, grandTotal)
