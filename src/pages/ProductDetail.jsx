@@ -539,8 +539,9 @@ export default function ProductDetail() {
     navigate('/inventory')
     scheduleDelete({
       label: product.model,
-      onUndo: () => navigate(`/product/${id}`),
+      onUndo: () => navigate(`/inventory/${id}`),
       onCommit: async () => {
+        await supabase.from('accessories').delete().eq('product_id', id)
         await supabase.from('transactions').delete().eq('product_id', id)
         await supabase.from('products').delete().eq('id', id)
       },
