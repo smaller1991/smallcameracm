@@ -5,6 +5,7 @@ import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from 
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import toast from 'react-hot-toast'
+import { scheduleDelete } from '../lib/undoDelete'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
@@ -232,7 +233,7 @@ export default function Finance() {
     finally{setSaving(false)}
   }
   const del = async tx => {
-    const willRevertSale   = tx.category === 'Sale'      && tx.product_id
+    const willRevertSale    = tx.category === 'Sale'      && tx.product_id
     const willDeleteProduct = tx.category === 'Buy Stock' && tx.product_id
     const msg = willDeleteProduct
       ? 'ลบรายการนี้?\n⚠️ สินค้าที่เชื่อมอยู่จะถูกลบออกจากสต็อกด้วย'
@@ -241,37 +242,43 @@ export default function Finance() {
       : 'ลบรายการนี้?'
     if (!confirm(msg)) return
 
-    try {
-      if (willRevertSale) {
-        const price = Number(tx.amount)
-        const method = tx.payment_method
-        await supabase.from('products').update({
-          status: 'Available', sold_price: null, sold_date: null,
-          payment_method: null, warranty_expiry: null,
-        }).eq('id', tx.product_id)
-        if (price > 0 && method) {
-          const { data: bal } = await supabase.from('balances').select('*').eq('id', 'main').single()
-          if (bal) {
-            const upd = method === 'โอน'
-              ? { bank: Math.max(0, Number(bal.bank) - price) }
-              : { cash: Math.max(0, Number(bal.cash) - price) }
-            await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', 'main')
+    const snap = txs
+    setTxs(prev => prev.filter(t => t.id !== tx.id))
+    const label = tx.products?.model ? `${tx.category} — ${tx.products.model}` : (tx.note || tx.category)
+
+    scheduleDelete({
+      label,
+      onUndo: () => setTxs(snap),
+      onCommit: async () => {
+        if (willRevertSale) {
+          const price = Number(tx.amount)
+          const method = tx.payment_method
+          await supabase.from('products').update({
+            status: 'Available', sold_price: null, sold_date: null,
+            payment_method: null, warranty_expiry: null,
+          }).eq('id', tx.product_id)
+          if (price > 0 && method) {
+            const { data: bal } = await supabase.from('balances').select('*').eq('id', 'main').single()
+            if (bal) {
+              const upd = method === 'โอน'
+                ? { bank: Math.max(0, Number(bal.bank) - price) }
+                : { cash: Math.max(0, Number(bal.cash) - price) }
+              await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', 'main')
+            }
           }
+          await supabase.from('transactions').delete().eq('id', tx.id)
+          load(); return
+        }
+        if (willDeleteProduct) {
+          await supabase.from('transactions').delete().eq('product_id', tx.product_id)
+          await deleteAllProductImages(supabase, tx.product_id)
+          await supabase.from('products').delete().eq('id', tx.product_id)
+          load(); return
         }
         await supabase.from('transactions').delete().eq('id', tx.id)
-        toast.success('ลบแล้ว — สินค้ากลับเป็นพร้อมขาย'); load(); return
-      }
-
-      if (willDeleteProduct) {
-        await supabase.from('transactions').delete().eq('product_id', tx.product_id)
-        await deleteAllProductImages(supabase, tx.product_id)
-        await supabase.from('products').delete().eq('id', tx.product_id)
-        toast.success('ลบแล้ว — สินค้าถูกลบออกจากสต็อก'); load(); return
-      }
-
-      await supabase.from('transactions').delete().eq('id', tx.id)
-      toast.success('ลบแล้ว'); load()
-    } catch(e) { toast.error(e.message) }
+        load()
+      },
+    })
   }
 
   const cancelTrade = async tx => {

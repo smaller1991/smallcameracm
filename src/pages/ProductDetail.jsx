@@ -6,6 +6,7 @@ import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { scheduleDelete } from '../lib/undoDelete'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว',Pending:'รอชำระ'}
@@ -156,12 +157,19 @@ export default function ProductDetail() {
 
   const deleteAcc = async (acc) => {
     if (!confirm('ลบ "'+acc.name+'"?')) return
-    await supabase.from('accessories').delete().eq('id',acc.id)
-    // อัปเดต total_cost = base_cost + accessory ที่เหลือ (override trigger ที่อาจผิดพลาด)
-    const remaining = accs.filter(a => a.id !== acc.id)
-    const remainSum = remaining.reduce((s,a) => s + Number(a.cost), 0)
-    await supabase.from('products').update({ total_cost: Number(product.base_cost) + remainSum }).eq('id', id)
-    toast.success('ลบแล้ว'); load()
+    const snap = accs
+    setAccs(prev => prev.filter(a => a.id !== acc.id))
+    scheduleDelete({
+      label: acc.name,
+      onUndo: () => setAccs(snap),
+      onCommit: async () => {
+        await supabase.from('accessories').delete().eq('id', acc.id)
+        const remaining = snap.filter(a => a.id !== acc.id)
+        const remainSum = remaining.reduce((s,a) => s + Number(a.cost), 0)
+        await supabase.from('products').update({ total_cost: Number(product.base_cost) + remainSum }).eq('id', id)
+        load()
+      },
+    })
   }
 
   // ─── receipt images per transaction ───────────────────────
@@ -528,12 +536,15 @@ export default function ProductDetail() {
   // ─── delete product ────────────────────────────────────────
   const deleteProduct = async () => {
     if (!confirm('ลบสินค้านี้?\nรายการบัญชีทั้งหมดจะถูกลบด้วย')) return
-    setSaving(true)
-    try {
-      await supabase.from('transactions').delete().eq('product_id', id)
-      await supabase.from('products').delete().eq('id', id)
-      toast.success('ลบสินค้าแล้ว'); navigate('/inventory')
-    } catch(e){toast.error(e.message)} finally{setSaving(false)}
+    navigate('/inventory')
+    scheduleDelete({
+      label: product.model,
+      onUndo: () => navigate(`/product/${id}`),
+      onCommit: async () => {
+        await supabase.from('transactions').delete().eq('product_id', id)
+        await supabase.from('products').delete().eq('id', id)
+      },
+    })
   }
 
   if (loading) return <div className="flex justify-center items-center h-64"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
