@@ -39,9 +39,9 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col min-h-screen max-w-[430px] mx-auto bg-brand-light">
-      <header className="flex items-center justify-between px-4 py-3 bg-brand-dark sticky top-0 z-40">
+      <header className="flex items-center justify-between px-4 py-1.5 bg-brand-dark sticky top-0 z-40">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="Snapman CM" className="h-24 w-auto object-contain"/>
+          <img src="/logo.png" alt="Snapman CM" className="h-12 w-auto object-contain"/>
         </div>
         <div className="flex items-center gap-2">
           {/* Dark mode toggle */}
