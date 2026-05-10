@@ -58,6 +58,7 @@ export default function Finance() {
   const [balForm,    setBalForm]    = useState({bank:'',cash:''})
 
   const [lightbox,     setLightbox]     = useState(null) // {imgs:[], idx:0}
+  const [txDetail,     setTxDetail]     = useState(null)
 
   const [stockValue,   setStockValue]   = useState(0)
   const [soldProfit,   setSoldProfit]   = useState(0)
@@ -232,7 +233,7 @@ export default function Finance() {
     } catch(e){toast.error(e.message)}
     finally{setSaving(false)}
   }
-  const del = async tx => {
+  const del = async (tx, onConfirmed) => {
     const willRevertSale    = tx.category === 'Sale'      && tx.product_id
     const willDeleteProduct = tx.category === 'Buy Stock' && tx.product_id
     const msg = willDeleteProduct
@@ -241,6 +242,7 @@ export default function Finance() {
       ? 'ลบรายการนี้?\n• สินค้าที่เชื่อมอยู่จะกลับเป็นพร้อมขาย\n• ยอดเงินจะถูกหักคืนอัตโนมัติ'
       : 'ลบรายการนี้?'
     if (!confirm(msg)) return
+    onConfirmed?.()
 
     const snap = txs
     setTxs(prev => prev.filter(t => t.id !== tx.id))
@@ -787,7 +789,8 @@ export default function Finance() {
               // Trade transaction — แสดงแบบพิเศษสีน้ำเงิน
               if (isTrade) {
                 return (
-                  <div key={tx.id} className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3">
+                  <div key={tx.id} onClick={()=>setTxDetail(tx)}
+                    className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3 cursor-pointer active:scale-[0.98] transition-transform touch-manipulation">
                     <div className="w-2 rounded-full flex-shrink-0 self-stretch bg-blue-400"/>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
@@ -811,27 +814,15 @@ export default function Finance() {
                           ))}
                         </div>
                       )}
-                      {tx.images?.length > 0 && (
-                        <div className="flex gap-1 mt-1 overflow-x-auto">
-                          {tx.images.map((url,i)=>(
-                            <img key={i} src={url}
-                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-200 cursor-zoom-in"
-                              onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
-                          ))}
-                        </div>
-                      )}
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
-                    </div>
-                    <div className="flex flex-col gap-1 flex-shrink-0">
-                      <button onClick={()=>openEdit(tx)} className="p-1.5 text-gray-300 hover:text-brand-dark"><Edit2 size={14}/></button>
-                      <button onClick={()=>cancelTrade(tx)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
                     </div>
                   </div>
                 )
               }
 
               return (
-              <div key={tx.id} className="card flex items-center gap-3">
+              <div key={tx.id} onClick={()=>setTxDetail(tx)}
+                className="card flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform touch-manipulation">
                 <div className={`w-2 rounded-full flex-shrink-0 self-stretch ${TX_BAR[tx.category]||(tx.type==='Income'?'bg-green-400':'bg-red-400')}`}/>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
@@ -869,7 +860,7 @@ export default function Finance() {
                     <p className="text-xs text-blue-500 truncate">👤 {tx.products.customer_note}</p>
                   )}
                   {tx.images?.length > 0 && (
-                    <div className="flex gap-1 mt-1 overflow-x-auto">
+                    <div className="flex gap-1 mt-1 overflow-x-auto" onClick={e=>e.stopPropagation()}>
                       {tx.images.map((url,i)=>(
                         <img key={i} src={url}
                           className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-amber-100 cursor-zoom-in"
@@ -879,14 +870,100 @@ export default function Finance() {
                   )}
                   <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
                 </div>
-                <div className="flex flex-col gap-1 flex-shrink-0">
-                  <button onClick={()=>openEdit(tx)} className="p-1.5 text-gray-300 hover:text-brand-dark"><Edit2 size={14}/></button>
-                  <button onClick={()=>del(tx)} className="p-1.5 text-gray-300 hover:text-brand-red"><X size={14}/></button>
-                </div>
               </div>
             )})}
           </div>
       }
+
+      {/* Transaction Detail Sheet */}
+      {txDetail && (
+        <div className="fixed inset-0 z-50 flex flex-col justify-end"
+          style={{background:'rgba(0,0,0,0.5)'}}
+          onPointerDown={e=>{if(e.target===e.currentTarget)setTxDetail(null)}}>
+          <div className="bg-white dark:bg-[#1A1208] rounded-t-2xl w-full max-w-[430px] mx-auto max-h-[85vh] flex flex-col">
+
+            {/* header */}
+            <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-amber-100 dark:border-white/10 flex-shrink-0">
+              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${catColor(txDetail.category)}`}>
+                {txDetail.category === 'Trade' ? '🔄 Trade' : txDetail.category}
+              </span>
+              <p className={`text-lg font-bold ${txDetail.type==='Income'?'text-green-600':'text-brand-red'}`}>
+                {txDetail.type==='Income'?'+':'-'}฿{fmt(txDetail.amount)}
+              </p>
+              <button onClick={()=>setTxDetail(null)} className="text-gray-400 p-1"><X size={18}/></button>
+            </div>
+
+            {/* body */}
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+              {txDetail.products?.model && (
+                <div>
+                  <p className="text-xs text-gray-400">สินค้า</p>
+                  <p className="font-semibold text-brand-dark dark:text-white">
+                    {txDetail.products.model}{txDetail.products.category ? ` (${txDetail.products.category})` : ''}
+                  </p>
+                </div>
+              )}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <p className="text-xs text-gray-400">วันที่</p>
+                  <p className="text-sm font-medium dark:text-white">{thDate(txDetail.date)}</p>
+                </div>
+                {txDetail.payment_method && (
+                  <div>
+                    <p className="text-xs text-gray-400">ช่องทางชำระ</p>
+                    <p className="text-sm font-medium dark:text-white">{txDetail.payment_method}</p>
+                  </div>
+                )}
+              </div>
+              {txDetail.note && (
+                <div>
+                  <p className="text-xs text-gray-400">หมายเหตุ</p>
+                  <p className="text-sm whitespace-pre-wrap dark:text-white">{txDetail.note}</p>
+                </div>
+              )}
+              {txDetail.category==='Sale' && txDetail.products?.customer_note && txDetail.products.customer_note !== txDetail.note && (
+                <div className="bg-blue-50 rounded-xl px-3 py-2">
+                  <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
+                  <p className="text-sm text-blue-700">{txDetail.products.customer_note}</p>
+                </div>
+              )}
+              {txDetail.images?.length > 0 && (
+                <div>
+                  <p className="text-xs text-gray-400 mb-1.5">รูปใบเสร็จ</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {txDetail.images.map((url,i)=>(
+                      <img key={i} src={url}
+                        className="w-20 h-20 rounded-xl object-cover cursor-zoom-in border border-amber-100"
+                        onClick={()=>setLightbox({imgs:txDetail.images,idx:i})}/>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* actions */}
+            <div className="px-5 pb-6 pt-3 border-t border-amber-100 dark:border-white/10 flex gap-3 flex-shrink-0">
+              <button
+                onClick={()=>{openEdit(txDetail);setTxDetail(null)}}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:border-brand-dark hover:text-brand-dark transition-colors">
+                <Edit2 size={15}/>แก้ไข
+              </button>
+              {txDetail.category === 'Trade'
+                ? <button
+                    onClick={()=>{cancelTrade(txDetail);setTxDetail(null)}}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-blue-200 text-sm font-semibold text-blue-600 hover:bg-blue-50 transition-colors">
+                    <X size={15}/>ยกเลิก Trade
+                  </button>
+                : <button
+                    onClick={()=>del(txDetail, ()=>setTxDetail(null))}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-200 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors">
+                    <X size={15}/>ลบรายการ
+                  </button>
+              }
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Lightbox */}
       {lightbox && (
