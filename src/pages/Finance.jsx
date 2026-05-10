@@ -1,4 +1,4 @@
-﻿import { useEffect, useState } from 'react'
+﻿import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal, Search } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
@@ -59,6 +59,17 @@ export default function Finance() {
 
   const [lightbox,     setLightbox]     = useState(null) // {imgs:[], idx:0}
   const [txDetail,     setTxDetail]     = useState(null)
+  const tapRef = useRef({ ok: false, x: 0, y: 0 })
+  const tap = cb => ({
+    onTouchStart: e => { tapRef.current = { ok: true, x: e.touches[0].clientX, y: e.touches[0].clientY } },
+    onTouchMove:  e => {
+      const dx = Math.abs(e.touches[0].clientX - tapRef.current.x)
+      const dy = Math.abs(e.touches[0].clientY - tapRef.current.y)
+      if (dx > 8 || dy > 8) tapRef.current.ok = false
+    },
+    onTouchEnd: e => { if (tapRef.current.ok) { e.preventDefault(); cb() } tapRef.current.ok = false },
+    onClick: cb,
+  })
 
   const [stockValue,   setStockValue]   = useState(0)
   const [soldProfit,   setSoldProfit]   = useState(0)
@@ -789,7 +800,7 @@ export default function Finance() {
               // Trade transaction — แสดงแบบพิเศษสีน้ำเงิน
               if (isTrade) {
                 return (
-                  <button key={tx.id} onClick={()=>setTxDetail(tx)}
+                  <button key={tx.id} {...tap(()=>setTxDetail(tx))}
                     className="w-full text-left rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation">
                     <div className="w-2 rounded-full flex-shrink-0 self-stretch bg-blue-400"/>
                     <div className="flex-1 min-w-0">
@@ -821,7 +832,7 @@ export default function Finance() {
               }
 
               return (
-              <button key={tx.id} onClick={()=>setTxDetail(tx)}
+              <button key={tx.id} {...tap(()=>setTxDetail(tx))}
                 className="card w-full text-left flex items-center gap-3 active:opacity-70 transition-opacity touch-manipulation">
                 <div className={`w-2 rounded-full flex-shrink-0 self-stretch ${TX_BAR[tx.category]||(tx.type==='Income'?'bg-green-400':'bg-red-400')}`}/>
                 <div className="flex-1 min-w-0">
