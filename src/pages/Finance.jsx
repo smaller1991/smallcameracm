@@ -789,8 +789,8 @@ export default function Finance() {
               // Trade transaction — แสดงแบบพิเศษสีน้ำเงิน
               if (isTrade) {
                 return (
-                  <div key={tx.id} onClick={()=>setTxDetail(tx)}
-                    className="rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3 cursor-pointer active:scale-[0.98] transition-transform touch-manipulation">
+                  <button key={tx.id} onClick={()=>setTxDetail(tx)}
+                    className="w-full text-left rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation">
                     <div className="w-2 rounded-full flex-shrink-0 self-stretch bg-blue-400"/>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
@@ -816,13 +816,13 @@ export default function Finance() {
                       )}
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
                     </div>
-                  </div>
+                  </button>
                 )
               }
 
               return (
-              <div key={tx.id} onClick={()=>setTxDetail(tx)}
-                className="card flex items-center gap-3 cursor-pointer active:scale-[0.98] transition-transform touch-manipulation">
+              <button key={tx.id} onClick={()=>setTxDetail(tx)}
+                className="card w-full text-left flex items-center gap-3 active:opacity-70 transition-opacity touch-manipulation">
                 <div className={`w-2 rounded-full flex-shrink-0 self-stretch ${TX_BAR[tx.category]||(tx.type==='Income'?'bg-green-400':'bg-red-400')}`}/>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
@@ -870,7 +870,7 @@ export default function Finance() {
                   )}
                   <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
                 </div>
-              </div>
+              </button>
             )})}
           </div>
       }
