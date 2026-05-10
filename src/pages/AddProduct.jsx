@@ -46,41 +46,60 @@ export default function AddProduct() {
     }
     setSaving(true)
     try {
-      const txDate = date ? new Date(date).toISOString() : new Date().toISOString()
+      const txDate  = date ? new Date(date).toISOString() : new Date().toISOString()
+      const isMulti = items.length > 1
+      const batchId = isMulti ? crypto.randomUUID() : null
 
-      // upload receipt images once
+      // upload receipt images once (shared across all items)
       let receiptUrls = []
       if (imgFiles.length) {
-        // use a temp placeholder id for the folder name
-        const tempId = `batch_${Date.now()}`
-        receiptUrls = await uploadReceiptImages(supabase, tempId, imgFiles)
+        receiptUrls = await uploadReceiptImages(supabase, `batch_${Date.now()}`, imgFiles)
       }
 
-      const txIds = []
+      // create all products
+      const created = []
       for (const it of items) {
         const cost = parseFloat(it.base_cost)
-        const insertData = {
+        const { data: p, error: pErr } = await supabase.from('products').insert({
           serial_number: it.serial_number.trim(),
           model: it.model.trim(),
           condition: Number(it.condition),
-          base_cost: cost,
-          total_cost: cost,
+          base_cost: cost, total_cost: cost,
           notes: it.notes,
           category: it.category,
           created_at: txDate,
-        }
-        const { data: p, error: pErr } = await supabase.from('products').insert(insertData).select().single()
+          ...(batchId ? { batch_id: batchId } : {}),
+        }).select().single()
         if (pErr) throw pErr
+        created.push({ ...p, _cost: cost })
+      }
 
-        const { data: tx, error: txErr } = await supabase.from('transactions').insert({
-          type: 'Expense', category: 'Buy Stock', amount: cost,
+      if (isMulti) {
+        // ONE shared transaction — no product_id, note lists all items
+        const noteLines = created.map((p, i) =>
+          `${i + 1}. ${p.model}  SN:${p.serial_number}  ฿${Number(p._cost).toLocaleString('th-TH')}`
+        ).join('\n')
+        const { error: txErr } = await supabase.from('transactions').insert({
+          type: 'Expense', category: 'Buy Stock',
+          amount: totalCost,
+          product_id: null,
+          payment_method: payMethod,
+          date: txDate,
+          note: `ซื้อสินค้า ${items.length} รายการ:\n${noteLines}`,
+          images: receiptUrls.length ? receiptUrls : null,
+        })
+        if (txErr) throw txErr
+      } else {
+        // single item — link transaction to product as usual
+        const p = created[0]
+        const { error: txErr } = await supabase.from('transactions').insert({
+          type: 'Expense', category: 'Buy Stock', amount: p._cost,
           product_id: p.id, payment_method: payMethod,
           date: txDate,
-          note: `ซื้อสินค้า: ${it.model.trim()} SN:${it.serial_number.trim()}`,
+          note: `ซื้อสินค้า: ${p.model} SN:${p.serial_number}`,
           images: receiptUrls.length ? receiptUrls : null,
-        }).select().single()
+        })
         if (txErr) throw txErr
-        txIds.push(tx.id)
       }
 
       // deduct total from balance
@@ -92,7 +111,7 @@ export default function AddProduct() {
         await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id','main')
       }
 
-      const label = items.length === 1 ? items[0].model.trim() : `${items.length} รายการ`
+      const label = isMulti ? `${items.length} รายการ` : created[0].model
       toast.success(`เพิ่มสินค้าสำเร็จ — ${label} หัก${payMethod} ฿${totalCost.toLocaleString('th-TH')}`)
       navigate('/inventory')
     } catch(e) { toast.error(e.message) }

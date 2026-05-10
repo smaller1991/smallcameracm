@@ -45,9 +45,10 @@ export default function ProductDetail() {
   const [editNewFiles,    setEditNewFiles]    = useState([])
   const [editNewPreviews, setEditNewPreviews] = useState([])
   const [removedUrls,     setRemovedUrls]     = useState([])
-  const [txList,          setTxList]          = useState([])
-  const [lightboxImg,     setLightboxImg]     = useState(null)
-  const [batchProducts,   setBatchProducts]   = useState([])
+  const [txList,               setTxList]               = useState([])
+  const [lightboxImg,          setLightboxImg]          = useState(null)
+  const [batchProducts,        setBatchProducts]        = useState([])
+  const [purchaseBatch,        setPurchaseBatch]        = useState([])
 
   // sell
   const [sellMode,     setSellMode]     = useState(false)
@@ -82,6 +83,16 @@ export default function ProductDetail() {
       setBatchProducts(bd || [])
     } else {
       setBatchProducts([])
+    }
+    if (p?.batch_id) {
+      const { data: pb } = await supabase
+        .from('products')
+        .select('id,model,serial_number,category,status')
+        .eq('batch_id', p.batch_id)
+        .neq('id', id)
+      setPurchaseBatch(pb || [])
+    } else {
+      setPurchaseBatch([])
     }
     setEf({model:p.model, serial_number:p.serial_number, condition:p.condition,
            base_cost:p.base_cost, status:p.status, notes:p.notes||'',
@@ -656,6 +667,20 @@ export default function ProductDetail() {
                 )}
               </div>
               {product.notes && <p className="text-sm text-gray-500 italic">{product.notes}</p>}
+              {purchaseBatch.length > 0 && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2">
+                  <p className="text-xs text-amber-500 font-medium mb-1">ซื้อมาพร้อมกับ</p>
+                  <div className="space-y-0.5">
+                    {purchaseBatch.map(pb => (
+                      <button key={pb.id} onClick={()=>navigate(`/inventory/${pb.id}`)}
+                        className="flex items-center justify-between w-full text-left hover:opacity-70 transition-opacity">
+                        <span className="text-sm text-amber-800 font-medium">{pb.model}</span>
+                        <span className="text-xs text-amber-500">SN: {pb.serial_number}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               {product.customer_note && (
                 <div className="bg-blue-50 rounded-xl px-3 py-2">
                   <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
