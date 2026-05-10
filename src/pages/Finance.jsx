@@ -825,6 +825,15 @@ export default function Finance() {
                           ))}
                         </div>
                       )}
+                      {tx.images?.length > 0 && (
+                        <div className="flex gap-1 mt-1 overflow-x-auto" onClick={e=>e.stopPropagation()}>
+                          {tx.images.map((url,i)=>(
+                            <img key={i} src={url}
+                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-200 cursor-zoom-in"
+                              onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
+                          ))}
+                        </div>
+                      )}
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
                     </div>
                   </button>
