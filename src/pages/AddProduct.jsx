@@ -82,7 +82,7 @@ export default function AddProduct() {
         const { error: txErr } = await supabase.from('transactions').insert({
           type: 'Expense', category: 'Buy Stock',
           amount: totalCost,
-          product_id: null,
+          product_id: created[0].id,
           payment_method: payMethod,
           date: txDate,
           note: `ซื้อสินค้า ${items.length} รายการ:\n${noteLines}`,

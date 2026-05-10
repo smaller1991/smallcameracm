@@ -26,13 +26,35 @@ export default function Inventory() {
   const [sortKey, setSortKey]  = useState('created_at_desc')
   const [showSort,setShowSort] = useState(false)
   const [inventoryValue, setInventoryValue] = useState(0)
-  const [lightboxImg, setLightboxImg] = useState(null)
+  const [lightboxImg,   setLightboxImg]   = useState(null)
+  const [tradeImageMap, setTradeImageMap] = useState({})
 
   useEffect(() => {
     supabase.from('products').select('*, transactions(images, category)')
-      .then(({data}) => { setProducts(data || []); setLoading(false) })
+      .then(async ({data}) => {
+        const prods = data || []
+        setProducts(prods)
+        setLoading(false)
 
-    // มูลค่าสินค้าคงคลัง = Available + Reserved เท่านั้น (Pending = รอชำระ ถือว่าขายแล้ว)
+        // หา receipt image สำหรับสินค้า trade-in:
+        // product B (is_trade_in) ไม่มี transaction ตรงๆ
+        // ต้องหา product A ที่มี trade_ref_id = productB.id → ดึง Trade transaction ของ A
+        const tradeIns = prods.filter(p => p.is_trade_in)
+        if (tradeIns.length > 0) {
+          const { data: productAs } = await supabase
+            .from('products')
+            .select('trade_ref_id, transactions(images, category)')
+            .in('trade_ref_id', tradeIns.map(p => p.id))
+          const map = {}
+          ;(productAs || []).forEach(pA => {
+            const img = pA.transactions?.find(t => t.category === 'Trade')?.images?.[0]
+            if (img && pA.trade_ref_id) map[pA.trade_ref_id] = img
+          })
+          setTradeImageMap(map)
+        }
+      })
+
+    // มูลค่าสินค้าคงคลัง = Available + Reserved เท่านั้น
     supabase.from('products').select('total_cost, status')
       .in('status', ['Available', 'Reserved'])
       .then(({data: p}) => {
@@ -127,8 +149,20 @@ export default function Inventory() {
         : filtered.length===0
           ? <div className="flex flex-col items-center pt-24 text-gray-400"><span className="text-5xl mb-3">📷</span><p>ไม่พบสินค้า</p></div>
           : <div className="px-4 pb-4 space-y-1.5 mt-1">
-              {filtered.map(p=>{
-                const coverImg = p.transactions?.find(t=>t.category==='Buy Stock')?.images?.[0]
+              {(() => {
+                // batch image map: batch_id → รูปแรกจากชิ้นที่มี Buy Stock transaction
+                const batchImageMap = {}
+                products.forEach(p => {
+                  if (p.batch_id) {
+                    const img = p.transactions?.find(t => t.category === 'Buy Stock')?.images?.[0]
+                    if (img) batchImageMap[p.batch_id] = img
+                  }
+                })
+                return filtered.map(p => {
+                const coverImg =
+                  p.transactions?.find(t => t.category === 'Buy Stock')?.images?.[0]  // ซื้อปกติ
+                  || (p.batch_id && batchImageMap[p.batch_id])                          // ซื้อพร้อมกัน
+                  || (p.is_trade_in && tradeImageMap[p.id])                             // แลกเปลี่ยน
                 return (
                   <div key={p.id} onClick={()=>navigate(`/inventory/${p.id}`)}
                     className={`card p-2.5 flex items-center gap-2.5 cursor-pointer active:scale-[0.98] transition-transform ${p.is_trade_in?'border-blue-300 border-2':''}`}>
@@ -165,7 +199,7 @@ export default function Inventory() {
                     </div>
                   </div>
                 )
-              })}
+              })})()}
             </div>
       }
 
