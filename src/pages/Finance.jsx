@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react'
+﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal, Search } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
@@ -103,6 +103,23 @@ export default function Finance() {
     setLoading(false)
   }
   useEffect(()=>{load()},[])
+
+  // คำนวณยอดคงเหลือหลังแต่ละรายการจากยอดปัจจุบัน ย้อนกลับจากใหม่→เก่า
+  const balMap = useMemo(() => {
+    const map = {}
+    let runBank = balance.bank
+    let runCash = balance.cash
+    for (const tx of txs) {
+      map[tx.id] = { bank: runBank, cash: runCash }
+      const amt = Number(tx.amount || 0)
+      if (tx.type === 'Income') {
+        if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
+      } else {
+        if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
+      }
+    }
+    return map
+  }, [txs, balance])
 
   // แปลง UTC timestamp → local YYYY-MM-DD string สำหรับเปรียบเทียบวัน (timezone-safe)
   const toLocalDateStr = iso => {
@@ -229,13 +246,23 @@ export default function Finance() {
         }
         toast.success('แก้ไขแล้ว')
       } else {
+        const { data: balSnap } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+        let bank_after = Number(balSnap?.bank || 0)
+        let cash_after = Number(balSnap?.cash || 0)
+        if (form.type === 'Income') {
+          if (method === 'โอน') bank_after += amount; else cash_after += amount
+        } else {
+          if (method === 'โอน') bank_after = Math.max(0, bank_after - amount)
+          else cash_after = Math.max(0, cash_after - amount)
+        }
         const {data:newTx, error} = await supabase.from('transactions').insert(payload).select().single()
         if (error) throw error
+        try { await supabase.from('transactions').update({ bank_after, cash_after }).eq('id', newTx.id) } catch(_) {}
         if (imgFiles.length) {
           const urls = await uploadReceiptImages(supabase, newTx.id, imgFiles)
           await supabase.from('transactions').update({images:urls}).eq('id',newTx.id)
         }
-        await adjustBalance(form.type, method, amount)
+        await supabase.from('balances').update({ bank: bank_after, cash: cash_after, updated_at: new Date().toISOString() }).eq('id','main')
         toast.success('เพิ่มรายการแล้ว')
       }
       setShowForm(false); setEditId(null)
@@ -248,10 +275,10 @@ export default function Finance() {
     const willRevertSale    = tx.category === 'Sale'      && tx.product_id
     const willDeleteProduct = tx.category === 'Buy Stock' && tx.product_id
     const msg = willDeleteProduct
-      ? 'ลบรายการนี้?\n⚠️ สินค้าที่เชื่อมอยู่จะถูกลบออกจากสต็อกด้วย'
+      ? 'ย้อนกลับรายการนี้?\n⚠️ สินค้าที่เชื่อมอยู่จะถูกลบออกจากสต็อก\n• ยอดเงินจะถูกคืนอัตโนมัติ'
       : willRevertSale
-      ? 'ลบรายการนี้?\n• สินค้าที่เชื่อมอยู่จะกลับเป็นพร้อมขาย\n• ยอดเงินจะถูกหักคืนอัตโนมัติ'
-      : 'ลบรายการนี้?'
+      ? 'ย้อนกลับรายการนี้?\n• สินค้าที่เชื่อมอยู่จะกลับเป็นพร้อมขาย\n• ยอดเงินจะถูกคืนอัตโนมัติ'
+      : 'ย้อนกลับรายการนี้?\n• ยอดเงินจะถูกคืนอัตโนมัติ'
     if (!confirm(msg)) return
     onConfirmed?.()
 
@@ -263,31 +290,38 @@ export default function Finance() {
       label,
       onUndo: () => setTxs(snap),
       onCommit: async () => {
+        const revertBalance = async (type, method, amount) => {
+          if (!amount || !method) return
+          const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id', 'main').single()
+          if (!bal) return
+          let upd = {}
+          if (type === 'Income') {
+            if (method === 'โอน') upd = { bank: Math.max(0, Number(bal.bank) - amount) }
+            else upd = { cash: Math.max(0, Number(bal.cash) - amount) }
+          } else {
+            if (method === 'โอน') upd = { bank: Number(bal.bank) + amount }
+            else upd = { cash: Number(bal.cash) + amount }
+          }
+          await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', 'main')
+        }
+
         if (willRevertSale) {
-          const price = Number(tx.amount)
-          const method = tx.payment_method
           await supabase.from('products').update({
             status: 'Available', sold_price: null, sold_date: null,
             payment_method: null, warranty_expiry: null,
           }).eq('id', tx.product_id)
-          if (price > 0 && method) {
-            const { data: bal } = await supabase.from('balances').select('*').eq('id', 'main').single()
-            if (bal) {
-              const upd = method === 'โอน'
-                ? { bank: Math.max(0, Number(bal.bank) - price) }
-                : { cash: Math.max(0, Number(bal.cash) - price) }
-              await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', 'main')
-            }
-          }
+          await revertBalance('Income', tx.payment_method, Number(tx.amount))
           await supabase.from('transactions').delete().eq('id', tx.id)
           load(); return
         }
         if (willDeleteProduct) {
+          await revertBalance('Expense', tx.payment_method, Number(tx.amount))
           await supabase.from('transactions').delete().eq('product_id', tx.product_id)
           await deleteAllProductImages(supabase, tx.product_id)
           await supabase.from('products').delete().eq('id', tx.product_id)
           load(); return
         }
+        await revertBalance(tx.type, tx.payment_method, Number(tx.amount))
         await supabase.from('transactions').delete().eq('id', tx.id)
         load()
       },
@@ -889,6 +923,12 @@ export default function Finance() {
                     </div>
                   )}
                   <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
+                  {balMap[tx.id] && (
+                    <div className="flex gap-2 mt-1" style={{color:'#555'}}>
+                      <span className="text-xs font-medium">💳 ฿{fmt(balMap[tx.id].bank)}</span>
+                      <span className="text-xs font-medium">💵 ฿{fmt(balMap[tx.id].cash)}</span>
+                    </div>
+                  )}
                 </div>
               </button>
             )})}
@@ -947,6 +987,21 @@ export default function Finance() {
                   <p className="text-sm text-blue-700">{txDetail.products.customer_note}</p>
                 </div>
               )}
+              {balMap[txDetail?.id] && (
+                <div className="bg-gray-50 dark:bg-white/5 rounded-xl px-3 py-2.5">
+                  <p className="text-xs text-gray-400 mb-1.5">ยอดคงเหลือหลังรายการ</p>
+                  <div className="flex gap-6">
+                    <div>
+                      <p className="text-xs text-blue-400">💳 ธนาคาร</p>
+                      <p className="font-semibold text-sm text-blue-600">฿{fmt(balMap[txDetail.id].bank)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-green-500">💵 เงินสด</p>
+                      <p className="font-semibold text-sm text-green-600">฿{fmt(balMap[txDetail.id].cash)}</p>
+                    </div>
+                  </div>
+                </div>
+              )}
               {txDetail.images?.length > 0 && (
                 <div>
                   <p className="text-xs text-gray-400 mb-1.5">รูปใบเสร็จ</p>
@@ -977,7 +1032,7 @@ export default function Finance() {
                 : <button
                     onClick={()=>del(txDetail, ()=>setTxDetail(null))}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-200 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors">
-                    <X size={15}/>ลบรายการ
+                    ↩ ย้อนกลับรายการ
                   </button>
               }
             </div>

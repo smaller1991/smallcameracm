@@ -71,9 +71,16 @@ export default function BulkSale() {
 
       const batchPrefix = batchId ? `ขายรวม ${items.length} ชิ้น` : null
 
+      // อ่าน balance ก่อนทำรายการ
+      const { data: balBulk } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+      let runBank = Number(balBulk?.bank || 0)
+      let runCash = Number(balBulk?.cash || 0)
+
       if (payType === 'full') {
         for (const x of items) {
           const price = Number(x.sellPrice)
+          if (payMethod==='โอน') runBank += price; else runCash += price
+
           const { error: e1 } = await supabase.from('products').update({
             status: 'Sold', sold_price: price, sold_date: now,
             warranty_expiry: warranty, payment_method: payMethod,
@@ -94,15 +101,10 @@ export default function BulkSale() {
           }).select().single()
           if (e2) throw e2
           txIds.push(tx.id)
+          try { await supabase.from('transactions').update({ bank_after: runBank, cash_after: runCash }).eq('id', tx.id) } catch(_) {}
         }
 
-        // Update balance
-        const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
-          let bank = Number(bal.bank), cash = Number(bal.cash)
-          if (payMethod==='โอน') bank += totalSell; else cash += totalSell
-          await supabase.from('balances').update({ bank, cash, updated_at: now }).eq('id','main')
-        }
+        await supabase.from('balances').update({ bank: runBank, cash: runCash, updated_at: now }).eq('id','main')
 
       } else {
         // Installment — distribute first payment proportionally across products
@@ -115,6 +117,8 @@ export default function BulkSale() {
             ? firstNum - paidSoFar
             : Math.floor(firstNum * (price / totalSell))
           paidSoFar += productFirstPaid
+
+          if (payMethod==='โอน') runBank += productFirstPaid; else runCash += productFirstPaid
 
           const newStatus = productFirstPaid >= price ? 'Sold' : 'Pending'
 
@@ -148,15 +152,10 @@ export default function BulkSale() {
           }).select().single()
           if (e2) throw e2
           txIds.push(tx.id)
+          try { await supabase.from('transactions').update({ bank_after: runBank, cash_after: runCash }).eq('id', tx.id) } catch(_) {}
         }
 
-        // Update balance with first payment only
-        const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
-          let bank = Number(bal.bank), cash = Number(bal.cash)
-          if (payMethod==='โอน') bank += firstNum; else cash += firstNum
-          await supabase.from('balances').update({ bank, cash, updated_at: now }).eq('id','main')
-        }
+        await supabase.from('balances').update({ bank: runBank, cash: runCash, updated_at: now }).eq('id','main')
       }
 
       // Upload receipt images to first transaction

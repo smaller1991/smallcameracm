@@ -74,12 +74,17 @@ export default function AddProduct() {
         created.push({ ...p, _cost: cost })
       }
 
+      // คำนวณยอดคงเหลือหลังซื้อ
+      const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+      const bank_afterAdd = payMethod==='โอน' ? Math.max(0, Number(bal?.bank||0)-totalCost) : Number(bal?.bank||0)
+      const cash_afterAdd = payMethod!=='โอน' ? Math.max(0, Number(bal?.cash||0)-totalCost) : Number(bal?.cash||0)
+
       if (isMulti) {
         // ONE shared transaction — no product_id, note lists all items
         const noteLines = created.map((p, i) =>
           `${i + 1}. ${p.model}  SN:${p.serial_number}  ฿${Number(p._cost).toLocaleString('th-TH')}`
         ).join('\n')
-        const { error: txErr } = await supabase.from('transactions').insert({
+        const { data: newTxMulti, error: txErr } = await supabase.from('transactions').insert({
           type: 'Expense', category: 'Buy Stock',
           amount: totalCost,
           product_id: created[0].id,
@@ -87,29 +92,24 @@ export default function AddProduct() {
           date: txDate,
           note: `ซื้อสินค้า ${items.length} รายการ:\n${noteLines}`,
           images: receiptUrls.length ? receiptUrls : null,
-        })
+        }).select().single()
         if (txErr) throw txErr
+        if (newTxMulti) { try { await supabase.from('transactions').update({ bank_after: bank_afterAdd, cash_after: cash_afterAdd }).eq('id', newTxMulti.id) } catch(_) {} }
       } else {
         // single item — link transaction to product as usual
         const p = created[0]
-        const { error: txErr } = await supabase.from('transactions').insert({
+        const { data: newTxAdd, error: txErr } = await supabase.from('transactions').insert({
           type: 'Expense', category: 'Buy Stock', amount: p._cost,
           product_id: p.id, payment_method: payMethod,
           date: txDate,
           note: `ซื้อสินค้า: ${p.model} SN:${p.serial_number}`,
           images: receiptUrls.length ? receiptUrls : null,
-        })
+        }).select().single()
         if (txErr) throw txErr
+        if (newTxAdd) { try { await supabase.from('transactions').update({ bank_after: bank_afterAdd, cash_after: cash_afterAdd }).eq('id', newTxAdd.id) } catch(_) {} }
       }
 
-      // deduct total from balance
-      const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
-      if (bal) {
-        const upd = payMethod === 'โอน'
-          ? { bank: Math.max(0, Number(bal.bank) - totalCost) }
-          : { cash: Math.max(0, Number(bal.cash) - totalCost) }
-        await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id','main')
-      }
+      await supabase.from('balances').update({ bank: bank_afterAdd, cash: cash_afterAdd, updated_at: new Date().toISOString() }).eq('id','main')
 
       const label = isMulti ? `${items.length} รายการ` : created[0].model
       toast.success(`เพิ่มสินค้าสำเร็จ — ${label} หัก${payMethod} ฿${totalCost.toLocaleString('th-TH')}`)

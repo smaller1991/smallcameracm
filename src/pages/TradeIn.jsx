@@ -105,7 +105,17 @@ export default function TradeIn() {
         if (e2) throw e2
       }
 
-      // 3. One combined Trade transaction
+      // 3. คำนวณยอดคงเหลือ + One combined Trade transaction
+      const { data: balTrade } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+      let bank_afterTrade = Number(balTrade?.bank || 0)
+      let cash_afterTrade = Number(balTrade?.cash || 0)
+      if (diff > 0) { if (payMethod==='โอน') bank_afterTrade += diff; else cash_afterTrade += diff }
+      else if (diff < 0) {
+        const amt = Math.abs(diff)
+        if (payMethod==='โอน') bank_afterTrade = Math.max(0, bank_afterTrade-amt)
+        else cash_afterTrade = Math.max(0, cash_afterTrade-amt)
+      }
+
       const { data: tradeTx, error: eTx } = await supabase.from('transactions').insert({
         date: now,
         type: diff >= 0 ? 'Income' : 'Expense',
@@ -118,6 +128,7 @@ export default function TradeIn() {
         trade_profit_a: totalProfitA,
       }).select().single()
       if (eTx) throw eTx
+      if (tradeTx) { try { await supabase.from('transactions').update({ bank_after: bank_afterTrade, cash_after: cash_afterTrade }).eq('id', tradeTx.id) } catch(_) {} }
 
       // Upload receipt images
       if (imgFiles.length && tradeTx) {
@@ -126,16 +137,7 @@ export default function TradeIn() {
       }
 
       // 4. Update balance
-      const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
-      if (bal) {
-        let bank = Number(bal.bank), cash = Number(bal.cash)
-        if (diff > 0) { if (payMethod==='โอน') bank += diff; else cash += diff }
-        else if (diff < 0) {
-          const amt = Math.abs(diff)
-          if (payMethod==='โอน') bank = Math.max(0, bank-amt); else cash = Math.max(0, cash-amt)
-        }
-        await supabase.from('balances').update({bank, cash, updated_at: now}).eq('id','main')
-      }
+      await supabase.from('balances').update({ bank: bank_afterTrade, cash: cash_afterTrade, updated_at: now }).eq('id','main')
 
       toast.success('บันทึกการแลกเปลี่ยนสำเร็จ!')
       navigate('/inventory')

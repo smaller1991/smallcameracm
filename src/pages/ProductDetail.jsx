@@ -135,7 +135,11 @@ export default function ProductDetail() {
       const newAccSum = accs.reduce((s,a) => s + Number(a.cost), 0) + cost
       await supabase.from('products').update({ total_cost: Number(product.base_cost) + newAccSum }).eq('id', id)
 
-      // สร้าง transaction Expense / Add-on
+      // คำนวณยอดคงเหลือ + สร้าง transaction Expense / Add-on
+      const { data: balAcc } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+      const bank_afterAcc = accPayMethod==='โอน' ? Math.max(0, Number(balAcc?.bank||0)-cost) : Number(balAcc?.bank||0)
+      const cash_afterAcc = accPayMethod!=='โอน' ? Math.max(0, Number(balAcc?.cash||0)-cost) : Number(balAcc?.cash||0)
+
       const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         type: 'Expense', category: 'Add-on', amount: cost,
         product_id: id, payment_method: accPayMethod,
@@ -143,6 +147,7 @@ export default function ProductDetail() {
         note: `Add-on: ${accName} — ${product.model} SN:${product.serial_number}`,
       }).select().single()
       if (txErr) throw txErr
+      try { await supabase.from('transactions').update({ bank_after: bank_afterAcc, cash_after: cash_afterAcc }).eq('id', newTx.id) } catch(_) {}
 
       // upload รูปใบเสร็จ
       if (accImgFiles.length && newTx) {
@@ -150,14 +155,8 @@ export default function ProductDetail() {
         await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
       }
 
-      // หักยอด balance
-      const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
-      if (bal) {
-        const upd = accPayMethod === 'โอน'
-          ? { bank: Math.max(0, Number(bal.bank) - cost) }
-          : { cash: Math.max(0, Number(bal.cash) - cost) }
-        await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id','main')
-      }
+      // อัปเดต balance
+      await supabase.from('balances').update({ bank: bank_afterAcc, cash: cash_afterAcc, updated_at: new Date().toISOString() }).eq('id','main')
 
       toast.success(`เพิ่ม Add-on แล้ว — หัก ${accPayMethod} ฿${cost.toLocaleString('th-TH')}`)
       setAccName(''); setAccCost(''); setAccPayMethod('โอน')
@@ -220,13 +219,18 @@ export default function ProductDetail() {
       }).eq('id',id)
       if (error) throw error
 
-      // 2. สร้าง transaction Income
+      // 2. คำนวณยอดคงเหลือหลังรายการ + สร้าง transaction Income
+      const {data:balSnap} = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+      const bank_after = payMethod==='โอน' ? Number(balSnap?.bank||0)+price : Number(balSnap?.bank||0)
+      const cash_after = payMethod!=='โอน' ? Number(balSnap?.cash||0)+price : Number(balSnap?.cash||0)
+
       const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         date: soldAt, type:'Income', category:'Sale', amount:price,
         product_id: id, payment_method: payMethod,
         note: 'ขายสินค้า: '+product.model+' SN:'+product.serial_number,
       }).select().single()
       if (txErr) throw txErr
+      try { await supabase.from('transactions').update({ bank_after, cash_after }).eq('id', newTx.id) } catch(_) {}
 
       // 3. upload รูปใบเสร็จ → receipt-images ตั้งชื่อตาม spec
       if (sellImgFiles.length && newTx) {
@@ -240,15 +244,8 @@ export default function ProductDetail() {
         await supabase.from('transactions').update({ images: imgUrls }).eq('id', newTx.id)
       }
 
-      // 4. บวกยอด balance
-      const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
-      if (bal) {
-        if (payMethod==='โอน') {
-          await supabase.from('balances').update({bank:Number(bal.bank)+price, updated_at:new Date().toISOString()}).eq('id','main')
-        } else {
-          await supabase.from('balances').update({cash:Number(bal.cash)+price, updated_at:new Date().toISOString()}).eq('id','main')
-        }
-      }
+      // 4. อัปเดต balance
+      await supabase.from('balances').update({ bank: bank_after, cash: cash_after, updated_at: new Date().toISOString() }).eq('id','main')
 
       toast.success('ขายสำเร็จ! ช่องทาง: '+payMethod)
       setSellMode(false)
@@ -281,6 +278,10 @@ export default function ProductDetail() {
       if (error) throw error
 
       if (first > 0) {
+        const {data:balSnap2} = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+        const bank_after2 = payMethod==='โอน' ? Number(balSnap2?.bank||0)+first : Number(balSnap2?.bank||0)
+        const cash_after2 = payMethod!=='โอน' ? Number(balSnap2?.cash||0)+first : Number(balSnap2?.cash||0)
+
         const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
           date: soldAt, type:'Income', category:'Sale', amount: first,
           product_id: id, payment_method: payMethod,
@@ -289,17 +290,14 @@ export default function ProductDetail() {
             : `ผ่อนจ่าย | ${product.model} SN:${product.serial_number} | ราคาตกลง ฿${fmt(total)} | งวดแรก ฿${fmt(first)} | คงเหลือ ฿${fmt(total-first)}`,
         }).select().single()
         if (txErr) throw txErr
+        try { await supabase.from('transactions').update({ bank_after: bank_after2, cash_after: cash_after2 }).eq('id', newTx.id) } catch(_) {}
 
         if (sellImgFiles.length && newTx) {
           const imgUrls = await uploadReceiptImages(supabase, newTx.id, sellImgFiles)
           await supabase.from('transactions').update({ images: imgUrls }).eq('id', newTx.id)
         }
 
-        const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
-          if (payMethod==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+first,updated_at:new Date().toISOString()}).eq('id','main')
-          else                   await supabase.from('balances').update({cash:Number(bal.cash)+first,updated_at:new Date().toISOString()}).eq('id','main')
-        }
+        await supabase.from('balances').update({ bank: bank_after2, cash: cash_after2, updated_at: new Date().toISOString() }).eq('id','main')
       }
 
       toast.success(isFullyPaid ? 'ขายสำเร็จ!' : `บันทึกผ่อนจ่ายแล้ว — ชำระแรก ฿${fmt(first)}, คงเหลือ ฿${fmt(total-first)}`)
@@ -326,6 +324,9 @@ export default function ProductDetail() {
         const totalRemaining = pendingInBatch.reduce((a, bp) =>
           a + Number(bp.installment_total||0) - Number(bp.installment_paid||0), 0)
 
+        const { data: balPayBatch } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+        let runBank = Number(balPayBatch?.bank || 0)
+        let runCash = Number(balPayBatch?.cash || 0)
         let distributed = 0
         let firstTxId = null
         for (let i = 0; i < pendingInBatch.length; i++) {
@@ -336,6 +337,8 @@ export default function ProductDetail() {
             ? Math.min(bpRemaining, amount - distributed)
             : Math.min(bpRemaining, Math.floor(amount * (bpRemaining / totalRemaining)))
           distributed += bpPayment
+
+          if (payMethod2==='โอน') runBank += bpPayment; else runCash += bpPayment
 
           const newPaid = Number(bp.installment_paid||0) + bpPayment
           const bpTotal = Number(bp.installment_total||0)
@@ -356,6 +359,7 @@ export default function ProductDetail() {
               ? `ชำระครบ: ${bp.model} SN:${bp.serial_number}`
               : `ผ่อนจ่าย: ${bp.model} SN:${bp.serial_number} (${fmt(newPaid)}/${fmt(bpTotal)})`,
           }).select().single()
+          if (newTx) { try { await supabase.from('transactions').update({ bank_after: runBank, cash_after: runCash }).eq('id', newTx.id) } catch(_) {} }
 
           if (i === 0 && newTx) firstTxId = newTx.id
         }
@@ -365,22 +369,22 @@ export default function ProductDetail() {
           await supabase.from('transactions').update({ images: urls }).eq('id', firstTxId)
         }
 
-        const { data: bal } = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
-          const actual = Math.min(amount, totalRemaining)
-          if (payMethod2==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+actual,updated_at:soldAt}).eq('id','main')
-          else                    await supabase.from('balances').update({cash:Number(bal.cash)+actual,updated_at:soldAt}).eq('id','main')
-        }
+        const actual = Math.min(amount, totalRemaining)
+        await supabase.from('balances').update({ bank: runBank, cash: runCash, updated_at: soldAt }).eq('id','main')
 
-        toast.success(amount >= totalRemaining
+        toast.success(actual >= totalRemaining
           ? `ชำระครบทั้งกลุ่ม! สินค้าทั้งหมดเปลี่ยนเป็น "ขายแล้ว"`
-          : `รับชำระ ฿${fmt(amount)} — คงเหลือทั้งกลุ่ม ฿${fmt(Math.max(0, totalRemaining-amount))}`)
+          : `รับชำระ ฿${fmt(actual)} — คงเหลือทั้งกลุ่ม ฿${fmt(Math.max(0, totalRemaining-actual))}`)
 
       } else {
-        // ── Single product payment (เดิม) ──
+        // ── Single product payment ──
         const newPaid = Number(product.installment_paid || 0) + amount
         const total   = Number(product.installment_total)
         const isFullyPaid = newPaid >= total
+
+        const { data: balPay } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+        const bank_afterPay = payMethod2==='โอน' ? Number(balPay?.bank||0)+amount : Number(balPay?.bank||0)
+        const cash_afterPay = payMethod2!=='โอน' ? Number(balPay?.cash||0)+amount : Number(balPay?.cash||0)
 
         await supabase.from('products').update({
           installment_paid: newPaid,
@@ -397,17 +401,14 @@ export default function ProductDetail() {
             ? `ชำระครบแล้ว: ${product.model} SN:${product.serial_number}`
             : `ผ่อนจ่าย: ${product.model} SN:${product.serial_number} (${fmt(newPaid)}/${fmt(total)})`,
         }).select().single()
+        if (newTx) { try { await supabase.from('transactions').update({ bank_after: bank_afterPay, cash_after: cash_afterPay }).eq('id', newTx.id) } catch(_) {} }
 
         if (payImgFiles.length && newTx) {
           const urls = await uploadReceiptImages(supabase, newTx.id, payImgFiles)
           await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
         }
 
-        const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
-          if (payMethod2==='โอน') await supabase.from('balances').update({bank:Number(bal.bank)+amount,updated_at:soldAt}).eq('id','main')
-          else                    await supabase.from('balances').update({cash:Number(bal.cash)+amount,updated_at:soldAt}).eq('id','main')
-        }
+        await supabase.from('balances').update({ bank: bank_afterPay, cash: cash_afterPay, updated_at: soldAt }).eq('id','main')
 
         toast.success(isFullyPaid ? 'ชำระครบแล้ว! สินค้าเปลี่ยนเป็น "ขายแล้ว"' : `รับชำระ ฿${fmt(amount)} — คงเหลือ ฿${fmt(total-newPaid)}`)
       }
