@@ -451,6 +451,23 @@ function exportTransactionsPDF(txs, from, to, balance=null) {
     return true
   })
   if (!filtered.length) return alert('ไม่มีข้อมูล')
+
+  // คำนวณยอดคงเหลือหลังแต่ละรายการจากยอดปัจจุบัน (ย้อนจากใหม่→เก่า)
+  const balMap = {}
+  if (balance) {
+    let runBank = balance.bank
+    let runCash = balance.cash
+    for (const tx of txs) {
+      balMap[tx.id] = { bank: runBank, cash: runCash }
+      const amt = Number(tx.amount || 0)
+      if (tx.type === 'Income') {
+        if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
+      } else {
+        if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
+      }
+    }
+  }
+
   const totalIncome  = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const totalExpense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
   const DEDUCT = new Set(['Shipping','Marketing','Operating','Other'])
@@ -473,6 +490,7 @@ function exportTransactionsPDF(txs, from, to, balance=null) {
   const grossProfit = totalProfit + deductions
   const rows = filtered.map((t,i)=>{
     const pl=plValues[i]
+    const bal=balMap[t.id]
     const custNote = t.category==='Sale'?(t.products?.customer_note||''):''
     const custCell = custNote.length > 40 ? `<span style="font-size:8px">${custNote}</span>` : custNote
     return [thDate(t.date),t.type==='Income'?'รายรับ':'รายจ่าย',t.category,`฿${fmt(t.amount)}`,
@@ -480,17 +498,18 @@ function exportTransactionsPDF(txs, from, to, balance=null) {
             pl!=null?`฿${fmt(pl)}`:'',t.products?.model||'',
             t.products?.created_at?thDate(t.products.created_at):'',
             t.products?.total_cost!=null?`฿${fmt(t.products.total_cost)}`:'',
-            custCell,t.note||'']
+            custCell,t.note||'',
+            bal?`฿${fmt(bal.bank)}`:'',bal?`฿${fmt(bal.cash)}`:'']
   })
-  rows.push(['','','','','','','','','','','',''])
-  rows.push(['สรุป','','รวมรายรับ','',`฿${fmt(totalIncome)}`,'','','','','','',''])
-  rows.push(['','','รวมรายจ่าย','','',`฿${fmt(totalExpense)}`,'','','','','',''])
-  rows.push(['','','กำไรขาย (ก่อนหักรายจ่าย)','','','',`฿${fmt(grossProfit)}`,'','','','',''])
-  rows.push(['','','กำไรขาดทุนสุทธิ','','','',`฿${fmt(totalProfit)}`,'','','','',''])
+  rows.push(['','','','','','','','','','','','','',''])
+  rows.push(['สรุป','','รวมรายรับ','',`฿${fmt(totalIncome)}`,'','','','','','','','',''])
+  rows.push(['','','รวมรายจ่าย','','',`฿${fmt(totalExpense)}`,'','','','','','','',''])
+  rows.push(['','','กำไรขาย (ก่อนหักรายจ่าย)','','','',`฿${fmt(grossProfit)}`,'','','','','','',''])
+  rows.push(['','','กำไรขาดทุนสุทธิ','','','',`฿${fmt(totalProfit)}`,'','','','','','',''])
   if (balance) {
-    rows.push(['','','','','','','','','','','',''])
-    rows.push(['ยอดเงิน','','ยอดโอน (ธนาคาร)',`฿${fmt(balance.bank)}`,'','','','','','','',''])
-    rows.push(['','','ยอดเงินสด',`฿${fmt(balance.cash)}`,'','','','','','','',''])
+    rows.push(['','','','','','','','','','','','','',''])
+    rows.push(['ยอดเงินปัจจุบัน','','💳 ธนาคาร',`฿${fmt(balance.bank)}`,'','','','','','','','','',''])
+    rows.push(['','','💵 เงินสด',`฿${fmt(balance.cash)}`,'','','','','','','','','',''])
   }
-  makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ'],rows)
+  makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','💳 ธนาคารคงเหลือ','💵 เงินสดคงเหลือ'],rows)
 }
