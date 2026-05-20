@@ -104,13 +104,21 @@ export default function Finance() {
   }
   useEffect(()=>{load()},[])
 
-  // คำนวณยอดคงเหลือหลังแต่ละรายการจากยอดปัจจุบัน ย้อนกลับจากใหม่→เก่า
+  // คำนวณยอดคงเหลือหลังแต่ละรายการ
+  // ใช้ bank_after/cash_after ที่เก็บไว้เป็นหลัก (แม่นยำสำหรับ split payment)
+  // ถ้าไม่มีค่าเก็บไว้ ใช้การคำนวณย้อนหลังจาก anchor ล่าสุด
   const balMap = useMemo(() => {
     const map = {}
     let runBank = balance.bank
     let runCash = balance.cash
     for (const tx of txs) {
-      map[tx.id] = { bank: runBank, cash: runCash }
+      if (tx.bank_after != null && tx.cash_after != null) {
+        map[tx.id] = { bank: Number(tx.bank_after), cash: Number(tx.cash_after) }
+        runBank = Number(tx.bank_after)
+        runCash = Number(tx.cash_after)
+      } else {
+        map[tx.id] = { bank: runBank, cash: runCash }
+      }
       const amt = Number(tx.amount || 0)
       if (tx.type === 'Income') {
         if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
