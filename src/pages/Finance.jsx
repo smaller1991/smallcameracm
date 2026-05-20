@@ -105,25 +105,26 @@ export default function Finance() {
   useEffect(()=>{load()},[])
 
   // คำนวณยอดคงเหลือหลังแต่ละรายการ
-  // ใช้ bank_after/cash_after ที่เก็บไว้เป็นหลัก (แม่นยำสำหรับ split payment)
-  // ถ้าไม่มีค่าเก็บไว้ ใช้การคำนวณย้อนหลังจาก anchor ล่าสุด
+  // display ใช้ runBank/runCash (เริ่มจาก balance ปัจจุบัน → แก้ balance แล้วรายการทั้งหมด update)
+  // backward walk ใช้ nextTx.bank_after/cash_after เมื่อมีค่าเก็บไว้ (แม่นยำสำหรับ split payment)
   const balMap = useMemo(() => {
     const map = {}
     let runBank = balance.bank
     let runCash = balance.cash
-    for (const tx of txs) {
-      if (tx.bank_after != null && tx.cash_after != null) {
-        map[tx.id] = { bank: Number(tx.bank_after), cash: Number(tx.cash_after) }
-        runBank = Number(tx.bank_after)
-        runCash = Number(tx.cash_after)
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i]
+      map[tx.id] = { bank: runBank, cash: runCash }
+      const nextTx = txs[i + 1]
+      if (tx.bank_after != null && tx.cash_after != null && nextTx?.bank_after != null && nextTx?.cash_after != null) {
+        runBank = Number(nextTx.bank_after)
+        runCash = Number(nextTx.cash_after)
       } else {
-        map[tx.id] = { bank: runBank, cash: runCash }
-      }
-      const amt = Number(tx.amount || 0)
-      if (tx.type === 'Income') {
-        if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
-      } else {
-        if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
+        const amt = Number(tx.amount || 0)
+        if (tx.type === 'Income') {
+          if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
+        } else {
+          if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
+        }
       }
     }
     return map
