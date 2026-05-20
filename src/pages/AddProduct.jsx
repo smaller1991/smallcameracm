@@ -139,6 +139,18 @@ export default function AddProduct() {
 
       await supabase.from('balances').update({ bank: bank_after, cash: cash_after, updated_at: new Date().toISOString() }).eq('id','main')
 
+      // อัปเดต bank_after/cash_after ของรายการก่อนหน้า เพื่อให้หน้าบัญชีคำนวณย้อนหลังได้แม่นยำ
+      // (bal.bank/cash = ยอดก่อนหักซื้อสินค้า = bank_after ที่ถูกต้องของรายการก่อนหน้า)
+      try {
+        const { data: prevTx } = await supabase.from('transactions')
+          .select('id').order('date', { ascending: false }).limit(2)
+        if (prevTx && prevTx.length === 2) {
+          await supabase.from('transactions')
+            .update({ bank_after: Number(bal?.bank||0), cash_after: Number(bal?.cash||0) })
+            .eq('id', prevTx[1].id)
+        }
+      } catch(_) {}
+
       const label = isMulti ? `${items.length} รายการ` : created[0].model
       const paidLabel = remaining > 0 ? `ชำระ ฿${totalPaid.toLocaleString('th-TH')} (ค้าง ฿${remaining.toLocaleString('th-TH')})` : `฿${totalPaid.toLocaleString('th-TH')}`
       toast.success(`เพิ่มสินค้าสำเร็จ — ${label} ${paidLabel}`)
