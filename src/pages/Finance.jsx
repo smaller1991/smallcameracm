@@ -200,6 +200,39 @@ export default function Finance() {
     setBalance({bank,cash}); setEditBal(false); toast.success('บันทึกยอดเงินแล้ว')
   }
 
+  const recalcAllBalances = async () => {
+    if (!window.confirm('คำนวณยอดคงเหลือใหม่ทุกรายการจากยอดปัจจุบัน?')) return
+    setSaving(true)
+    try {
+      const updates = []
+      let runBank = balance.bank
+      let runCash  = balance.cash
+      for (let i = 0; i < txs.length; i++) {
+        const tx     = txs[i]
+        const nextTx = txs[i + 1]
+        updates.push({ id: tx.id, bank_after: runBank, cash_after: runCash })
+        // ย้อนหลัง: ใช้ delta จาก stored values คู่ติดกัน (แม่นยำ split payment)
+        if (tx.bank_after != null && tx.cash_after != null && nextTx?.bank_after != null && nextTx?.cash_after != null) {
+          runBank -= Number(tx.bank_after) - Number(nextTx.bank_after)
+          runCash  -= Number(tx.cash_after)  - Number(nextTx.cash_after)
+        } else {
+          const amt = Number(tx.amount || 0)
+          if (tx.type === 'Income') {
+            if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
+          } else {
+            if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
+          }
+        }
+      }
+      await Promise.all(updates.map(u =>
+        supabase.from('transactions').update({ bank_after: u.bank_after, cash_after: u.cash_after }).eq('id', u.id)
+      ))
+      await load()
+      toast.success(`คำนวณยอดใหม่ ${updates.length} รายการ`)
+    } catch(e) { toast.error(e.message) }
+    finally { setSaving(false) }
+  }
+
   const openAdd = () => {
     setEditId(null)
     setForm({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal(),payment_method:'โอน'})
@@ -579,8 +612,12 @@ export default function Finance() {
         <div className="bg-white/8 rounded-xl p-3 space-y-2" style={{background:'rgba(255,255,255,0.08)'}}>
           <div className="flex items-center justify-between">
             <span className="text-white/60 text-xs font-medium">ยอดเงินคงเหลือ</span>
-            <button onClick={()=>{setBalForm({bank:balance.bank,cash:balance.cash});setEditBal(!editBal)}}
-              className="text-brand-yellow text-xs">✏️ แก้ไข</button>
+            <div className="flex gap-2">
+              <button onClick={recalcAllBalances} disabled={saving}
+                className="text-white/50 text-xs hover:text-white/80">🔄 คำนวณใหม่</button>
+              <button onClick={()=>{setBalForm({bank:balance.bank,cash:balance.cash});setEditBal(!editBal)}}
+                className="text-brand-yellow text-xs">✏️ แก้ไข</button>
+            </div>
           </div>
           {editBal ? (
             <div className="space-y-2">
