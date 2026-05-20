@@ -96,7 +96,7 @@ export default function AddProduct() {
 
       // สรุปช่องทางชำระสำหรับโน้ต
       const methods = [...new Set(validPayments.map(p => p.method))]
-      const paymentMethod = methods.length === 1 ? methods[0] : 'โอน+เงินสด'
+      const paymentMethod = methods.length === 1 ? methods[0] : (bankDeduct >= cashDeduct ? 'โอน' : 'เงินสด')
 
       const payBreakdown = validPayments.map(p =>
         `  • ${p.method === 'โอน' ? '💳 โอน' : '💵 เงินสด'} ฿${parseFloat(p.amount).toLocaleString('th-TH')}`
