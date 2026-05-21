@@ -104,27 +104,27 @@ export default function Finance() {
   }
   useEffect(()=>{load()},[])
 
-  // คำนวณยอดคงเหลือหลังแต่ละรายการ
-  // display ใช้ runBank/runCash (เริ่มจาก balance ปัจจุบัน → แก้ balance แล้วรายการทั้งหมด update)
-  // backward walk ใช้ nextTx.bank_after/cash_after เมื่อมีค่าเก็บไว้ (แม่นยำสำหรับ split payment)
+  // ยอดคงเหลือหลังรายการ: ใช้ stored value ถ้ามี ไม่งั้น fallback คำนวณย้อนหลัง
   const balMap = useMemo(() => {
     const map = {}
     let runBank = balance.bank
     let runCash = balance.cash
-    for (let i = 0; i < txs.length; i++) {
-      const tx = txs[i]
+    for (const tx of txs) {
+      if (tx.bank_after != null && tx.cash_after != null) {
+        runBank = Number(tx.bank_after)
+        runCash = Number(tx.cash_after)
+      }
       map[tx.id] = { bank: runBank, cash: runCash }
-      const nextTx = txs[i + 1]
-      if (tx.bank_after != null && tx.cash_after != null && nextTx?.bank_after != null && nextTx?.cash_after != null) {
-        runBank = Number(nextTx.bank_after)
-        runCash = Number(nextTx.cash_after)
+      const amt = Number(tx.amount || 0)
+      if (tx.payment_method === 'แบ่งจ่าย') {
+        const bAmt = Number(tx.bank_amount || 0)
+        const cAmt = Number(tx.cash_amount || 0)
+        if (tx.type === 'Income') { runBank -= bAmt; runCash -= cAmt }
+        else { runBank += bAmt; runCash += cAmt }
+      } else if (tx.type === 'Income') {
+        if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
       } else {
-        const amt = Number(tx.amount || 0)
-        if (tx.type === 'Income') {
-          if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
-        } else {
-          if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
-        }
+        if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
       }
     }
     return map
@@ -200,48 +200,16 @@ export default function Finance() {
     setBalance({bank,cash}); setEditBal(false); toast.success('บันทึกยอดเงินแล้ว')
   }
 
-  const recalcAllBalances = async () => {
-    if (!window.confirm('คำนวณยอดคงเหลือใหม่ทุกรายการจากยอดปัจจุบัน?')) return
-    setSaving(true)
-    try {
-      const updates = []
-      let runBank = balance.bank
-      let runCash  = balance.cash
-      for (let i = 0; i < txs.length; i++) {
-        const tx     = txs[i]
-        const nextTx = txs[i + 1]
-        updates.push({ id: tx.id, bank_after: runBank, cash_after: runCash })
-        // ย้อนหลัง: ใช้ delta จาก stored values คู่ติดกัน (แม่นยำ split payment)
-        if (tx.bank_after != null && tx.cash_after != null && nextTx?.bank_after != null && nextTx?.cash_after != null) {
-          runBank -= Number(tx.bank_after) - Number(nextTx.bank_after)
-          runCash  -= Number(tx.cash_after)  - Number(nextTx.cash_after)
-        } else {
-          const amt = Number(tx.amount || 0)
-          if (tx.type === 'Income') {
-            if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
-          } else {
-            if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
-          }
-        }
-      }
-      await Promise.all(updates.map(u =>
-        supabase.from('transactions').update({ bank_after: u.bank_after, cash_after: u.cash_after }).eq('id', u.id)
-      ))
-      await load()
-      toast.success(`คำนวณยอดใหม่ ${updates.length} รายการ`)
-    } catch(e) { toast.error(e.message) }
-    finally { setSaving(false) }
-  }
-
   const openAdd = () => {
     setEditId(null)
-    setForm({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal(),payment_method:'โอน'})
+    setForm({type:'Expense',category:'Operating',amount:'',note:'',date:nowLocal(),payment_method:'โอน',bank_amount:'',cash_amount:''})
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
   }
   const openEdit = tx => {
     setEditId(tx.id)
-    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date),customer_note:tx.products?.customer_note||'',payment_method:tx.payment_method||'โอน'})
+    const displayed = balMap[tx.id]
+    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date),customer_note:tx.products?.customer_note||'',payment_method:tx.payment_method||'โอน',bank_amount:tx.bank_amount??'',cash_amount:tx.cash_amount??'',bank_after:displayed?.bank??tx.bank_after??'',cash_after:displayed?.cash??tx.cash_after??''})
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
   }
@@ -267,13 +235,20 @@ export default function Finance() {
   }
 
   const save = async () => {
-    if (!form.amount) return toast.error('กรุณาระบุจำนวนเงิน')
+    if (form.payment_method === 'แบ่งจ่าย') {
+      if (!form.bank_amount && !form.cash_amount) return toast.error('กรุณาระบุยอดโอนหรือเงินสด')
+    } else if (!form.amount) return toast.error('กรุณาระบุจำนวนเงิน')
     setSaving(true)
     try {
-      const amount  = parseFloat(form.amount)
       const method  = form.payment_method || 'โอน'
+      const isSplit = method === 'แบ่งจ่าย'
+      const bankAmt = isSplit ? parseFloat(form.bank_amount||0) : 0
+      const cashAmt = isSplit ? parseFloat(form.cash_amount||0) : 0
+      const amount  = isSplit ? bankAmt + cashAmt : parseFloat(form.amount)
       const payload = { type:form.type, category:form.category, amount, note:form.note,
-                        date:new Date(form.date).toISOString(), payment_method:method }
+                        date:new Date(form.date).toISOString(), payment_method:method,
+                        bank_amount: isSplit ? bankAmt : null,
+                        cash_amount: isSplit ? cashAmt : null }
       if (editId) {
         for (const url of removedImgs) await deleteReceiptImage(supabase, url)
         let newUrls = []
@@ -281,6 +256,8 @@ export default function Finance() {
         const existing = txs.find(t=>t.id===editId)
         const kept = (existing?.images||[]).filter(u=>!removedImgs.includes(u))
         payload.images = [...kept, ...newUrls]
+        if (form.bank_after !== '') payload.bank_after = parseFloat(form.bank_after)
+        if (form.cash_after !== '') payload.cash_after = parseFloat(form.cash_after)
         await supabase.from('transactions').update(payload).eq('id',editId)
         if (form.category === 'Sale') {
           const tx = txs.find(t=>t.id===editId)
@@ -291,7 +268,10 @@ export default function Finance() {
         const { data: balSnap } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
         let bank_after = Number(balSnap?.bank || 0)
         let cash_after = Number(balSnap?.cash || 0)
-        if (form.type === 'Income') {
+        if (isSplit) {
+          if (form.type === 'Income') { bank_after += bankAmt; cash_after += cashAmt }
+          else { bank_after = Math.max(0, bank_after - bankAmt); cash_after = Math.max(0, cash_after - cashAmt) }
+        } else if (form.type === 'Income') {
           if (method === 'โอน') bank_after += amount; else cash_after += amount
         } else {
           if (method === 'โอน') bank_after = Math.max(0, bank_after - amount)
@@ -332,12 +312,16 @@ export default function Finance() {
       label,
       onUndo: () => setTxs(snap),
       onCommit: async () => {
-        const revertBalance = async (type, method, amount) => {
-          if (!amount || !method) return
+        const revertBalance = async (type, method, amount, bAmt, cAmt) => {
+          if (!method) return
           const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id', 'main').single()
           if (!bal) return
           let upd = {}
-          if (type === 'Income') {
+          if (method === 'แบ่งจ่าย') {
+            const b = Number(bAmt || 0), c = Number(cAmt || 0)
+            if (type === 'Income') upd = { bank: Math.max(0, Number(bal.bank) - b), cash: Math.max(0, Number(bal.cash) - c) }
+            else upd = { bank: Number(bal.bank) + b, cash: Number(bal.cash) + c }
+          } else if (type === 'Income') {
             if (method === 'โอน') upd = { bank: Math.max(0, Number(bal.bank) - amount) }
             else upd = { cash: Math.max(0, Number(bal.cash) - amount) }
           } else {
@@ -352,18 +336,18 @@ export default function Finance() {
             status: 'Available', sold_price: null, sold_date: null,
             payment_method: null, warranty_expiry: null,
           }).eq('id', tx.product_id)
-          await revertBalance('Income', tx.payment_method, Number(tx.amount))
+          await revertBalance('Income', tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
           await supabase.from('transactions').delete().eq('id', tx.id)
           load(); return
         }
         if (willDeleteProduct) {
-          await revertBalance('Expense', tx.payment_method, Number(tx.amount))
+          await revertBalance('Expense', tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
           await supabase.from('transactions').delete().eq('product_id', tx.product_id)
           await deleteAllProductImages(supabase, tx.product_id)
           await supabase.from('products').delete().eq('id', tx.product_id)
           load(); return
         }
-        await revertBalance(tx.type, tx.payment_method, Number(tx.amount))
+        await revertBalance(tx.type, tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
         await supabase.from('transactions').delete().eq('id', tx.id)
         load()
       },
@@ -612,12 +596,8 @@ export default function Finance() {
         <div className="bg-white/8 rounded-xl p-3 space-y-2" style={{background:'rgba(255,255,255,0.08)'}}>
           <div className="flex items-center justify-between">
             <span className="text-white/60 text-xs font-medium">ยอดเงินคงเหลือ</span>
-            <div className="flex gap-2">
-              <button onClick={recalcAllBalances} disabled={saving}
-                className="text-white/50 text-xs hover:text-white/80">🔄 คำนวณใหม่</button>
-              <button onClick={()=>{setBalForm({bank:balance.bank,cash:balance.cash});setEditBal(!editBal)}}
-                className="text-brand-yellow text-xs">✏️ แก้ไข</button>
-            </div>
+            <button onClick={()=>{setBalForm({bank:balance.bank,cash:balance.cash});setEditBal(!editBal)}}
+              className="text-brand-yellow text-xs">✏️ แก้ไข</button>
           </div>
           {editBal ? (
             <div className="space-y-2">
@@ -801,16 +781,36 @@ export default function Finance() {
           <div>
             <p className="text-xs text-gray-500 mb-1">ช่องทาง</p>
             <div className="flex gap-2">
-              {['โอน','เงินสด'].map(m=>(
-                <button key={m} onClick={()=>setForm({...form,payment_method:m})}
+              {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
+                <button key={m} onClick={()=>setForm({...form,payment_method:m,bank_amount:'',cash_amount:''})}
                   className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all
-                    ${form.payment_method===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
-                  {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                    ${form.payment_method===m
+                      ? m==='โอน' ? 'bg-blue-500 text-white border-blue-500'
+                        : m==='เงินสด' ? 'bg-green-600 text-white border-green-600'
+                        : 'bg-purple-500 text-white border-purple-500'
+                      : 'bg-white text-gray-400 border-gray-200'}`}>
+                  {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 สด':'✂️ แบ่ง'}
                 </button>
               ))}
             </div>
           </div>
-          <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/>
+          {form.payment_method === 'แบ่งจ่าย' ? (
+            <div className="flex gap-2">
+              <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💳 ยอดโอน" value={form.bank_amount} onChange={e=>setForm({...form,bank_amount:e.target.value})}/>
+              <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💵 เงินสด" value={form.cash_amount} onChange={e=>setForm({...form,cash_amount:e.target.value})}/>
+            </div>
+          ) : (
+            <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/>
+          )}
+          {editId && (
+            <div>
+              <p className="text-xs text-gray-500 mb-1">ยอดคงเหลือหลังรายการ</p>
+              <div className="flex gap-2">
+                <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💳 ยอดโอน" value={form.bank_after} onChange={e=>setForm({...form,bank_after:e.target.value})}/>
+                <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💵 เงินสด" value={form.cash_after} onChange={e=>setForm({...form,cash_after:e.target.value})}/>
+              </div>
+            </div>
+          )}
           <div>
             <label className="text-xs text-gray-500 mb-1 block">วันที่และเวลา</label>
             <ThaiDatePicker value={form.date} onChange={v=>setForm({...form,date:v})} showTime className="input text-sm w-full"/>
@@ -928,6 +928,13 @@ export default function Finance() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-wrap gap-1 flex-1">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${catColor(tx.category)}`}>{tx.category}</span>
+                      {tx.payment_method === 'แบ่งจ่าย' && (
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-purple-100 text-purple-700">
+                          ✂️ แบ่งจ่าย {tx.bank_amount?`💳${fmt(tx.bank_amount)}`:''}
+                          {tx.bank_amount&&tx.cash_amount?'+':''}
+                          {tx.cash_amount?`💵${fmt(tx.cash_amount)}`:''}
+                        </span>
+                      )}
                       {tx.category==='Sale' && tx.products?.payment_method && (
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${tx.products.payment_method==='โอน'?'bg-blue-100 text-blue-700':'bg-green-100 text-green-700'}`}>
                           ชำระ: {tx.products.payment_method}
@@ -1017,7 +1024,14 @@ export default function Finance() {
                 {txDetail.payment_method && (
                   <div>
                     <p className="text-xs text-gray-400">ช่องทางชำระ</p>
-                    <p className="text-sm font-medium dark:text-white">{txDetail.payment_method}</p>
+                    {txDetail.payment_method === 'แบ่งจ่าย' ? (
+                      <div className="flex gap-3 mt-0.5">
+                        {txDetail.bank_amount ? <span className="text-sm font-medium text-blue-600">💳 ฿{fmt(txDetail.bank_amount)}</span> : null}
+                        {txDetail.cash_amount ? <span className="text-sm font-medium text-green-600">💵 ฿{fmt(txDetail.cash_amount)}</span> : null}
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium dark:text-white">{txDetail.payment_method}</p>
+                    )}
                   </div>
                 )}
               </div>
