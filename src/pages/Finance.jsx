@@ -104,27 +104,39 @@ export default function Finance() {
   }
   useEffect(()=>{load()},[])
 
-  // ยอดคงเหลือหลังรายการ: ใช้ stored value ถ้ามี ไม่งั้น fallback คำนวณย้อนหลัง
+  // ยอดคงเหลือหลังรายการ
   const balMap = useMemo(() => {
     const map = {}
     let runBank = balance.bank
     let runCash = balance.cash
-    for (const tx of txs) {
+    for (let i = 0; i < txs.length; i++) {
+      const tx = txs[i]
+      const nextTx = txs[i + 1]
+      // ใช้ stored anchor ของ tx นี้เพื่อ display
       if (tx.bank_after != null && tx.cash_after != null) {
         runBank = Number(tx.bank_after)
         runCash = Number(tx.cash_after)
       }
       map[tx.id] = { bank: runBank, cash: runCash }
-      const amt = Number(tx.amount || 0)
-      if (tx.payment_method === 'แบ่งจ่าย') {
+      // คำนวณยอดก่อน tx นี้ (สำหรับ iteration ถัดไป)
+      if (tx.bank_after != null && tx.cash_after != null && nextTx?.bank_after != null && nextTx?.cash_after != null) {
+        // ทั้งคู่มี anchor → ใช้ nextTx anchor โดยตรง (แม่นยำที่สุด ไม่ต้องรู้ payment_method)
+        runBank = Number(nextTx.bank_after)
+        runCash = Number(nextTx.cash_after)
+      } else if (tx.bank_amount != null || tx.cash_amount != null) {
+        // มี split amounts → reverse แบบ split
         const bAmt = Number(tx.bank_amount || 0)
         const cAmt = Number(tx.cash_amount || 0)
         if (tx.type === 'Income') { runBank -= bAmt; runCash -= cAmt }
         else { runBank += bAmt; runCash += cAmt }
-      } else if (tx.type === 'Income') {
-        if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
       } else {
-        if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
+        // fallback: single payment method
+        const amt = Number(tx.amount || 0)
+        if (tx.type === 'Income') {
+          if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
+        } else {
+          if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
+        }
       }
     }
     return map
