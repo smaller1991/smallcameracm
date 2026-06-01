@@ -36,6 +36,21 @@ const PAY_MAP     = { 'โอน':'โอน','เงินสด':'เงิน
 const TX_TYPE_MAP = { 'income':'Income','expense':'Expense' }
 const TX_CAT_LIST = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const fmt = n => Number(n||0).toLocaleString('th-TH')
+const pad = n => String(n).padStart(2, '0')
+const localDate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
+const monthRange = offset => {
+  const base = new Date()
+  const y = base.getFullYear()
+  const m = base.getMonth() + offset
+  return {
+    from: localDate(new Date(y, m, 1)),
+    to: localDate(new Date(y, m + 1, 0)),
+  }
+}
+const yearRange = () => {
+  const y = new Date().getFullYear()
+  return { from: `${y}-01-01`, to: `${y}-12-31` }
+}
 
 export default function Export() {
   // ── Export state ──
@@ -57,6 +72,8 @@ export default function Export() {
   const [result,     setResult]     = useState(null)
 
   // ── Export logic ──
+  const setTxRange = range => { setFrom(range.from); setTo(range.to) }
+
   const fmtBtns = (val, set) => (
     <div className="flex gap-2 mt-2">
       {['xlsx','pdf'].map(f=>(
@@ -278,9 +295,23 @@ export default function Export() {
           <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center"><FileText size={20} className="text-amber-600"/></div>
           <div><p className="font-semibold">ส่งออกรายการบัญชี</p><p className="text-xs text-gray-400">รายรับ-รายจ่าย เลือกช่วงวันได้</p></div>
         </div>
+        <div className="grid grid-cols-3 gap-2">
+          <button onClick={()=>setTxRange(monthRange(0))}
+            className="py-2 rounded-xl text-xs font-semibold border border-amber-200 bg-amber-50 text-amber-700 active:scale-95 transition-all">
+            เดือนนี้
+          </button>
+          <button onClick={()=>setTxRange(monthRange(-1))}
+            className="py-2 rounded-xl text-xs font-semibold border border-gray-200 bg-white text-gray-500 active:scale-95 transition-all">
+            เดือนที่แล้ว
+          </button>
+          <button onClick={()=>setTxRange(yearRange())}
+            className="py-2 rounded-xl text-xs font-semibold border border-gray-200 bg-white text-gray-500 active:scale-95 transition-all">
+            ทั้งปี
+          </button>
+        </div>
         <div className="grid grid-cols-2 gap-2">
-          <div><label className="text-xs text-gray-500 mb-1 block">ตั้งแต่วันที่</label><ThaiDatePicker value={from} onChange={setFrom} className="input w-full"/></div>
-          <div><label className="text-xs text-gray-500 mb-1 block">ถึงวันที่</label><ThaiDatePicker value={to} onChange={setTo} className="input w-full"/></div>
+          <div><label className="text-xs text-gray-500 mb-1 block">ตั้งแต่วันที่</label><ThaiDatePicker value={from} onChange={setFrom} mode="calendar" className="input w-full"/></div>
+          <div><label className="text-xs text-gray-500 mb-1 block">ถึงวันที่</label><ThaiDatePicker value={to} onChange={setTo} mode="calendar" className="input w-full"/></div>
         </div>
         <p className="text-xs text-gray-400">หากไม่ระบุวันที่ จะส่งออกทั้งหมด</p>
         <label className="flex items-center gap-3 cursor-pointer select-none">

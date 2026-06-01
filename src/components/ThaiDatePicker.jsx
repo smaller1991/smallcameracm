@@ -5,6 +5,7 @@ const VISIBLE  = 5   // rows shown; center row = selected
 const PAD      = Math.floor(VISIBLE / 2)
 
 const MONTHS_TH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+const WEEKDAYS_TH = ['อา','จ','อ','พ','พฤ','ศ','ส']
 const pad = n => String(n).padStart(2, '0')
 const daysInMonth = (y, m) => new Date(y, m + 1, 0).getDate()
 const YEAR_START = 2015
@@ -73,7 +74,7 @@ function DrumCol({ items, idx, onSelect, width = 'flex-1' }) {
 }
 
 // ── main component ─────────────────────────────────────────────
-export default function ThaiDatePicker({ value, onChange, showTime = false, className = 'input', placeholder }) {
+export default function ThaiDatePicker({ value, onChange, showTime = false, className = 'input', placeholder, mode = 'drum' }) {
   const now      = new Date()
   const YEAR_END = now.getFullYear() + 2
 
@@ -130,6 +131,39 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
     return showTime ? `${base}  ${pad(d.getHours())}:${pad(d.getMinutes())}` : base
   })() : ''
 
+  const isCalendar = mode === 'calendar' && !showTime
+  const calYear = YEAR_START + sel.year
+  const calMonth = sel.mon
+  const calDays = daysInMonth(calYear, calMonth)
+  const firstDay = new Date(calYear, calMonth, 1).getDay()
+  const calendarCells = [
+    ...Array.from({ length: firstDay }, () => null),
+    ...Array.from({ length: calDays }, (_, i) => i + 1),
+  ]
+  const isToday = day =>
+    day &&
+    day === now.getDate() &&
+    calMonth === now.getMonth() &&
+    calYear === now.getFullYear()
+  const moveMonth = delta => {
+    setSel(s => {
+      const next = new Date(YEAR_START + s.year, s.mon + delta, 1)
+      const nextYear = Math.max(YEAR_START, Math.min(YEAR_END, next.getFullYear()))
+      const nextMon = nextYear === YEAR_START && next.getFullYear() < YEAR_START
+        ? 0
+        : nextYear === YEAR_END && next.getFullYear() > YEAR_END
+          ? 11
+          : next.getMonth()
+      const maxDay = daysInMonth(nextYear, nextMon) - 1
+      return {
+        ...s,
+        year: nextYear - YEAR_START,
+        mon: nextMon,
+        day: Math.min(s.day, maxDay),
+      }
+    })
+  }
+
   return (
     <>
       <div className="relative flex items-center">
@@ -163,20 +197,68 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
               <button className="text-amber-500 font-bold text-sm py-1 px-2" onClick={commit}>ตกลง</button>
             </div>
 
-            {/* drums */}
-            <div className="flex items-stretch px-2 py-1">
-              <DrumCol items={dayList}   idx={sel.day}  onSelect={v => setSel(s => ({ ...s, day: v }))}  width="w-14" />
-              <DrumCol items={monthList} idx={sel.mon}  onSelect={v => setSel(s => ({ ...s, mon: v }))}  width="flex-1" />
-              <DrumCol items={yearList}  idx={sel.year} onSelect={v => setSel(s => ({ ...s, year: v }))} width="w-20" />
-              {showTime && (
-                <>
-                  <div className="flex items-center justify-center text-gray-300 font-bold px-0.5 text-lg">:</div>
-                  <DrumCol items={hourList} idx={sel.hour} onSelect={v => setSel(s => ({ ...s, hour: v }))} width="w-14" />
-                  <div className="flex items-center justify-center text-gray-300 font-bold px-0.5 text-lg">:</div>
-                  <DrumCol items={minList}  idx={sel.min}  onSelect={v => setSel(s => ({ ...s, min: v }))}  width="w-14" />
-                </>
-              )}
-            </div>
+            {isCalendar ? (
+              <div className="px-5 py-4">
+                <div className="flex items-center justify-between mb-3">
+                  <button
+                    onClick={() => moveMonth(-1)}
+                    className="w-9 h-9 rounded-full border border-amber-100 text-gray-500 flex items-center justify-center active:bg-amber-50"
+                    aria-label="เดือนก่อนหน้า">
+                    ‹
+                  </button>
+                  <div className="text-center">
+                    <p className="font-bold text-brand-dark dark:text-white">{MONTHS_TH[calMonth]} {calYear}</p>
+                  </div>
+                  <button
+                    onClick={() => moveMonth(1)}
+                    className="w-9 h-9 rounded-full border border-amber-100 text-gray-500 flex items-center justify-center active:bg-amber-50"
+                    aria-label="เดือนถัดไป">
+                    ›
+                  </button>
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-center mb-1">
+                  {WEEKDAYS_TH.map(d => (
+                    <div key={d} className="h-8 flex items-center justify-center text-xs font-semibold text-gray-400">{d}</div>
+                  ))}
+                </div>
+                <div className="grid grid-cols-7 gap-1 text-center">
+                  {calendarCells.map((day, i) => {
+                    const selected = day && day === sel.day + 1
+                    return (
+                      <button
+                        key={`${day || 'blank'}-${i}`}
+                        disabled={!day}
+                        onClick={() => day && setSel(s => ({ ...s, day: day - 1 }))}
+                        className={`aspect-square rounded-xl text-sm font-semibold transition-colors ${
+                          !day
+                            ? 'opacity-0'
+                            : selected
+                              ? 'bg-brand-dark text-brand-yellow'
+                              : isToday(day)
+                                ? 'bg-amber-50 text-amber-600 border border-amber-200'
+                                : 'text-gray-600 active:bg-amber-50'
+                        }`}>
+                        {day || ''}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-stretch px-2 py-1">
+                <DrumCol items={dayList}   idx={sel.day}  onSelect={v => setSel(s => ({ ...s, day: v }))}  width="w-14" />
+                <DrumCol items={monthList} idx={sel.mon}  onSelect={v => setSel(s => ({ ...s, mon: v }))}  width="flex-1" />
+                <DrumCol items={yearList}  idx={sel.year} onSelect={v => setSel(s => ({ ...s, year: v }))} width="w-20" />
+                {showTime && (
+                  <>
+                    <div className="flex items-center justify-center text-gray-300 font-bold px-0.5 text-lg">:</div>
+                    <DrumCol items={hourList} idx={sel.hour} onSelect={v => setSel(s => ({ ...s, hour: v }))} width="w-14" />
+                    <div className="flex items-center justify-center text-gray-300 font-bold px-0.5 text-lg">:</div>
+                    <DrumCol items={minList}  idx={sel.min}  onSelect={v => setSel(s => ({ ...s, min: v }))}  width="w-14" />
+                  </>
+                )}
+              </div>
+            )}
 
             <div style={{ height: 'env(safe-area-inset-bottom, 12px)' }} />
           </div>

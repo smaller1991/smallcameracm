@@ -33,6 +33,18 @@ const monthEnd = () => {
   const d = new Date(new Date().getFullYear(), new Date().getMonth()+1, 0)
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
 }
+const localDate = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+const monthRange = offset => {
+  const d = new Date()
+  return {
+    from: localDate(new Date(d.getFullYear(), d.getMonth() + offset, 1)),
+    to: localDate(new Date(d.getFullYear(), d.getMonth() + offset + 1, 0)),
+  }
+}
+const yearRange = () => {
+  const y = new Date().getFullYear()
+  return { from: `${y}-01-01`, to: `${y}-12-31` }
+}
 
 export default function Finance() {
   const [txs,      setTxs]      = useState([])
@@ -75,8 +87,8 @@ export default function Finance() {
   const [soldProfit,   setSoldProfit]   = useState(0)
   const [soldItems,    setSoldItems]    = useState([])
   const [showProfit,   setShowProfit]   = useState(false)
-  const [profitFrom,   setProfitFrom]   = useState('')
-  const [profitTo,     setProfitTo]     = useState('')
+  const [profitFrom,   setProfitFrom]   = useState(monthStart())
+  const [profitTo,     setProfitTo]     = useState(monthEnd())
   const [showIncome,   setShowIncome]   = useState(false)
   const [showExpense,  setShowExpense]  = useState(false)
   const [detailFrom,   setDetailFrom]   = useState('')
@@ -148,18 +160,20 @@ export default function Finance() {
     return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
   }
 
-  // filter by date
-  const filtered = txs.filter(t => {
+  const txMatchesFilters = (t, from = dateFrom, to = dateTo) => {
     const dateStr = toLocalDateStr(t.date)
-    if (dateFrom && dateStr < dateFrom) return false
-    if (dateTo   && dateStr > dateTo) return false
+    if (from && dateStr < from) return false
+    if (to   && dateStr > to) return false
     if (selTypes.length>0 && !selTypes.includes(t.type)) return false
     if (selCats.length>0  && !selCats.includes(t.category)) return false
     if (selProdCats.length>0) {
       if (!t.products?.category || !selProdCats.includes(t.products.category)) return false
     }
     return true
-  })
+  }
+
+  // filter by date
+  const filtered = txs.filter(t => txMatchesFilters(t))
 
   const q = searchQuery.trim().toLowerCase()
   const searched = q
@@ -173,6 +187,16 @@ export default function Finance() {
 
   const activeFilters = selCats.length + selTypes.length + selProdCats.length
   const clearFilters = () => { setSelCats([]); setSelTypes([]); setSelProdCats([]) }
+  const setDateRange = range => { setDateFrom(range.from); setDateTo(range.to) }
+  const isDateRange = range => dateFrom === range.from && dateTo === range.to
+  const datePresetClass = active => `py-2 rounded-xl text-xs font-semibold border active:scale-95 transition-all ${
+    active
+      ? 'bg-brand-dark text-brand-yellow border-brand-dark shadow-sm'
+      : 'bg-white text-gray-500 border-gray-200'
+  }`
+  const openIncomeDetail = () => { setDetailFrom(dateFrom); setDetailTo(dateTo); setShowIncome(true) }
+  const openExpenseDetail = () => { setDetailFrom(dateFrom); setDetailTo(dateTo); setShowExpense(true) }
+  const openProfitDetail = () => { setProfitFrom(dateFrom); setProfitTo(dateTo); setShowProfit(true) }
 
   const toggle = (arr, setArr, val) => {
     setArr(prev => prev.includes(val) ? prev.filter(x=>x!==val) : [...prev, val])
@@ -199,6 +223,19 @@ export default function Finance() {
   })).filter(d => d.amount > 0)
   const filteredDeductTotal = filteredDeductions.reduce((a,d)=>a+d.amount,0)
   const filteredProfit = filteredGross - filteredDeductTotal
+  const summarySoldItems = soldItems.filter(p => {
+    if (!p.sold_date) return false
+    const ds = toLocalDateStr(p.sold_date)
+    if (dateFrom && ds < dateFrom) return false
+    if (dateTo   && ds > dateTo) return false
+    if (selProdCats.length>0 && (!p.category || !selProdCats.includes(p.category))) return false
+    return true
+  })
+  const summaryGross = summarySoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+  const summaryDeductTotal = txs
+    .filter(t => PROFIT_DEDUCT_CATS.includes(t.category) && t.type === 'Expense' && txMatchesFilters(t))
+    .reduce((a,t)=>a+Number(t.amount),0)
+  const summaryProfit = summaryGross - summaryDeductTotal
 
   const income      = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const expense     = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
@@ -413,24 +450,24 @@ export default function Finance() {
       <div className="bg-brand-dark px-4 pt-4 pb-4 space-y-3">
         {/* รายรับ / รายจ่าย / กำไร */}
         <div className="flex gap-2">
-          <button onClick={()=>{setShowIncome(true);setDetailFrom('');setDetailTo('')}}
+          <button onClick={openIncomeDetail}
             className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
             style={{background:'rgba(255,255,255,0.08)'}}>
             <p className="text-white/50 text-xs">รายรับ 🔍</p>
             <p className="font-bold text-sm mt-0.5 text-green-400">฿{fmt(income)}</p>
           </button>
-          <button onClick={()=>{setShowExpense(true);setDetailFrom('');setDetailTo('')}}
+          <button onClick={openExpenseDetail}
             className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
             style={{background:'rgba(255,255,255,0.08)'}}>
             <p className="text-white/50 text-xs">รายจ่าย 🔍</p>
             <p className="font-bold text-sm mt-0.5 text-red-400">฿{fmt(expense)}</p>
           </button>
-          <button onClick={()=>setShowProfit(true)}
+          <button onClick={openProfitDetail}
             className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
             style={{background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,184,56,0.3)'}}>
             <p className="text-white/50 text-xs">กำไรขาย 🔍</p>
-            <p className={`font-bold text-sm mt-0.5 ${soldProfit>=0?'text-brand-yellow':'text-red-400'}`}>
-              {soldProfit<0?'-':''}฿{fmt(Math.abs(soldProfit))}
+            <p className={`font-bold text-sm mt-0.5 ${summaryProfit>=0?'text-brand-yellow':'text-red-400'}`}>
+              {summaryProfit<0?'-':''}฿{fmt(Math.abs(summaryProfit))}
             </p>
           </button>
         </div>
@@ -439,10 +476,7 @@ export default function Finance() {
         {showIncome && (() => {
           const items = txs.filter(t=>{
             if (t.type!=='Income') return false
-            const ds = toLocalDateStr(t.date)
-            if (detailFrom && ds < detailFrom) return false
-            if (detailTo   && ds > detailTo) return false
-            return true
+            return txMatchesFilters(t, detailFrom, detailTo)
           })
           const total = items.reduce((a,t)=>a+Number(t.amount),0)
           return (
@@ -454,9 +488,9 @@ export default function Finance() {
                     <button onClick={()=>setShowIncome(false)} className="text-gray-400 p-1">✕</button>
                   </div>
                   <div className="flex gap-2 items-center">
-                    <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} className="input flex-1 text-sm py-1.5"/>
+                    <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
                     <span className="text-gray-400">—</span>
-                    <ThaiDatePicker value={detailTo} onChange={setDetailTo} className="input flex-1 text-sm py-1.5"/>
+                    <ThaiDatePicker value={detailTo} onChange={setDetailTo} mode="calendar" className="input flex-1 text-sm py-1.5"/>
                     {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 text-lg">✕</button>}
                   </div>
                   <div className="flex justify-between mt-2">
@@ -487,10 +521,7 @@ export default function Finance() {
         {showExpense && (() => {
           const items = txs.filter(t=>{
             if (t.type!=='Expense') return false
-            const ds = toLocalDateStr(t.date)
-            if (detailFrom && ds < detailFrom) return false
-            if (detailTo   && ds > detailTo) return false
-            return true
+            return txMatchesFilters(t, detailFrom, detailTo)
           })
           const total = items.reduce((a,t)=>a+Number(t.amount),0)
           return (
@@ -502,9 +533,9 @@ export default function Finance() {
                     <button onClick={()=>setShowExpense(false)} className="text-gray-400 p-1">✕</button>
                   </div>
                   <div className="flex gap-2 items-center">
-                    <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} className="input flex-1 text-sm py-1.5"/>
+                    <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
                     <span className="text-gray-400">—</span>
-                    <ThaiDatePicker value={detailTo} onChange={setDetailTo} className="input flex-1 text-sm py-1.5"/>
+                    <ThaiDatePicker value={detailTo} onChange={setDetailTo} mode="calendar" className="input flex-1 text-sm py-1.5"/>
                     {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 text-lg">✕</button>}
                   </div>
                   <div className="flex justify-between mt-2">
@@ -542,9 +573,9 @@ export default function Finance() {
                 </div>
                 {/* date filter */}
                 <div className="flex gap-2 items-center">
-                  <ThaiDatePicker value={profitFrom} onChange={setProfitFrom} className="input flex-1 text-sm py-1.5" placeholder="จากวันที่"/>
+                  <ThaiDatePicker value={profitFrom} onChange={setProfitFrom} mode="calendar" className="input flex-1 text-sm py-1.5" placeholder="จากวันที่"/>
                   <span className="text-gray-400 text-sm">—</span>
-                  <ThaiDatePicker value={profitTo} onChange={setProfitTo} className="input flex-1 text-sm py-1.5" placeholder="ถึงวันที่"/>
+                  <ThaiDatePicker value={profitTo} onChange={setProfitTo} mode="calendar" className="input flex-1 text-sm py-1.5" placeholder="ถึงวันที่"/>
                   {(profitFrom||profitTo) && (
                     <button onClick={()=>{setProfitFrom('');setProfitTo('')}} className="text-gray-400 text-lg">✕</button>
                   )}
@@ -653,10 +684,24 @@ export default function Finance() {
 
       {/* Date filter + Filter button */}
       <div className="px-4 py-3 border-b border-amber-100 bg-white">
+        <div className="grid grid-cols-3 gap-2 mb-2">
+          <button onClick={()=>setDateRange(monthRange(0))}
+            className={datePresetClass(isDateRange(monthRange(0)))}>
+            เดือนนี้
+          </button>
+          <button onClick={()=>setDateRange(monthRange(-1))}
+            className={datePresetClass(isDateRange(monthRange(-1)))}>
+            เดือนที่แล้ว
+          </button>
+          <button onClick={()=>setDateRange(yearRange())}
+            className={datePresetClass(isDateRange(yearRange()))}>
+            ทั้งปี
+          </button>
+        </div>
         <div className="flex gap-2 items-center">
-          <ThaiDatePicker value={dateFrom} onChange={setDateFrom} className="input flex-1 text-sm py-1.5"/>
+          <ThaiDatePicker value={dateFrom} onChange={setDateFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
           <span className="text-gray-400 text-sm">—</span>
-          <ThaiDatePicker value={dateTo} onChange={setDateTo} className="input flex-1 text-sm py-1.5"/>
+          <ThaiDatePicker value={dateTo} onChange={setDateTo} mode="calendar" className="input flex-1 text-sm py-1.5"/>
           {(dateFrom||dateTo) && (
             <button onClick={()=>{setDateFrom('');setDateTo('')}} className="text-gray-400 p-1"><X size={15}/></button>
           )}
