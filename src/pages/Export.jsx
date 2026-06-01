@@ -86,6 +86,8 @@ export default function Export() {
   )
 
   const doExportInv = async () => {
+    const pdfWindow = invFmt === 'pdf' && !withImages ? openPDFPreviewWindow('กำลังเตรียม PDF สต็อกสินค้า...') : null
+    if (invFmt === 'pdf' && !withImages && !pdfWindow) return
     setBusy(true); setImgProgress(null)
     try {
       const {data} = await supabase.from('products').select('*').order('created_at',{ascending:false})
@@ -97,14 +99,16 @@ export default function Export() {
       } else if (invFmt==='xlsx') {
         exportInventory(data||[], invFilter)
       } else {
-        exportInventoryPDF(data||[], invFilter)
+        exportInventoryPDF(data||[], invFilter, pdfWindow)
       }
-      toast.success('ดาวน์โหลดสำเร็จ!')
+      toast.success(invFmt === 'pdf' && !withImages ? 'เปิดหน้าต่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
     finally{ setBusy(false); setImgProgress(null) }
   }
 
   const doExportTx = async () => {
+    const pdfWindow = txFmt === 'pdf' && !withTxImages ? openPDFPreviewWindow('กำลังเตรียม PDF รายการบัญชี...') : null
+    if (txFmt === 'pdf' && !withTxImages && !pdfWindow) return
     setBusy(true); setTxImgProgress(null)
     try {
       const [{ data }, { data: balData }] = await Promise.all([
@@ -117,9 +121,9 @@ export default function Export() {
       } else if (txFmt==='xlsx') {
         exportTransactions(data||[], from||undefined, to||undefined, balance)
       } else {
-        exportTransactionsPDF(data||[], from||undefined, to||undefined, balance)
+        exportTransactionsPDF(data||[], from||undefined, to||undefined, balance, pdfWindow)
       }
-      toast.success('ดาวน์โหลดสำเร็จ!')
+      toast.success(txFmt === 'pdf' && !withTxImages ? 'เปิดหน้าต่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
     finally{ setBusy(false); setTxImgProgress(null) }
   }
@@ -452,36 +456,84 @@ export default function Export() {
 const STATUS_TH = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว'}
 const thDate = d => d?new Date(d).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'}):''
 
-function makePDF(title, headers, rows) {
-  const w = window.open('','_blank')
-  if (!w) return alert('กรุณาอนุญาต popup เพื่อดาวน์โหลด PDF')
+function openPDFPreviewWindow(message = 'กำลังเตรียม PDF...') {
+  const w = window.open('', '_blank')
+  if (!w) {
+    alert('เบราว์เซอร์บล็อกหน้าต่างแสดง PDF กรุณาลองกดอีกครั้ง')
+    return null
+  }
+  w.document.open()
+  w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PDF Preview</title>
+  <style>body{font-family:sans-serif;margin:24px;color:#1A1208;background:#FFFBF0}.box{max-width:520px;margin:12vh auto;background:white;border:1px solid #f0e8d8;border-radius:16px;padding:24px;box-shadow:0 12px 40px rgba(26,18,8,.08)}h2{margin:0 0 8px;font-size:20px}p{margin:0;color:#777;font-size:13px}</style>
+  </head><body><div class="box"><h2>${message}</h2><p>หน้าต่างนี้ถูกเปิดจากการกดปุ่มโดยตรง จึงไม่โดนบล็อก popup</p></div></body></html>`)
+  w.document.close()
+  return w
+}
+
+function makePDF(title, headers, rows, previewWindow = null) {
+  const w = previewWindow || openPDFPreviewWindow(`กำลังเตรียม ${title}...`)
+  if (!w) return
   const headerHtml = headers.map(h=>`<th>${h}</th>`).join('')
   const rowsHtml   = rows.map(r=>`<tr>${r.map(c=>`<td>${c??''}</td>`).join('')}</tr>`).join('')
+  w.document.open()
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
-  <style>body{font-family:sans-serif;font-size:11px;margin:20px}h2{color:#1A1208;margin-bottom:12px}table{width:100%;border-collapse:collapse}th{background:#1A1208;color:#FFB838;padding:6px 8px;text-align:left;font-size:11px}td{padding:5px 8px;border-bottom:1px solid #f0e8d8;font-size:10px}tr:nth-child(even){background:#FFFBF0}@media print{body{margin:0}}</style>
-  </head><body><h2>${title}</h2><p style="color:#999;font-size:10px;margin-bottom:8px">สร้างเมื่อ ${new Date().toLocaleString('th-TH')}</p>
-  <table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
-  <script>window.onload=()=>{window.print();window.onafterprint=()=>window.close()}<\/script></body></html>`)
+  <style>
+    body{font-family:sans-serif;font-size:11px;margin:0;background:#f8f4ea;color:#1A1208}
+    .toolbar{position:sticky;top:0;z-index:10;background:#1A1208;color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+    .toolbar-title{font-weight:700;font-size:14px;color:#FFB838}
+    .toolbar-actions{display:flex;gap:8px}
+    button,a{border:0;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none}
+    .back{background:rgba(255,255,255,.1);color:white}
+    .print{background:#FFB838;color:#1A1208}
+    .page{background:white;margin:18px auto;padding:20px;max-width:1120px;box-shadow:0 10px 32px rgba(26,18,8,.08)}
+    h2{color:#1A1208;margin:0 0 12px}
+    table{width:100%;border-collapse:collapse}
+    th{background:#1A1208;color:#FFB838;padding:6px 8px;text-align:left;font-size:11px}
+    td{padding:5px 8px;border-bottom:1px solid #f0e8d8;font-size:10px}
+    tr:nth-child(even){background:#FFFBF0}
+    @media print{body{background:white}.toolbar{display:none}.page{margin:0;padding:0;box-shadow:none;max-width:none}}
+  </style>
+  </head><body>
+  <div class="toolbar">
+    <div class="toolbar-title">${title}</div>
+    <div class="toolbar-actions">
+      <a class="back" href="/">กลับหน้าหลัก</a>
+      <button class="print" onclick="window.print()">ปริ้น</button>
+    </div>
+  </div>
+  <main class="page">
+    <h2>${title}</h2>
+    <p style="color:#999;font-size:10px;margin-bottom:8px">สร้างเมื่อ ${new Date().toLocaleString('th-TH')}</p>
+    <table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
+  </main>
+  </body></html>`)
   w.document.close()
 }
 
-function exportInventoryPDF(products, statusFilter='all') {
+function exportInventoryPDF(products, statusFilter='all', previewWindow=null) {
   const rows = products.filter(p=>statusFilter==='all'||p.status===statusFilter)
     .map(p=>[p.model,p.serial_number,p.category||'กล้อง',p.condition,STATUS_TH[p.status]||p.status,
              `฿${fmt(p.base_cost)}`,`฿${fmt(p.total_cost)}`,
              p.sold_price?`฿${fmt(p.sold_price)}`:'',
              p.sold_price?`฿${fmt(Number(p.sold_price)-Number(p.total_cost))}`:'',
              thDate(p.created_at),thDate(p.sold_date),p.customer_note||'',p.notes||''])
-  makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows)
+  if (!rows.length) {
+    previewWindow?.close()
+    return alert('ไม่มีข้อมูล')
+  }
+  makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows,previewWindow)
 }
 
-function exportTransactionsPDF(txs, from, to, balance=null) {
+function exportTransactionsPDF(txs, from, to, balance=null, previewWindow=null) {
   const filtered = txs.filter(t=>{
     if (from&&new Date(t.date)<new Date(from)) return false
     if (to&&new Date(t.date)>new Date(to+'T23:59:59')) return false
     return true
   })
-  if (!filtered.length) return alert('ไม่มีข้อมูล')
+  if (!filtered.length) {
+    previewWindow?.close()
+    return alert('ไม่มีข้อมูล')
+  }
 
   // คำนวณยอดคงเหลือหลังแต่ละรายการจากยอดปัจจุบัน (ย้อนจากใหม่→เก่า)
   const balMap = {}
@@ -542,5 +594,5 @@ function exportTransactionsPDF(txs, from, to, balance=null) {
     rows.push(['ยอดเงินปัจจุบัน','','💳 ธนาคาร',`฿${fmt(balance.bank)}`,'','','','','','','','','',''])
     rows.push(['','','💵 เงินสด',`฿${fmt(balance.cash)}`,'','','','','','','','','',''])
   }
-  makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','💳 ธนาคารคงเหลือ','💵 เงินสดคงเหลือ'],rows)
+  makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','💳 ธนาคารคงเหลือ','💵 เงินสดคงเหลือ'],rows,previewWindow)
 }
