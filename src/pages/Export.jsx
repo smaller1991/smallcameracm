@@ -38,6 +38,10 @@ const TX_CAT_LIST = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating',
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const pad = n => String(n).padStart(2, '0')
 const localDate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
+const toLocalDateStr = iso => {
+  const d = new Date(iso)
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
+}
 const monthRange = offset => {
   const base = new Date()
   const y = base.getFullYear()
@@ -50,6 +54,88 @@ const monthRange = offset => {
 const yearRange = () => {
   const y = new Date().getFullYear()
   return { from: `${y}-01-01`, to: `${y}-12-31` }
+}
+const inDateRange = (t, from, to) => {
+  const dateStr = toLocalDateStr(t.date)
+  if (from && dateStr < from) return false
+  if (to && dateStr > to) return false
+  return true
+}
+const buildBalanceMap = (txs, balance) => {
+  const map = {}
+  if (!balance) return map
+  let runBank = Number(balance.bank || 0)
+  let runCash = Number(balance.cash || 0)
+  for (let i = 0; i < txs.length; i++) {
+    const tx = txs[i]
+    const nextTx = txs[i + 1]
+    if (tx.bank_after != null && tx.cash_after != null) {
+      runBank = Number(tx.bank_after)
+      runCash = Number(tx.cash_after)
+    }
+    map[tx.id] = { bank: runBank, cash: runCash }
+    if (tx.bank_after != null && tx.cash_after != null && nextTx?.bank_after != null && nextTx?.cash_after != null) {
+      runBank = Number(nextTx.bank_after)
+      runCash = Number(nextTx.cash_after)
+    } else if (tx.bank_amount != null || tx.cash_amount != null) {
+      const bAmt = Number(tx.bank_amount || 0)
+      const cAmt = Number(tx.cash_amount || 0)
+      if (tx.type === 'Income') { runBank -= bAmt; runCash -= cAmt }
+      else { runBank += bAmt; runCash += cAmt }
+    } else {
+      const amt = Number(tx.amount || 0)
+      if (tx.type === 'Income') {
+        if (tx.payment_method === 'โอน') runBank -= amt
+        else runCash -= amt
+      } else {
+        if (tx.payment_method === 'โอน') runBank += amt
+        else runCash += amt
+      }
+    }
+  }
+  return map
+}
+const getReportBalance = (txs, from, to, currentBalance) => {
+  if (!currentBalance) return null
+  const filtered = txs.filter(t => inDateRange(t, from, to))
+  if (!filtered.length) return null
+  const balMap = buildBalanceMap(txs, currentBalance)
+  return balMap[filtered[0].id] || currentBalance
+}
+const buildStockMap = (txs, currentStockValue) => {
+  const map = {}
+  let runStock = Number(currentStockValue || 0)
+  const soldProductSeen = new Set()
+  const stockDelta = tx => {
+    const productCost = Number(tx.products?.total_cost || 0)
+    if (tx.category === 'Buy Stock' && tx.product_id && productCost) return productCost
+    if (tx.category === 'Add-on' && tx.product_id) return Number(tx.amount || 0)
+    if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
+      soldProductSeen.add(tx.product_id)
+      return -productCost
+    }
+    if (tx.category === 'Trade') {
+      const sellA = Number(tx.trade_sell_a || 0)
+      const profitA = Number(tx.trade_profit_a || 0)
+      if (!sellA && !profitA) return 0
+      const costA = sellA - profitA
+      const diff = tx.type === 'Income' ? Number(tx.amount || 0) : -Number(tx.amount || 0)
+      const buyB = sellA - diff
+      return buyB - costA
+    }
+    return 0
+  }
+  for (const tx of txs) {
+    map[tx.id] = runStock
+    runStock -= stockDelta(tx)
+  }
+  return map
+}
+const getReportStock = (txs, from, to, currentStockValue) => {
+  const filtered = txs.filter(t => inDateRange(t, from, to))
+  if (!filtered.length) return null
+  const stockMap = buildStockMap(txs, currentStockValue)
+  return stockMap[filtered[0].id] ?? Number(currentStockValue || 0)
 }
 
 export default function Export() {
@@ -111,17 +197,21 @@ export default function Export() {
     if (txFmt === 'pdf' && !withTxImages && !pdfWindow) return
     setBusy(true); setTxImgProgress(null)
     try {
-      const [{ data }, { data: balData }] = await Promise.all([
+      const [{ data }, { data: balData }, { data: stockData }] = await Promise.all([
         supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status)').order('date',{ascending:false}),
         supabase.from('balances').select('bank,cash').eq('id','main').single(),
+        supabase.from('products').select('total_cost,status'),
       ])
       const balance = balData ? { bank: Number(balData.bank||0), cash: Number(balData.cash||0) } : null
+      const currentStockValue = (stockData||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost||0),0)
+      const reportBalance = getReportBalance(data||[], from||undefined, to||undefined, balance)
+      const reportStockValue = getReportStock(data||[], from||undefined, to||undefined, currentStockValue)
       if (withTxImages) {
-        await exportTransactionsWithImages(data||[], from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), balance)
+        await exportTransactionsWithImages(data||[], from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), reportBalance, reportStockValue)
       } else if (txFmt==='xlsx') {
-        exportTransactions(data||[], from||undefined, to||undefined, balance)
+        exportTransactions(data||[], from||undefined, to||undefined, reportBalance)
       } else {
-        exportTransactionsPDF(data||[], from||undefined, to||undefined, balance, pdfWindow)
+        exportTransactionsPDF(data||[], from||undefined, to||undefined, balance, currentStockValue, pdfWindow)
       }
       toast.success(txFmt === 'pdf' && !withTxImages ? 'เปิดหน้าต่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
@@ -455,6 +545,12 @@ export default function Export() {
 // ─── PDF helpers ───────────────────────────────────────────────
 const STATUS_TH = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว'}
 const thDate = d => d?new Date(d).toLocaleString('th-TH',{dateStyle:'short',timeStyle:'short'}):''
+const escapeHtml = v => String(v ?? '')
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/'/g, '&#039;')
 
 function openPDFPreviewWindow(message = 'กำลังเตรียม PDF...') {
   const w = window.open('', '_blank')
@@ -470,28 +566,54 @@ function openPDFPreviewWindow(message = 'กำลังเตรียม PDF..
   return w
 }
 
-function makePDF(title, headers, rows, previewWindow = null) {
+function makePDF(title, headers, rows, previewWindow = null, options = {}) {
   const w = previewWindow || openPDFPreviewWindow(`กำลังเตรียม ${title}...`)
   if (!w) return
-  const headerHtml = headers.map(h=>`<th>${h}</th>`).join('')
-  const rowsHtml   = rows.map(r=>`<tr>${r.map(c=>`<td>${c??''}</td>`).join('')}</tr>`).join('')
+  const numericCols = new Set(options.numericCols || [])
+  const headerHtml = headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')
+  const rowsHtml = rows.map(r => {
+    const cells = r.map((c, i) => `<td class="${numericCols.has(i) ? 'num' : ''}">${escapeHtml(c)}</td>`).join('')
+    return `<tr>${cells}</tr>`
+  }).join('')
+  const statsHtml = (options.stats || []).length ? `
+    <section class="stats">
+      ${options.stats.map(s => `
+        <div class="stat ${s.tone || ''}">
+          <div class="stat-label">${escapeHtml(s.label)}</div>
+          <div class="stat-value">${escapeHtml(s.value)}</div>
+        </div>
+      `).join('')}
+    </section>` : ''
   w.document.open()
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
   <style>
-    body{font-family:sans-serif;font-size:11px;margin:0;background:#f8f4ea;color:#1A1208}
+    @page{size:A4 landscape;margin:10mm}
+    *{box-sizing:border-box}
+    body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:#f7f1e5;color:#1A1208}
     .toolbar{position:sticky;top:0;z-index:10;background:#1A1208;color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
-    .toolbar-title{font-weight:700;font-size:14px;color:#FFB838}
+    .toolbar-title{font-weight:800;font-size:15px;color:#FFB838}
     .toolbar-actions{display:flex;gap:8px}
     button,a{border:0;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none}
     .back{background:rgba(255,255,255,.1);color:white}
     .print{background:#FFB838;color:#1A1208}
-    .page{background:white;margin:18px auto;padding:20px;max-width:1120px;box-shadow:0 10px 32px rgba(26,18,8,.08)}
-    h2{color:#1A1208;margin:0 0 12px}
+    .page{background:white;margin:18px auto;padding:22px;max-width:1180px;box-shadow:0 10px 32px rgba(26,18,8,.08)}
+    .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:3px solid #1A1208;padding-bottom:12px;margin-bottom:14px}
+    h1{font-size:24px;line-height:1.1;margin:0;color:#1A1208}
+    .meta{font-size:11px;color:#8a7a65;margin-top:5px}
+    .brand{font-weight:800;color:#FFB838;background:#1A1208;border-radius:14px;padding:10px 14px;white-space:nowrap}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin:12px 0 16px}
+    .stat{border:1px solid #efe2c7;border-radius:12px;padding:9px 10px;background:#FFFBF0;min-height:58px}
+    .stat-label{font-size:10px;color:#8a7a65;margin-bottom:4px;white-space:nowrap}
+    .stat-value{font-size:16px;font-weight:800;color:#1A1208;line-height:1.15}
+    .stat.in .stat-value{color:#16a34a}.stat.out .stat-value{color:#dc2626}.stat.warn .stat-value{color:#d97706}.stat.bank .stat-value{color:#2563eb}.stat.cash .stat-value{color:#16a34a}
+    .table-wrap{border:1px solid #efe2c7;border-radius:12px;overflow:hidden}
     table{width:100%;border-collapse:collapse}
-    th{background:#1A1208;color:#FFB838;padding:6px 8px;text-align:left;font-size:11px}
-    td{padding:5px 8px;border-bottom:1px solid #f0e8d8;font-size:10px}
+    th{background:#1A1208;color:#FFB838;padding:7px 8px;text-align:left;font-size:10px;line-height:1.25;vertical-align:bottom}
+    td{padding:6px 8px;border-bottom:1px solid #f0e8d8;font-size:9.5px;line-height:1.35;vertical-align:top}
+    td.num{text-align:right;font-weight:700;white-space:nowrap}
     tr:nth-child(even){background:#FFFBF0}
-    @media print{body{background:white}.toolbar{display:none}.page{margin:0;padding:0;box-shadow:none;max-width:none}}
+    tr:last-child td{border-bottom:0}
+    @media print{body{background:white}.toolbar{display:none}.page{margin:0;padding:0;box-shadow:none;max-width:none}.stats{page-break-inside:avoid}.table-wrap{border-radius:0}}
   </style>
   </head><body>
   <div class="toolbar">
@@ -502,16 +624,26 @@ function makePDF(title, headers, rows, previewWindow = null) {
     </div>
   </div>
   <main class="page">
-    <h2>${title}</h2>
-    <p style="color:#999;font-size:10px;margin-bottom:8px">สร้างเมื่อ ${new Date().toLocaleString('th-TH')}</p>
-    <table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
+    <section class="report-head">
+      <div>
+        <h1>${escapeHtml(title)}</h1>
+        <div class="meta">${escapeHtml(options.subtitle || '')}</div>
+        <div class="meta">สร้างเมื่อ ${new Date().toLocaleString('th-TH')}</div>
+      </div>
+      <div class="brand">Snapman CM</div>
+    </section>
+    ${statsHtml}
+    <section class="table-wrap">
+      <table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
+    </section>
   </main>
   </body></html>`)
   w.document.close()
 }
 
 function exportInventoryPDF(products, statusFilter='all', previewWindow=null) {
-  const rows = products.filter(p=>statusFilter==='all'||p.status===statusFilter)
+  const filtered = products.filter(p=>statusFilter==='all'||p.status===statusFilter)
+  const rows = filtered
     .map(p=>[p.model,p.serial_number,p.category||'กล้อง',p.condition,STATUS_TH[p.status]||p.status,
              `฿${fmt(p.base_cost)}`,`฿${fmt(p.total_cost)}`,
              p.sold_price?`฿${fmt(p.sold_price)}`:'',
@@ -521,10 +653,22 @@ function exportInventoryPDF(products, statusFilter='all', previewWindow=null) {
     previewWindow?.close()
     return alert('ไม่มีข้อมูล')
   }
-  makePDF('สต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows,previewWindow)
+  const totalCost = filtered.reduce((a,p)=>a+Number(p.total_cost||0),0)
+  const soldCount = filtered.filter(p=>p.status==='Sold').length
+  const profit = filtered.reduce((a,p)=>p.sold_price?a+(Number(p.sold_price)-Number(p.total_cost||0)):a,0)
+  makePDF('รายงานสต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows,previewWindow,{
+    subtitle: `ตัวกรอง: ${statusFilter === 'all' ? 'ทั้งหมด' : STATUS_TH[statusFilter] || statusFilter}`,
+    numericCols: [3,5,6,7,8],
+    stats: [
+      { label: 'จำนวนรายการ', value: `${filtered.length} รายการ` },
+      { label: 'ขายแล้ว', value: `${soldCount} รายการ`, tone: 'in' },
+      { label: 'ต้นทุนรวม', value: `฿${fmt(totalCost)}`, tone: 'warn' },
+      { label: 'กำไรรวม', value: `฿${fmt(profit)}`, tone: profit >= 0 ? 'in' : 'out' },
+    ],
+  })
 }
 
-function exportTransactionsPDF(txs, from, to, balance=null, previewWindow=null) {
+function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0, previewWindow=null) {
   const filtered = txs.filter(t=>{
     if (from&&new Date(t.date)<new Date(from)) return false
     if (to&&new Date(t.date)>new Date(to+'T23:59:59')) return false
@@ -535,21 +679,10 @@ function exportTransactionsPDF(txs, from, to, balance=null, previewWindow=null) 
     return alert('ไม่มีข้อมูล')
   }
 
-  // คำนวณยอดคงเหลือหลังแต่ละรายการจากยอดปัจจุบัน (ย้อนจากใหม่→เก่า)
-  const balMap = {}
-  if (balance) {
-    let runBank = balance.bank
-    let runCash = balance.cash
-    for (const tx of txs) {
-      balMap[tx.id] = { bank: runBank, cash: runCash }
-      const amt = Number(tx.amount || 0)
-      if (tx.type === 'Income') {
-        if (tx.payment_method === 'โอน') runBank -= amt; else runCash -= amt
-      } else {
-        if (tx.payment_method === 'โอน') runBank += amt; else runCash += amt
-      }
-    }
-  }
+  const balMap = buildBalanceMap(txs, balance)
+  const reportBalance = balance ? (balMap[filtered[0].id] || balance) : null
+  const stockMap = buildStockMap(txs, currentStockValue)
+  const reportStockValue = stockMap[filtered[0].id] ?? Number(currentStockValue || 0)
 
   const totalIncome  = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const totalExpense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
@@ -574,25 +707,28 @@ function exportTransactionsPDF(txs, from, to, balance=null, previewWindow=null) 
   const rows = filtered.map((t,i)=>{
     const pl=plValues[i]
     const bal=balMap[t.id]
-    const custNote = t.category==='Sale'?(t.products?.customer_note||''):''
-    const custCell = custNote.length > 40 ? `<span style="font-size:8px">${custNote}</span>` : custNote
+    const custCell = t.category==='Sale'?(t.products?.customer_note||''):''
     return [thDate(t.date),t.type==='Income'?'รายรับ':'รายจ่าย',t.category,`฿${fmt(t.amount)}`,
             t.type==='Income'?`฿${fmt(t.amount)}`:'',t.type==='Expense'?`฿${fmt(t.amount)}`:'',
             pl!=null?`฿${fmt(pl)}`:'',t.products?.model||'',
             t.products?.created_at?thDate(t.products.created_at):'',
             t.products?.total_cost!=null?`฿${fmt(t.products.total_cost)}`:'',
             custCell,t.note||'',
-            bal?`฿${fmt(bal.bank)}`:'',bal?`฿${fmt(bal.cash)}`:'']
+            bal?`฿${fmt(bal.bank)}`:'',bal?`฿${fmt(bal.cash)}`:'',
+            `฿${fmt(stockMap[t.id])}`]
   })
-  rows.push(['','','','','','','','','','','','','',''])
-  rows.push(['สรุป','','รวมรายรับ','',`฿${fmt(totalIncome)}`,'','','','','','','','',''])
-  rows.push(['','','รวมรายจ่าย','','',`฿${fmt(totalExpense)}`,'','','','','','','',''])
-  rows.push(['','','กำไรขาย (ก่อนหักรายจ่าย)','','','',`฿${fmt(grossProfit)}`,'','','','','','',''])
-  rows.push(['','','กำไรขาดทุนสุทธิ','','','',`฿${fmt(totalProfit)}`,'','','','','','',''])
-  if (balance) {
-    rows.push(['','','','','','','','','','','','','',''])
-    rows.push(['ยอดเงินปัจจุบัน','','💳 ธนาคาร',`฿${fmt(balance.bank)}`,'','','','','','','','','',''])
-    rows.push(['','','💵 เงินสด',`฿${fmt(balance.cash)}`,'','','','','','','','','',''])
-  }
-  makePDF('รายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','💳 ธนาคารคงเหลือ','💵 เงินสดคงเหลือ'],rows,previewWindow)
+  const period = from || to ? `${from || 'เริ่มต้น'} ถึง ${to || 'ล่าสุด'}` : 'ทั้งหมด'
+  makePDF('รายงานรายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','ธนาคารคงเหลือ','เงินสดคงเหลือ','สต๊อกคงเหลือ'],rows,previewWindow,{
+    subtitle: `ช่วงรายงาน: ${period} · ${filtered.length} รายการ`,
+    numericCols: [3,4,5,6,9,12,13,14],
+    stats: [
+      { label: 'รวมรายรับ', value: `฿${fmt(totalIncome)}`, tone: 'in' },
+      { label: 'รวมรายจ่าย', value: `฿${fmt(totalExpense)}`, tone: 'out' },
+      { label: 'กำไรขายก่อนหัก', value: `฿${fmt(grossProfit)}`, tone: grossProfit >= 0 ? 'in' : 'out' },
+      { label: 'กำไรสุทธิ', value: `฿${fmt(totalProfit)}`, tone: totalProfit >= 0 ? 'in' : 'out' },
+      { label: 'โอนคงเหลือล่าสุดในรายงาน', value: reportBalance ? `฿${fmt(reportBalance.bank)}` : '-', tone: 'bank' },
+      { label: 'เงินสดคงเหลือล่าสุดในรายงาน', value: reportBalance ? `฿${fmt(reportBalance.cash)}` : '-', tone: 'cash' },
+      { label: 'สต๊อกคงเหลือล่าสุดในรายงาน', value: `฿${fmt(reportStockValue)}`, tone: 'warn' },
+    ],
+  })
 }

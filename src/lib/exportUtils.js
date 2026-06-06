@@ -6,6 +6,35 @@ const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง'
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
 const safeStr = s => (s || '').replace(/[/\\:*?"<>|]/g, '_')
 const PROFIT_DEDUCT_CATS = new Set(['Shipping','Marketing','Operating','Other'])
+const buildStockMap = (txs, currentStockValue) => {
+  const map = {}
+  let runStock = Number(currentStockValue || 0)
+  const soldProductSeen = new Set()
+  const stockDelta = tx => {
+    const productCost = Number(tx.products?.total_cost || 0)
+    if (tx.category === 'Buy Stock' && tx.product_id && productCost) return productCost
+    if (tx.category === 'Add-on' && tx.product_id) return Number(tx.amount || 0)
+    if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
+      soldProductSeen.add(tx.product_id)
+      return -productCost
+    }
+    if (tx.category === 'Trade') {
+      const sellA = Number(tx.trade_sell_a || 0)
+      const profitA = Number(tx.trade_profit_a || 0)
+      if (!sellA && !profitA) return 0
+      const costA = sellA - profitA
+      const diff = tx.type === 'Income' ? Number(tx.amount || 0) : -Number(tx.amount || 0)
+      const buyB = sellA - diff
+      return buyB - costA
+    }
+    return 0
+  }
+  for (const tx of txs) {
+    map[tx.id] = runStock
+    runStock -= stockDelta(tx)
+  }
+  return map
+}
 
 // ─── Generate Import Template ─────────────────────────────────
 export function downloadImportTemplate() {
@@ -120,8 +149,8 @@ export function exportTransactions(transactions, from, to, balance = null) {
   rows.push({ ...empty,                  'หมวดหมู่':'กำไรขาดทุนสุทธิ',          'กำไรขาดทุน': totalProfit  })
   if (balance) {
     rows.push(empty)
-    rows.push({ ...empty, 'วันที่':'ยอดเงิน', 'หมวดหมู่':'ยอดโอน (ธนาคาร)', 'จำนวนเงิน': balance.bank })
-    rows.push({ ...empty,                     'หมวดหมู่':'ยอดเงินสด',        'จำนวนเงิน': balance.cash })
+    rows.push({ ...empty, 'วันที่':'ยอดเงินล่าสุดในรายงาน', 'หมวดหมู่':'ยอดโอน (ธนาคาร)', 'จำนวนเงิน': balance.bank })
+    rows.push({ ...empty,                               'หมวดหมู่':'ยอดเงินสด',        'จำนวนเงิน': balance.cash })
   }
 
   write(rows, 'รายการบัญชี', `รายการบัญชี_${stamp()}.xlsx`)
@@ -182,7 +211,7 @@ async function buildInventoryPDF(filtered) {
 }
 
 // ─── Transactions PDF blob ────────────────────────────────────
-async function buildTransactionsPDF(filtered, balance = null) {
+async function buildTransactionsPDF(filtered, balance = null, stockValue = null) {
   const { doc, autoTable } = await initPDFDoc()
 
   doc.setFontSize(14); doc.setTextColor(26, 18, 8)
@@ -190,7 +219,8 @@ async function buildTransactionsPDF(filtered, balance = null) {
   doc.setFontSize(8); doc.setTextColor(170, 170, 170)
   doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 14, 20)
 
-  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ']]
+  const stockMap = stockValue != null ? buildStockMap(filtered, stockValue) : {}
+  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','สต๊อกคงเหลือ']]
   const plValues = []
   const pdfCountedInstall = new Set()
   const body = filtered.map(t => {
@@ -221,6 +251,7 @@ async function buildTransactionsPDF(filtered, balance = null) {
       t.products?.total_cost != null ? Number(t.products.total_cost).toLocaleString('th-TH') : '',
       t.category === 'Sale' ? (t.products?.customer_note || '') : '',
       t.note || '',
+      stockValue != null ? Number(stockMap[t.id] || 0).toLocaleString('th-TH') : '',
     ]
   })
 
@@ -233,8 +264,10 @@ async function buildTransactionsPDF(filtered, balance = null) {
       0: { cellWidth: 26 }, 1: { cellWidth: 12 }, 2: { cellWidth: 16 },
       3: { cellWidth: 18, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' },
       5: { cellWidth: 18, halign: 'right' }, 6: { cellWidth: 20, halign: 'right' },
-      7: { cellWidth: 24 }, 8: { cellWidth: 22 },
-      9: { cellWidth: 16, halign: 'right' }, 10: { cellWidth: 28 },
+      7: { cellWidth: 22 }, 8: { cellWidth: 20 },
+      9: { cellWidth: 15, halign: 'right' }, 10: { cellWidth: 27 },
+      11: { cellWidth: 24 },
+      12: { cellWidth: 18, halign: 'right' },
     },
     didParseCell: (data) => {
       if (data.section === 'body' && data.column.index === 10 && String(data.cell.raw || '').length > 35) {
@@ -256,8 +289,11 @@ async function buildTransactionsPDF(filtered, balance = null) {
   doc.text(`กำไรขาย (ก่อนหักรายจ่าย): ${grossProfit.toLocaleString('th-TH')} บาท`, 14, fy + 12)
   doc.text(`กำไรขาดทุนสุทธิ: ${totalProfit.toLocaleString('th-TH')} บาท`, 14, fy + 18)
   if (balance) {
-    doc.text(`ยอดโอน (ธนาคาร): ${balance.bank.toLocaleString('th-TH')} บาท`, 14, fy + 30)
-    doc.text(`ยอดเงินสด: ${balance.cash.toLocaleString('th-TH')} บาท`, 14, fy + 36)
+    doc.text(`ยอดโอนล่าสุดในรายงาน: ${balance.bank.toLocaleString('th-TH')} บาท`, 14, fy + 30)
+    doc.text(`ยอดเงินสดล่าสุดในรายงาน: ${balance.cash.toLocaleString('th-TH')} บาท`, 14, fy + 36)
+  }
+  if (stockValue != null) {
+    doc.text(`ยอดสต๊อกล่าสุดในรายงาน: ${Number(stockValue || 0).toLocaleString('th-TH')} บาท`, 14, fy + 42)
   }
 
   return doc.output('blob')
@@ -378,7 +414,7 @@ export async function exportInventoryWithImages(products, transactions = [], sta
 }
 
 // ─── Export Transactions + Images as ZIP ─────────────────────
-export async function exportTransactionsWithImages(transactions, from, to, format = 'xlsx', onProgress, balance = null) {
+export async function exportTransactionsWithImages(transactions, from, to, format = 'xlsx', onProgress, balance = null, stockValue = null) {
   const filtered = transactions.filter(t => {
     if (from && new Date(t.date) < new Date(from)) return false
     if (to   && new Date(t.date) > new Date(to + 'T23:59:59')) return false
@@ -433,8 +469,8 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
     rows.push({ ...empty,                   'หมวดหมู่': 'กำไรขาดทุนสุทธิ',          'กำไรขาดทุน': totalProfit  })
     if (balance) {
       rows.push(empty)
-      rows.push({ ...empty, 'วันที่': 'ยอดเงิน', 'หมวดหมู่': 'ยอดโอน (ธนาคาร)', 'จำนวนเงิน': balance.bank })
-      rows.push({ ...empty,                      'หมวดหมู่': 'ยอดเงินสด',        'จำนวนเงิน': balance.cash })
+      rows.push({ ...empty, 'วันที่': 'ยอดเงินล่าสุดในรายงาน', 'หมวดหมู่': 'ยอดโอน (ธนาคาร)', 'จำนวนเงิน': balance.bank })
+      rows.push({ ...empty,                                'หมวดหมู่': 'ยอดเงินสด',        'จำนวนเงิน': balance.cash })
     }
     const ws = XLSX.utils.json_to_sheet(rows)
     ws['!cols'] = Object.keys(rows[0]).map(() => ({ wch: 20 }))
@@ -442,7 +478,7 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
     XLSX.utils.book_append_sheet(wb, ws, 'รายการบัญชี')
     zip.file(`รายการบัญชี_${s}.xlsx`, XLSX.write(wb, { bookType: 'xlsx', type: 'array' }))
   } else {
-    zip.file(`รายการบัญชี_${s}.pdf`, await buildTransactionsPDF(filtered, balance))
+    zip.file(`รายการบัญชี_${s}.pdf`, await buildTransactionsPDF(filtered, balance, stockValue))
   }
 
   // Deduplicate product images by product_id

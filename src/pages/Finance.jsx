@@ -96,7 +96,7 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,category,total_cost,warranty_expiry,payment_method,customer_note)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(model,category,total_cost,status,warranty_expiry,payment_method,customer_note)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
     ])
@@ -153,6 +153,45 @@ export default function Finance() {
     }
     return map
   }, [txs, balance])
+
+  // มูลค่าสต๊อกหลังรายการ: เริ่มจากสต๊อกปัจจุบัน แล้วย้อนรายการจากใหม่ไปเก่า
+  const stockMap = useMemo(() => {
+    const map = {}
+    let runStock = Number(stockValue || 0)
+    const soldProductSeen = new Set()
+
+    const stockDelta = tx => {
+      const productCost = Number(tx.products?.total_cost || 0)
+      if (tx.category === 'Buy Stock' && tx.product_id && productCost) {
+        return productCost
+      }
+      if (tx.category === 'Add-on' && tx.product_id) {
+        return Number(tx.amount || 0)
+      }
+      if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
+        soldProductSeen.add(tx.product_id)
+        return -productCost
+      }
+      if (tx.category === 'Trade') {
+        const sellA = Number(tx.trade_sell_a || 0)
+        const profitA = Number(tx.trade_profit_a || 0)
+        if (!sellA && !profitA) return 0
+        const costA = sellA - profitA
+        const diff = tx.type === 'Income'
+          ? Number(tx.amount || 0)
+          : -Number(tx.amount || 0)
+        const buyB = sellA - diff
+        return buyB - costA
+      }
+      return 0
+    }
+
+    for (const tx of txs) {
+      map[tx.id] = runStock
+      runStock -= stockDelta(tx)
+    }
+    return map
+  }, [txs, stockValue])
 
   // แปลง UTC timestamp → local YYYY-MM-DD string สำหรับเปรียบเทียบวัน (timezone-safe)
   const toLocalDateStr = iso => {
@@ -972,6 +1011,11 @@ export default function Finance() {
                         </div>
                       )}
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
+                      {stockMap[tx.id] != null && (
+                        <div className="flex gap-2 mt-1" style={{color:'#555'}}>
+                          <span className="text-xs font-medium">📦 ฿{fmt(stockMap[tx.id])}</span>
+                        </div>
+                      )}
                     </div>
                   </button>
                 )
@@ -1034,9 +1078,12 @@ export default function Finance() {
                   )}
                   <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
                   {balMap[tx.id] && (
-                    <div className="flex gap-2 mt-1" style={{color:'#555'}}>
+                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1" style={{color:'#555'}}>
                       <span className="text-xs font-medium">💳 ฿{fmt(balMap[tx.id].bank)}</span>
                       <span className="text-xs font-medium">💵 ฿{fmt(balMap[tx.id].cash)}</span>
+                      {stockMap[tx.id] != null && (
+                        <span className="text-xs font-medium">📦 ฿{fmt(stockMap[tx.id])}</span>
+                      )}
                     </div>
                   )}
                 </div>
@@ -1107,7 +1154,7 @@ export default function Finance() {
               {balMap[txDetail?.id] && (
                 <div className="bg-gray-50 dark:bg-white/5 rounded-xl px-3 py-2.5">
                   <p className="text-xs text-gray-400 mb-1.5">ยอดคงเหลือหลังรายการ</p>
-                  <div className="flex gap-6">
+                  <div className="grid grid-cols-3 gap-3">
                     <div>
                       <p className="text-xs text-blue-400">💳 ธนาคาร</p>
                       <p className="font-semibold text-sm text-blue-600">฿{fmt(balMap[txDetail.id].bank)}</p>
@@ -1115,6 +1162,10 @@ export default function Finance() {
                     <div>
                       <p className="text-xs text-green-500">💵 เงินสด</p>
                       <p className="font-semibold text-sm text-green-600">฿{fmt(balMap[txDetail.id].cash)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-amber-500">📦 สต๊อก</p>
+                      <p className="font-semibold text-sm text-amber-600">฿{fmt(stockMap[txDetail.id])}</p>
                     </div>
                   </div>
                 </div>
