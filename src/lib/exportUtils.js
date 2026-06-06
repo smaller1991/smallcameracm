@@ -6,6 +6,40 @@ const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง'
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
 const safeStr = s => (s || '').replace(/[/\\:*?"<>|]/g, '_')
 const PROFIT_DEDUCT_CATS = new Set(['Shipping','Marketing','Operating','Other'])
+const buildBalanceMap = (txs, balance) => {
+  const map = {}
+  if (!balance) return map
+  let runBank = Number(balance.bank || 0)
+  let runCash = Number(balance.cash || 0)
+  for (let i = 0; i < txs.length; i++) {
+    const tx = txs[i]
+    const nextTx = txs[i + 1]
+    if (tx.bank_after != null && tx.cash_after != null) {
+      runBank = Number(tx.bank_after)
+      runCash = Number(tx.cash_after)
+    }
+    map[tx.id] = { bank: runBank, cash: runCash }
+    if (tx.bank_after != null && tx.cash_after != null && nextTx?.bank_after != null && nextTx?.cash_after != null) {
+      runBank = Number(nextTx.bank_after)
+      runCash = Number(nextTx.cash_after)
+    } else if (tx.bank_amount != null || tx.cash_amount != null) {
+      const bAmt = Number(tx.bank_amount || 0)
+      const cAmt = Number(tx.cash_amount || 0)
+      if (tx.type === 'Income') { runBank -= bAmt; runCash -= cAmt }
+      else { runBank += bAmt; runCash += cAmt }
+    } else {
+      const amt = Number(tx.amount || 0)
+      if (tx.type === 'Income') {
+        if (tx.payment_method === 'โอน') runBank -= amt
+        else runCash -= amt
+      } else {
+        if (tx.payment_method === 'โอน') runBank += amt
+        else runCash += amt
+      }
+    }
+  }
+  return map
+}
 const buildStockMap = (txs, currentStockValue) => {
   const map = {}
   let runStock = Number(currentStockValue || 0)
@@ -170,15 +204,102 @@ async function initPDFDoc(orientation = 'landscape') {
   return { doc, autoTable }
 }
 
+const moneyText = n => `${Number(n || 0).toLocaleString('th-TH')} บาท`
+const toneColor = tone => {
+  if (tone === 'in') return [22, 163, 74]
+  if (tone === 'out') return [220, 38, 38]
+  if (tone === 'bank') return [37, 99, 235]
+  if (tone === 'cash') return [22, 163, 74]
+  if (tone === 'warn') return [217, 119, 6]
+  return [26, 18, 8]
+}
+function drawReportHeader(doc, title, subtitle = '') {
+  doc.setFillColor(26, 18, 8)
+  doc.rect(10, 8, 277, 15, 'F')
+  doc.setTextColor(255, 184, 56)
+  doc.setFontSize(13)
+  doc.text(title, 14, 18)
+  doc.setTextColor(255, 184, 56)
+  doc.setFontSize(9)
+  doc.text('Snapman CM', 258, 18)
+  doc.setTextColor(138, 122, 101)
+  doc.setFontSize(7.5)
+  if (subtitle) doc.text(subtitle, 10, 29)
+  doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 10, subtitle ? 34 : 29)
+  return subtitle ? 39 : 34
+}
+function drawStatCards(doc, stats, y) {
+  const gap = 3
+  const pageW = 297
+  const left = 10
+  const right = 10
+  const cols = stats.length > 4 ? 4 : stats.length
+  const cardW = (pageW - left - right - gap * (cols - 1)) / cols
+  const cardH = 13
+  stats.forEach((s, i) => {
+    const col = i % cols
+    const row = Math.floor(i / cols)
+    const x = left + col * (cardW + gap)
+    const cardY = y + row * (cardH + gap)
+    doc.setFillColor(255, 251, 240)
+    doc.setDrawColor(239, 226, 199)
+    doc.roundedRect(x, cardY, cardW, cardH, 2, 2, 'FD')
+    doc.setTextColor(138, 122, 101)
+    doc.setFontSize(6.2)
+    doc.text(s.label, x + 2.2, cardY + 4.5)
+    doc.setTextColor(...toneColor(s.tone))
+    doc.setFontSize(8.6)
+    doc.text(String(s.value), x + 2.2, cardY + 10, { maxWidth: cardW - 4 })
+  })
+  return y + Math.ceil(stats.length / cols) * cardH + (Math.ceil(stats.length / cols) - 1) * gap + 5
+}
+const reportTableOptions = {
+  styles: {
+    font: 'Sarabun',
+    fontSize: 6.9,
+    cellPadding: { top: 1.25, right: 1.55, bottom: 1.25, left: 1.55 },
+    lineColor: [240, 232, 216],
+    lineWidth: 0.1,
+    valign: 'top',
+    overflow: 'linebreak',
+  },
+  headStyles: {
+    fillColor: [26, 18, 8],
+    textColor: [255, 184, 56],
+    fontStyle: 'normal',
+    fontSize: 7,
+  },
+  footStyles: {
+    fillColor: [255, 247, 230],
+    textColor: [26, 18, 8],
+    fontStyle: 'normal',
+    fontSize: 7.1,
+  },
+  alternateRowStyles: { fillColor: [255, 251, 240] },
+  margin: { left: 10, right: 10 },
+  showFoot: 'lastPage',
+}
+const summaryFoot = (columnCount, lines) => [[{
+  content: lines.join('     '),
+  colSpan: columnCount,
+  styles: { halign: 'left', fontStyle: 'normal', cellPadding: { top: 1.8, right: 2.2, bottom: 1.8, left: 2.2 } },
+}]]
+
 // ─── Inventory PDF blob ───────────────────────────────────────
 async function buildInventoryPDF(filtered) {
   const { doc, autoTable } = await initPDFDoc()
 
-  doc.setFontSize(14); doc.setTextColor(26, 18, 8)
-  doc.text('สต็อกสินค้า', 14, 14)
-  doc.setFontSize(8); doc.setTextColor(170, 170, 170)
-  doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 14, 20)
-
+  const totalCost = filtered.reduce((a,p)=>a+Number(p.total_cost||0),0)
+  const totalSold = filtered.reduce((a,p)=>p.sold_price?a+Number(p.sold_price):a,0)
+  const soldCount = filtered.filter(p=>p.status==='Sold').length
+  const totalProfit = filtered.reduce((a,p)=>p.sold_price?a+(Number(p.sold_price)-Number(p.total_cost||0)):a,0)
+  let startY = drawReportHeader(doc, 'รายงานสต็อกสินค้า', `จำนวน ${filtered.length} รายการ`)
+  startY = drawStatCards(doc, [
+    { label: 'จำนวนรายการ', value: `${filtered.length} รายการ` },
+    { label: 'ขายแล้ว', value: `${soldCount} รายการ`, tone: 'in' },
+    { label: 'ต้นทุนรวม', value: moneyText(totalCost), tone: 'warn' },
+    { label: 'กำไรรวม', value: moneyText(totalProfit), tone: totalProfit >= 0 ? 'in' : 'out' },
+  ], startY)
   const head = [['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ']]
   const body = filtered.map(p => {
     const profit = p.sold_price ? Number(p.sold_price) - Number(p.total_cost) : ''
@@ -194,18 +315,20 @@ async function buildInventoryPDF(filtered) {
   })
 
   autoTable(doc, {
-    head, body, startY: 24,
-    styles:             { font: 'Sarabun', fontSize: 8, cellPadding: 2 },
-    headStyles:         { fillColor: [26, 18, 8], textColor: [255, 184, 56], fontStyle: 'normal' },
-    alternateRowStyles: { fillColor: [255, 251, 240] },
+    ...reportTableOptions,
+    head, body, startY,
+    foot: summaryFoot(head[0].length, [
+      `ต้นทุนรวม ${Number(totalCost).toLocaleString('th-TH')} บาท`,
+      `ราคาขายรวม ${Number(totalSold).toLocaleString('th-TH')} บาท`,
+      `กำไรรวม ${Number(totalProfit).toLocaleString('th-TH')} บาท`,
+    ]),
     columnStyles: {
-      0: { cellWidth: 30 }, 1: { cellWidth: 22 }, 2: { cellWidth: 18 },
+      0: { cellWidth: 32 }, 1: { cellWidth: 22 }, 2: { cellWidth: 16 },
       3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 18 },
       5: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 18, halign: 'right' },
-      7: { cellWidth: 18, halign: 'right' }, 8: { cellWidth: 26 }, 9: { cellWidth: 26 },
-      10: { cellWidth: 30 },
+      7: { cellWidth: 18, halign: 'right' }, 8: { cellWidth: 22 }, 9: { cellWidth: 22 },
+      10: { cellWidth: 40 }, 11: { cellWidth: 39 },
     },
-    margin: { left: 14, right: 14 },
   })
   return doc.output('blob')
 }
@@ -214,13 +337,9 @@ async function buildInventoryPDF(filtered) {
 async function buildTransactionsPDF(filtered, balance = null, stockValue = null) {
   const { doc, autoTable } = await initPDFDoc()
 
-  doc.setFontSize(14); doc.setTextColor(26, 18, 8)
-  doc.text('รายการบัญชี', 14, 14)
-  doc.setFontSize(8); doc.setTextColor(170, 170, 170)
-  doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 14, 20)
-
+  const balMap = buildBalanceMap(filtered, balance)
   const stockMap = stockValue != null ? buildStockMap(filtered, stockValue) : {}
-  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','สต๊อกคงเหลือ']]
+  const head = [['วันที่','ประเภท','หมวดหมู่','จำนวนเงิน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','ธนาคารคงเหลือ','เงินสดคงเหลือ','สต๊อกคงเหลือ']]
   const plValues = []
   const pdfCountedInstall = new Set()
   const body = filtered.map(t => {
@@ -238,6 +357,7 @@ async function buildTransactionsPDF(filtered, balance = null, stockValue = null)
       pl = -Number(t.amount)
     }
     plValues.push(pl)
+    const bal = balMap[t.id]
     return [
       thDate(t.date),
       t.type === 'Income' ? 'รายรับ' : 'รายจ่าย',
@@ -251,30 +371,10 @@ async function buildTransactionsPDF(filtered, balance = null, stockValue = null)
       t.products?.total_cost != null ? Number(t.products.total_cost).toLocaleString('th-TH') : '',
       t.category === 'Sale' ? (t.products?.customer_note || '') : '',
       t.note || '',
+      bal ? Number(bal.bank || 0).toLocaleString('th-TH') : '',
+      bal ? Number(bal.cash || 0).toLocaleString('th-TH') : '',
       stockValue != null ? Number(stockMap[t.id] || 0).toLocaleString('th-TH') : '',
     ]
-  })
-
-  autoTable(doc, {
-    head, body, startY: 24,
-    styles:             { font: 'Sarabun', fontSize: 8, cellPadding: 2 },
-    headStyles:         { fillColor: [26, 18, 8], textColor: [255, 184, 56], fontStyle: 'normal' },
-    alternateRowStyles: { fillColor: [255, 251, 240] },
-    columnStyles: {
-      0: { cellWidth: 26 }, 1: { cellWidth: 12 }, 2: { cellWidth: 16 },
-      3: { cellWidth: 18, halign: 'right' }, 4: { cellWidth: 18, halign: 'right' },
-      5: { cellWidth: 18, halign: 'right' }, 6: { cellWidth: 20, halign: 'right' },
-      7: { cellWidth: 22 }, 8: { cellWidth: 20 },
-      9: { cellWidth: 15, halign: 'right' }, 10: { cellWidth: 27 },
-      11: { cellWidth: 24 },
-      12: { cellWidth: 18, halign: 'right' },
-    },
-    didParseCell: (data) => {
-      if (data.section === 'body' && data.column.index === 10 && String(data.cell.raw || '').length > 35) {
-        data.cell.styles.fontSize = 6
-      }
-    },
-    margin: { left: 14, right: 14 },
   })
 
   const totalIncome  = filtered.filter(t => t.type === 'Income').reduce((a, t) => a + Number(t.amount), 0)
@@ -282,19 +382,45 @@ async function buildTransactionsPDF(filtered, balance = null, stockValue = null)
   const totalProfit  = plValues.reduce((a, v) => v !== '' ? a + v : a, 0)
   const deductions   = filtered.filter(t => t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category)).reduce((a, t) => a + Number(t.amount), 0)
   const grossProfit  = totalProfit + deductions
-  const fy = (doc.lastAutoTable?.finalY || 24) + 7
-  doc.setFont('Sarabun'); doc.setFontSize(9); doc.setTextColor(26, 18, 8)
-  doc.text(`รวมรายรับ: ${totalIncome.toLocaleString('th-TH')} บาท`, 14, fy)
-  doc.text(`รวมรายจ่าย: ${totalExpense.toLocaleString('th-TH')} บาท`, 14, fy + 6)
-  doc.text(`กำไรขาย (ก่อนหักรายจ่าย): ${grossProfit.toLocaleString('th-TH')} บาท`, 14, fy + 12)
-  doc.text(`กำไรขาดทุนสุทธิ: ${totalProfit.toLocaleString('th-TH')} บาท`, 14, fy + 18)
-  if (balance) {
-    doc.text(`ยอดโอนล่าสุดในรายงาน: ${balance.bank.toLocaleString('th-TH')} บาท`, 14, fy + 30)
-    doc.text(`ยอดเงินสดล่าสุดในรายงาน: ${balance.cash.toLocaleString('th-TH')} บาท`, 14, fy + 36)
-  }
-  if (stockValue != null) {
-    doc.text(`ยอดสต๊อกล่าสุดในรายงาน: ${Number(stockValue || 0).toLocaleString('th-TH')} บาท`, 14, fy + 42)
-  }
+  let startY = drawReportHeader(doc, 'รายงานรายการบัญชี', `จำนวน ${filtered.length} รายการ`)
+  startY = drawStatCards(doc, [
+    { label: 'รวมรายรับ', value: moneyText(totalIncome), tone: 'in' },
+    { label: 'รวมรายจ่าย', value: moneyText(totalExpense), tone: 'out' },
+    { label: 'กำไรขายก่อนหัก', value: moneyText(grossProfit), tone: grossProfit >= 0 ? 'in' : 'out' },
+    { label: 'กำไรสุทธิ', value: moneyText(totalProfit), tone: totalProfit >= 0 ? 'in' : 'out' },
+    { label: 'โอนล่าสุดในรายงาน', value: balance ? moneyText(balance.bank) : '-', tone: 'bank' },
+    { label: 'เงินสดล่าสุดในรายงาน', value: balance ? moneyText(balance.cash) : '-', tone: 'cash' },
+    { label: 'สต๊อกล่าสุดในรายงาน', value: stockValue != null ? moneyText(stockValue) : '-', tone: 'warn' },
+  ], startY)
+
+  autoTable(doc, {
+    ...reportTableOptions,
+    head, body, startY,
+    foot: summaryFoot(head[0].length, [
+      `รวมรายรับ ${Number(totalIncome).toLocaleString('th-TH')} บาท`,
+      `รวมรายจ่าย ${Number(totalExpense).toLocaleString('th-TH')} บาท`,
+      `กำไรสุทธิ ${Number(totalProfit).toLocaleString('th-TH')} บาท`,
+      balance ? `โอนล่าสุดในรายงาน ${Number(balance.bank || 0).toLocaleString('th-TH')} บาท` : 'โอนล่าสุดในรายงาน -',
+      balance ? `เงินสดล่าสุดในรายงาน ${Number(balance.cash || 0).toLocaleString('th-TH')} บาท` : 'เงินสดล่าสุดในรายงาน -',
+      stockValue != null ? `สต๊อกล่าสุดในรายงาน ${Number(stockValue || 0).toLocaleString('th-TH')} บาท` : 'สต๊อกล่าสุดในรายงาน -',
+    ]),
+    columnStyles: {
+      0: { cellWidth: 17 }, 1: { cellWidth: 9 }, 2: { cellWidth: 14 },
+      3: { cellWidth: 14, halign: 'right' }, 4: { cellWidth: 14, halign: 'right' },
+      5: { cellWidth: 14, halign: 'right' }, 6: { cellWidth: 16, halign: 'right' },
+      7: { cellWidth: 18 }, 8: { cellWidth: 16 },
+      9: { cellWidth: 13, halign: 'right' }, 10: { cellWidth: 30 },
+      11: { cellWidth: 24 },
+      12: { cellWidth: 20, halign: 'right' },
+      13: { cellWidth: 20, halign: 'right' },
+      14: { cellWidth: 20, halign: 'right' },
+    },
+    didParseCell: (data) => {
+      if (data.section === 'body' && [10, 11].includes(data.column.index) && String(data.cell.raw || '').length > 35) {
+        data.cell.styles.fontSize = 6
+      }
+    },
+  })
 
   return doc.output('blob')
 }
@@ -334,44 +460,12 @@ export async function exportInventoryWithImages(products, transactions = [], sta
     zip.file(`สต็อกสินค้า_${s}.pdf`, pdfBlob)
   }
 
-  // Images — group by day folder
-  const imgRoot = zip.folder('รูปภาพ')
   const productIds = new Set(filtered.map(p => p.id))
   const productDataMap = new Map(filtered.map(p => [p.id, p]))
   const filteredTxs = (transactions || []).filter(t => t.product_id && productIds.has(t.product_id) && t.images?.length)
-  const totalProduct = filtered.reduce((a, p) => a + (p.images?.length || 0), 0)
   const totalReceipt = filteredTxs.reduce((a, t) => a + (t.images?.length || 0), 0)
-  const grandTotal = totalProduct + totalReceipt
+  const grandTotal = totalReceipt
   let done = 0
-
-  for (const p of filtered) {
-    if (!p.images?.length) continue
-
-    // Folder name = day of sale (if sold) or day of purchase
-    const refDate = p.sold_date ? new Date(p.sold_date) : new Date(p.created_at)
-    const dayKey  = refDate.toISOString().slice(0, 10)          // YYYY-MM-DD
-    const dayFolder = imgRoot.folder(dayKey)
-
-    const buyPart  = p.created_at ? new Date(p.created_at).toISOString().slice(0, 10).replace(/-/g, '') : 'nodate'
-    const sellPart = p.sold_date  ? new Date(p.sold_date).toISOString().slice(0, 10).replace(/-/g, '')  : '-'
-    const model    = safeStr(p.model)
-    const cat      = safeStr(p.category || 'nocat')
-    const cost     = Number(p.total_cost || p.base_cost || 0)
-    const sPrice   = p.sold_price != null ? Number(p.sold_price) : null
-    const profit   = sPrice != null ? sPrice - cost : null
-
-    for (let i = 0; i < p.images.length; i++) {
-      try {
-        const res = await fetch(p.images[i])
-        const buf = await res.arrayBuffer()
-        const ext = (p.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
-        const fname = `${model}_${cat}_${buyPart}_${sellPart}_${cost}_${sPrice ?? '-'}_${profit ?? '-'}_${i + 1}.${ext}`
-        dayFolder.file(fname, buf)
-      } catch { /* skip inaccessible image */ }
-      done++
-      onProgress?.(done, grandTotal)
-    }
-  }
 
   // Receipt images — grouped by day folder
   if (filteredTxs.length) {
@@ -481,27 +575,8 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
     zip.file(`รายการบัญชี_${s}.pdf`, await buildTransactionsPDF(filtered, balance, stockValue))
   }
 
-  // Deduplicate product images by product_id
-  const productImgMap = new Map()
-  for (const t of filtered) {
-    if (!t.product_id || !t.products?.images?.length) continue
-    if (!productImgMap.has(t.product_id)) {
-      productImgMap.set(t.product_id, {
-        images:     t.products.images,
-        model:      t.products.model,
-        category:   t.products.category,
-        created_at: t.products.created_at,
-        sold_date:  t.products.sold_date,
-        total_cost: t.products.total_cost,
-        sold_price: t.products.sold_price,
-        date:       t.date,
-      })
-    }
-  }
-
   const totalReceipt = filtered.reduce((a, t) => a + (t.images?.length || 0), 0)
-  const totalProduct = [...productImgMap.values()].reduce((a, p) => a + p.images.length, 0)
-  const grandTotal   = totalReceipt + totalProduct
+  const grandTotal   = totalReceipt
   let done = 0
 
   // Receipt images — grouped by day
@@ -528,31 +603,6 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
           ? `${rModel}_${rCat}_${rBuy}_${rSell}_${rCost}_${rSPrice ?? '-'}_${rProfit ?? '-'}_${i + 1}.${ext}`
           : `${rModel}_${dateStr}_${Number(t.amount)}_${i + 1}.${ext}`
         dayFolder.file(fname, buf)
-      } catch { /* skip */ }
-      done++
-      onProgress?.(done, grandTotal)
-    }
-  }
-
-  // Product images — grouped by day, deduplicated by product_id
-  const productRoot = zip.folder('รูปสินค้า')
-  for (const [, p] of productImgMap) {
-    const dayKey    = new Date(p.sold_date || p.date || p.created_at).toISOString().slice(0, 10)
-    const dayFolder = productRoot.folder(dayKey)
-    const model     = safeStr(p.model)
-    const cat       = safeStr(p.category || 'nocat')
-    const buyPart   = p.created_at ? new Date(p.created_at).toISOString().slice(0, 10).replace(/-/g, '') : 'nodate'
-    const sellPart  = p.sold_date  ? new Date(p.sold_date).toISOString().slice(0, 10).replace(/-/g, '')  : '-'
-    const cost      = Number(p.total_cost || 0)
-    const sPrice    = p.sold_price != null ? Number(p.sold_price) : null
-    const profit    = sPrice != null ? sPrice - cost : null
-
-    for (let i = 0; i < p.images.length; i++) {
-      try {
-        const res = await fetch(p.images[i])
-        const buf = await res.arrayBuffer()
-        const ext = (p.images[i].split('?')[0].split('.').pop() || 'jpg').toLowerCase()
-        dayFolder.file(`${model}_${cat}_${buyPart}_${sellPart}_${cost}_${sPrice ?? '-'}_${profit ?? '-'}_${i + 1}.${ext}`, buf)
       } catch { /* skip */ }
       done++
       onProgress?.(done, grandTotal)

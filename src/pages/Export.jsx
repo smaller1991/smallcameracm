@@ -570,13 +570,26 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
   const w = previewWindow || openPDFPreviewWindow(`กำลังเตรียม ${title}...`)
   if (!w) return
   const numericCols = new Set(options.numericCols || [])
+  const colgroupHtml = (options.colWidths || []).length
+    ? `<colgroup>${options.colWidths.map(w => `<col style="width:${escapeHtml(w)}">`).join('')}</colgroup>`
+    : ''
   const headerHtml = headers.map(h=>`<th>${escapeHtml(h)}</th>`).join('')
   const rowsHtml = rows.map(r => {
     const cells = r.map((c, i) => `<td class="${numericCols.has(i) ? 'num' : ''}">${escapeHtml(c)}</td>`).join('')
     return `<tr>${cells}</tr>`
   }).join('')
+  const summaryLines = options.summaryLines || []
+  const summaryHtml = summaryLines.length ? `
+    <tfoot>
+      <tr>
+        <td class="summary-cell" colspan="${headers.length}">
+          ${summaryLines.map(line => `<span>${escapeHtml(line)}</span>`).join('')}
+        </td>
+      </tr>
+    </tfoot>` : ''
+  const statsClass = options.statsColumns ? `stats cols-${options.statsColumns}` : 'stats'
   const statsHtml = (options.stats || []).length ? `
-    <section class="stats">
+    <section class="${statsClass}">
       ${options.stats.map(s => `
         <div class="stat ${s.tone || ''}">
           <div class="stat-label">${escapeHtml(s.label)}</div>
@@ -587,7 +600,7 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
   w.document.open()
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${title}</title>
   <style>
-    @page{size:A4 landscape;margin:10mm}
+    @page{size:A4 landscape;margin:8mm}
     *{box-sizing:border-box}
     body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:#f7f1e5;color:#1A1208}
     .toolbar{position:sticky;top:0;z-index:10;background:#1A1208;color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
@@ -596,24 +609,30 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
     button,a{border:0;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none}
     .back{background:rgba(255,255,255,.1);color:white}
     .print{background:#FFB838;color:#1A1208}
-    .page{background:white;margin:18px auto;padding:22px;max-width:1180px;box-shadow:0 10px 32px rgba(26,18,8,.08)}
-    .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;border-bottom:3px solid #1A1208;padding-bottom:12px;margin-bottom:14px}
-    h1{font-size:24px;line-height:1.1;margin:0;color:#1A1208}
-    .meta{font-size:11px;color:#8a7a65;margin-top:5px}
-    .brand{font-weight:800;color:#FFB838;background:#1A1208;border-radius:14px;padding:10px 14px;white-space:nowrap}
-    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:8px;margin:12px 0 16px}
-    .stat{border:1px solid #efe2c7;border-radius:12px;padding:9px 10px;background:#FFFBF0;min-height:58px}
-    .stat-label{font-size:10px;color:#8a7a65;margin-bottom:4px;white-space:nowrap}
-    .stat-value{font-size:16px;font-weight:800;color:#1A1208;line-height:1.15}
+    .page{background:white;margin:12px auto;padding:14px;max-width:1180px;box-shadow:0 10px 32px rgba(26,18,8,.08)}
+    .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:2px solid #1A1208;padding-bottom:9px;margin-bottom:10px}
+    h1{font-size:21px;line-height:1.1;margin:0;color:#1A1208}
+    .meta{font-size:10px;color:#8a7a65;margin-top:4px}
+    .brand{font-weight:800;color:#FFB838;background:#1A1208;border-radius:11px;padding:8px 12px;white-space:nowrap}
+    .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:6px;margin:8px 0 10px}
+    .stats.cols-4{grid-template-columns:repeat(4,1fr)}
+    .stat{border:1px solid #efe2c7;border-radius:9px;padding:6px 8px;background:#FFFBF0;min-height:45px}
+    .stat-label{font-size:8.4px;color:#8a7a65;margin-bottom:3px;white-space:nowrap}
+    .stat-value{font-size:12.5px;font-weight:800;color:#1A1208;line-height:1.12;overflow-wrap:anywhere}
     .stat.in .stat-value{color:#16a34a}.stat.out .stat-value{color:#dc2626}.stat.warn .stat-value{color:#d97706}.stat.bank .stat-value{color:#2563eb}.stat.cash .stat-value{color:#16a34a}
     .table-wrap{border:1px solid #efe2c7;border-radius:12px;overflow:hidden}
-    table{width:100%;border-collapse:collapse}
-    th{background:#1A1208;color:#FFB838;padding:7px 8px;text-align:left;font-size:10px;line-height:1.25;vertical-align:bottom}
-    td{padding:6px 8px;border-bottom:1px solid #f0e8d8;font-size:9.5px;line-height:1.35;vertical-align:top}
-    td.num{text-align:right;font-weight:700;white-space:nowrap}
+    table{width:100%;border-collapse:collapse;table-layout:fixed}
+    th{background:#1A1208;color:#FFB838;padding:5px 5px;text-align:left;font-size:8.1px;line-height:1.22;vertical-align:bottom;overflow-wrap:anywhere}
+    td{padding:4.5px 5px;border-bottom:1px solid #f0e8d8;font-size:7.8px;line-height:1.28;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
+    td.num{text-align:right;font-weight:700;white-space:normal}
+    .summary-cell{font-weight:400!important;text-align:left!important;background:#fff7e6;color:#1A1208;font-size:8.1px;line-height:1.45;padding-left:7px!important;padding-right:7px!important}
+    .summary-cell span{display:inline-block;margin-right:14px;white-space:nowrap}
     tr:nth-child(even){background:#FFFBF0}
     tr:last-child td{border-bottom:0}
-    @media print{body{background:white}.toolbar{display:none}.page{margin:0;padding:0;box-shadow:none;max-width:none}.stats{page-break-inside:avoid}.table-wrap{border-radius:0}}
+    thead{display:table-header-group}
+    tfoot{display:table-row-group}
+    tr{break-inside:avoid;page-break-inside:avoid}
+    @media print{body{background:white;-webkit-print-color-adjust:exact;print-color-adjust:exact}.toolbar{display:none}.page{margin:0;padding:0;box-shadow:none;max-width:none}.stats{page-break-inside:avoid}.table-wrap{border-radius:0}}
   </style>
   </head><body>
   <div class="toolbar">
@@ -634,7 +653,7 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
     </section>
     ${statsHtml}
     <section class="table-wrap">
-      <table><thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody></table>
+      <table>${colgroupHtml}<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>${summaryHtml}</table>
     </section>
   </main>
   </body></html>`)
@@ -654,11 +673,19 @@ function exportInventoryPDF(products, statusFilter='all', previewWindow=null) {
     return alert('ไม่มีข้อมูล')
   }
   const totalCost = filtered.reduce((a,p)=>a+Number(p.total_cost||0),0)
+  const totalSold = filtered.reduce((a,p)=>p.sold_price?a+Number(p.sold_price):a,0)
   const soldCount = filtered.filter(p=>p.status==='Sold').length
   const profit = filtered.reduce((a,p)=>p.sold_price?a+(Number(p.sold_price)-Number(p.total_cost||0)):a,0)
   makePDF('รายงานสต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows,previewWindow,{
     subtitle: `ตัวกรอง: ${statusFilter === 'all' ? 'ทั้งหมด' : STATUS_TH[statusFilter] || statusFilter}`,
     numericCols: [3,5,6,7,8],
+    colWidths: ['12%','8%','6%','4%','6%','6.5%','6.5%','6.5%','6%','7.5%','7.5%','13%','10.5%'],
+    statsColumns: 4,
+    summaryLines: [
+      `ต้นทุนรวม ฿${fmt(totalCost)}`,
+      `ราคาขายรวม ฿${fmt(totalSold)}`,
+      `กำไรรวม ฿${fmt(profit)}`,
+    ],
     stats: [
       { label: 'จำนวนรายการ', value: `${filtered.length} รายการ` },
       { label: 'ขายแล้ว', value: `${soldCount} รายการ`, tone: 'in' },
@@ -721,6 +748,16 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
   makePDF('รายงานรายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','ธนาคารคงเหลือ','เงินสดคงเหลือ','สต๊อกคงเหลือ'],rows,previewWindow,{
     subtitle: `ช่วงรายงาน: ${period} · ${filtered.length} รายการ`,
     numericCols: [3,4,5,6,9,12,13,14],
+    colWidths: ['6%','4%','5.5%','5.8%','5.8%','5.8%','6%','7%','6%','5.2%','12.5%','10%','6.8%','6.8%','6.8%'],
+    statsColumns: 4,
+    summaryLines: [
+      `รวมรายรับ ฿${fmt(totalIncome)}`,
+      `รวมรายจ่าย ฿${fmt(totalExpense)}`,
+      `กำไรสุทธิ ฿${fmt(totalProfit)}`,
+      reportBalance ? `โอนล่าสุดในรายงาน ฿${fmt(reportBalance.bank)}` : 'โอนล่าสุดในรายงาน -',
+      reportBalance ? `เงินสดล่าสุดในรายงาน ฿${fmt(reportBalance.cash)}` : 'เงินสดล่าสุดในรายงาน -',
+      `สต๊อกล่าสุดในรายงาน ฿${fmt(reportStockValue)}`,
+    ],
     stats: [
       { label: 'รวมรายรับ', value: `฿${fmt(totalIncome)}`, tone: 'in' },
       { label: 'รวมรายจ่าย', value: `฿${fmt(totalExpense)}`, tone: 'out' },
