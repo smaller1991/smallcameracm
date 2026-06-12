@@ -108,7 +108,8 @@ const buildStockMap = (txs, currentStockValue) => {
   const soldProductSeen = new Set()
   const stockDelta = tx => {
     const productCost = Number(tx.products?.total_cost || 0)
-    if (tx.category === 'Buy Stock' && tx.product_id && productCost) return productCost
+    const batchCost = Number(tx.products?.batch_total_cost || 0)
+    if (tx.category === 'Buy Stock' && tx.product_id && productCost) return batchCost || productCost
     if (tx.category === 'Add-on' && tx.product_id) return Number(tx.amount || 0)
     if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
       soldProductSeen.add(tx.product_id)
@@ -130,6 +131,17 @@ const buildStockMap = (txs, currentStockValue) => {
     runStock -= stockDelta(tx)
   }
   return map
+}
+const withPurchaseBatchTotals = (txs, products) => {
+  const batchTotals = (products || []).reduce((map, p) => {
+    if (p.batch_id) map[p.batch_id] = (map[p.batch_id] || 0) + Number(p.total_cost || 0)
+    return map
+  }, {})
+  return (txs || []).map(t => (
+    t.products?.batch_id
+      ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0) } }
+      : t
+  ))
 }
 const getReportStock = (txs, from, to, currentStockValue) => {
   const filtered = txs.filter(t => inDateRange(t, from, to))
@@ -198,20 +210,21 @@ export default function Export() {
     setBusy(true); setTxImgProgress(null)
     try {
       const [{ data }, { data: balData }, { data: stockData }] = await Promise.all([
-        supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status)').order('date',{ascending:false}),
+        supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status,batch_id)').order('date',{ascending:false}),
         supabase.from('balances').select('bank,cash').eq('id','main').single(),
-        supabase.from('products').select('total_cost,status'),
+        supabase.from('products').select('total_cost,status,batch_id'),
       ])
+      const txData = withPurchaseBatchTotals(data || [], stockData || [])
       const balance = balData ? { bank: Number(balData.bank||0), cash: Number(balData.cash||0) } : null
       const currentStockValue = (stockData||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost||0),0)
-      const reportBalance = getReportBalance(data||[], from||undefined, to||undefined, balance)
-      const reportStockValue = getReportStock(data||[], from||undefined, to||undefined, currentStockValue)
+      const reportBalance = getReportBalance(txData, from||undefined, to||undefined, balance)
+      const reportStockValue = getReportStock(txData, from||undefined, to||undefined, currentStockValue)
       if (withTxImages) {
-        await exportTransactionsWithImages(data||[], from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), reportBalance, reportStockValue)
+        await exportTransactionsWithImages(txData, from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), reportBalance, reportStockValue)
       } else if (txFmt==='xlsx') {
-        exportTransactions(data||[], from||undefined, to||undefined, reportBalance)
+        exportTransactions(txData, from||undefined, to||undefined, reportBalance)
       } else {
-        exportTransactionsPDF(data||[], from||undefined, to||undefined, balance, currentStockValue, pdfWindow)
+        exportTransactionsPDF(txData, from||undefined, to||undefined, balance, currentStockValue, pdfWindow)
       }
       toast.success(txFmt === 'pdf' && !withTxImages ? 'เปิดหน้าต่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
@@ -735,11 +748,14 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
     const pl=plValues[i]
     const bal=balMap[t.id]
     const custCell = t.category==='Sale'?(t.products?.customer_note||''):''
+    const stockCost = t.category === 'Buy Stock'
+      ? Number(t.products?.batch_total_cost || t.products?.total_cost || 0)
+      : Number(t.products?.total_cost || 0)
     return [thDate(t.date),t.type==='Income'?'รายรับ':'รายจ่าย',t.category,`฿${fmt(t.amount)}`,
             t.type==='Income'?`฿${fmt(t.amount)}`:'',t.type==='Expense'?`฿${fmt(t.amount)}`:'',
             pl!=null?`฿${fmt(pl)}`:'',t.products?.model||'',
             t.products?.created_at?thDate(t.products.created_at):'',
-            t.products?.total_cost!=null?`฿${fmt(t.products.total_cost)}`:'',
+            stockCost?`฿${fmt(stockCost)}`:'',
             custCell,t.note||'',
             bal?`฿${fmt(bal.bank)}`:'',bal?`฿${fmt(bal.cash)}`:'',
             `฿${fmt(stockMap[t.id])}`]

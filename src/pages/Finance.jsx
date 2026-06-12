@@ -95,21 +95,30 @@ export default function Finance() {
   const [detailTo,     setDetailTo]     = useState('')
 
   const load = async () => {
-    const [{data:txData},{data:bal},{data:products}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,category,total_cost,status,warranty_expiry,payment_method,customer_note)').order('date',{ascending:false}),
+    const [{data:txData},{data:bal},{data:products},{data:allProducts}] = await Promise.all([
+      supabase.from('transactions').select('*,products(model,category,total_cost,status,warranty_expiry,payment_method,customer_note,batch_id)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
+      supabase.from('products').select('total_cost,status,batch_id'),
     ])
-    setTxs(txData||[])
+    const batchTotals = (allProducts||[]).reduce((map, p) => {
+      if (p.batch_id) map[p.batch_id] = (map[p.batch_id] || 0) + Number(p.total_cost || 0)
+      return map
+    }, {})
+    const txsWithBatchTotals = (txData||[]).map(t => (
+      t.products?.batch_id
+        ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0) } }
+        : t
+    ))
+    setTxs(txsWithBatchTotals)
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
 
     const sold = (products||[]).filter(p=>p.sold_price)
     setSoldItems(sold)
     const sp         = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
-    const deductions = (txData||[]).filter(t=>PROFIT_DEDUCT_CATS.includes(t.category)&&t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
+    const deductions = txsWithBatchTotals.filter(t=>PROFIT_DEDUCT_CATS.includes(t.category)&&t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
     setSoldProfit(sp - deductions)
 
-    const {data:allProducts} = await supabase.from('products').select('total_cost,status')
     const sv = (allProducts||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost),0)
     setStockValue(sv)
     setLoading(false)
@@ -162,8 +171,9 @@ export default function Finance() {
 
     const stockDelta = tx => {
       const productCost = Number(tx.products?.total_cost || 0)
+      const batchCost = Number(tx.products?.batch_total_cost || 0)
       if (tx.category === 'Buy Stock' && tx.product_id && productCost) {
-        return productCost
+        return batchCost || productCost
       }
       if (tx.category === 'Add-on' && tx.product_id) {
         return Number(tx.amount || 0)

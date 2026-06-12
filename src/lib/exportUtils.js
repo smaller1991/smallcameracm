@@ -46,7 +46,8 @@ const buildStockMap = (txs, currentStockValue) => {
   const soldProductSeen = new Set()
   const stockDelta = tx => {
     const productCost = Number(tx.products?.total_cost || 0)
-    if (tx.category === 'Buy Stock' && tx.product_id && productCost) return productCost
+    const batchCost = Number(tx.products?.batch_total_cost || 0)
+    if (tx.category === 'Buy Stock' && tx.product_id && productCost) return batchCost || productCost
     if (tx.category === 'Add-on' && tx.product_id) return Number(tx.amount || 0)
     if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
       soldProductSeen.add(tx.product_id)
@@ -69,6 +70,11 @@ const buildStockMap = (txs, currentStockValue) => {
   }
   return map
 }
+const txProductCost = t => (
+  t.category === 'Buy Stock'
+    ? Number(t.products?.batch_total_cost || t.products?.total_cost || 0)
+    : Number(t.products?.total_cost || 0)
+)
 
 // ─── Generate Import Template ─────────────────────────────────
 export function downloadImportTemplate() {
@@ -165,7 +171,7 @@ export function exportTransactions(transactions, from, to, balance = null) {
       'กำไรขาดทุน':        pl,
       'รุ่นกล้อง':         t.products?.model || '',
       'วันที่ซื้อ':         t.products?.created_at ? thDate(t.products.created_at) : '',
-      'ราคาต้นทุน':        t.products?.total_cost != null ? Number(t.products.total_cost) : '',
+      'ราคาต้นทุน':        txProductCost(t) || '',
       'รายละเอียดลูกค้า':  t.category === 'Sale' ? (t.products?.customer_note || '') : '',
       'หมายเหตุ':          t.note || '',
     }
@@ -368,7 +374,7 @@ async function buildTransactionsPDF(filtered, balance = null, stockValue = null)
       pl !== '' ? pl.toLocaleString('th-TH') : '',
       t.products?.model || '',
       t.products?.created_at ? thDate(t.products.created_at) : '',
-      t.products?.total_cost != null ? Number(t.products.total_cost).toLocaleString('th-TH') : '',
+      txProductCost(t) ? txProductCost(t).toLocaleString('th-TH') : '',
       t.category === 'Sale' ? (t.products?.customer_note || '') : '',
       t.note || '',
       bal ? Number(bal.bank || 0).toLocaleString('th-TH') : '',
@@ -545,7 +551,7 @@ export async function exportTransactionsWithImages(transactions, from, to, forma
         'กำไรขาดทุน':       pl,
         'รุ่นกล้อง':        t.products?.model || '',
         'วันที่ซื้อ':        t.products?.created_at ? thDate(t.products.created_at) : '',
-        'ราคาต้นทุน':       t.products?.total_cost != null ? Number(t.products.total_cost) : '',
+        'ราคาต้นทุน':       txProductCost(t) || '',
         'รายละเอียดลูกค้า': t.category === 'Sale' ? (t.products?.customer_note || '') : '',
         'หมายเหตุ':         t.note || '',
       }
