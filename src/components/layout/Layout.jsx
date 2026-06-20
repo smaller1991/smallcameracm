@@ -45,7 +45,7 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col min-h-screen max-w-[430px] mx-auto bg-brand-light">
-      <header className="fixed top-3 left-1/2 -translate-x-1/2 w-[calc(100%-1.5rem)] max-w-[406px] h-14 flex items-center justify-between px-3 bg-brand-dark z-40 overflow-visible rounded-2xl border border-white/60">
+      <header className="app-head-bar flex items-center justify-between px-3 bg-brand-dark overflow-visible rounded-2xl border border-white/60">
         <div className="flex items-center gap-2">
           <img src="/logo.png" alt="Snapman CM" className="h-20 w-auto object-contain"/>
         </div>
@@ -75,9 +75,9 @@ export default function Layout() {
           </button>
         </div>
       </header>
-      <main className="flex-1 overflow-y-auto pb-28 pt-20"><Outlet/></main>
-      <nav className="fixed bottom-3 left-1/2 -translate-x-1/2 w-[calc(100%-1.5rem)] max-w-[406px] bg-brand-dark border border-white/60 pb-safe z-40 rounded-2xl overflow-hidden">
-        <div className="relative grid px-1 pt-2 pb-1" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
+      <main className="flex-1 overflow-y-auto pb-24 pt-20"><Outlet/></main>
+      <nav className="app-bottom-nav bg-brand-dark border border-white/60">
+        <div className="relative grid px-1.5 py-1.5" style={{ gridTemplateColumns: `repeat(${nav.length}, minmax(0, 1fr))` }}>
           <div
             className="app-bottom-nav-indicator"
             style={{ width: `${100 / nav.length}%`, transform: `translateX(${activeNavIndex * 100}%)` }}

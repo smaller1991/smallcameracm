@@ -316,6 +316,26 @@ export default function Finance() {
   const income      = filtered.filter(t=>t.type==='Income').reduce((a,t)=>a+Number(t.amount),0)
   const expense     = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
   const totalWealth = balance.bank + balance.cash + stockValue
+  const chartRows = useMemo(() => {
+    const map = new Map()
+    filtered.forEach(t => {
+      const key = t.category || 'Other'
+      const row = map.get(key) || { category: key, income: 0, expense: 0, count: 0 }
+      const amount = Number(t.amount || 0)
+      if (t.type === 'Income') row.income += amount
+      if (t.type === 'Expense') row.expense += amount
+      row.count += 1
+      map.set(key, row)
+    })
+    return Array.from(map.values())
+      .map(row => ({
+        ...row,
+        total: row.income + row.expense,
+        net: row.income - row.expense,
+      }))
+      .sort((a,b) => b.total - a.total)
+  }, [filtered])
+  const chartMax = Math.max(...chartRows.map(row => row.total), 1)
 
   const saveBalance = async () => {
     const bank = parseFloat(balForm.bank)
@@ -887,6 +907,59 @@ export default function Finance() {
           <Plus size={15}/>เพิ่มรายการ
         </button>
       </div>
+
+      <section className="finance-chart-panel">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-brand-dark">กราฟรายการบัญชี</p>
+            <p className="text-xs text-gray-500 truncate">{filtered.length} รายการตามช่วงที่เลือก</p>
+          </div>
+          <div className="flex items-center gap-2 text-[11px] font-semibold flex-shrink-0">
+            <span className="inline-flex items-center gap-1 text-green-700"><span className="w-2 h-2 rounded-full bg-green-500"/>รายรับ</span>
+            <span className="inline-flex items-center gap-1 text-red-600"><span className="w-2 h-2 rounded-full bg-red-400"/>รายจ่าย</span>
+          </div>
+        </div>
+        {chartRows.length === 0 ? (
+          <div className="flex flex-col items-center py-5 text-gray-400">
+            <BarChart3 size={34} strokeWidth={1.7} className="mb-1.5"/>
+            <p className="text-xs">ไม่มีข้อมูลสำหรับกราฟในช่วงนี้</p>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {chartRows.map(row => {
+              const incomePct = row.income / chartMax * 100
+              const expensePct = row.expense / chartMax * 100
+              return (
+                <div key={row.category} className="space-y-1.5">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-brand-dark truncate">{row.category}</p>
+                      <p className="text-[11px] text-gray-500">{row.count} รายการ · สุทธิ {row.net >= 0 ? '+' : '-'}฿{fmt(Math.abs(row.net))}</p>
+                    </div>
+                    <p className="text-xs font-bold text-brand-dark flex-shrink-0">฿{fmt(row.total)}</p>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <div className="finance-chart-track">
+                      {row.income > 0 && (
+                        <div className="finance-chart-fill bg-green-400" style={{ width: `${incomePct}%` }}/>
+                      )}
+                    </div>
+                    <div className="finance-chart-track">
+                      {row.expense > 0 && (
+                        <div className="finance-chart-fill bg-red-300" style={{ width: `${expensePct}%` }}/>
+                      )}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-1.5 text-[11px] font-semibold">
+                    <span className="text-green-700">+฿{fmt(row.income)}</span>
+                    <span className="text-red-600">-฿{fmt(row.expense)}</span>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </section>
 
       {/* Form */}
       {showForm && (
