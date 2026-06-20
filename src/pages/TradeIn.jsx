@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, Search, ArrowLeftRight, Plus, Minus, ImagePlus, X, Trash2, CreditCard, Banknote } from 'lucide-react'
+import { ChevronLeft, Search, ArrowLeftRight, Plus, Minus, ImagePlus, X, Trash2 } from 'lucide-react'
 import { uploadReceiptImages } from '../lib/imageUtils'
 import toast from 'react-hot-toast'
 
@@ -72,7 +72,7 @@ export default function TradeIn() {
       const warranty = new Date(new Date(now).getTime() + 15*86400000).toISOString()
 
       const tradeNote = [
-        `แลกเปลี่ยน`,
+        `🔄 แลกเปลี่ยน`,
         `A: ${itemsA.map(x=>`${x.product.model} ฿${fmt(Number(x.sellPrice))}`).join(', ')}`,
         `B: ${itemsB.map(x=>`${x.model} ฿${fmt(Number(x.buy_price))}`).join(', ')}`,
         diff>0 ? `ลูกค้าจ่ายเพิ่ม ฿${fmt(diff)} (${payMethod})` : diff<0 ? `ร้านจ่ายคืน ฿${fmt(Math.abs(diff))} (${payMethod})` : `แลกเท่ากันพอดี`,
@@ -367,10 +367,7 @@ export default function TradeIn() {
                         ${payMethod===m
                           ? m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'
                           : 'bg-white text-gray-400 border-gray-200'}`}>
-                      <span className="inline-flex items-center justify-center gap-1">
-                        {m==='โอน'?<CreditCard size={14}/>:<Banknote size={14}/>}
-                        {m==='โอน'?'โอน':'เงินสด'}
-                      </span>
+                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
                     </button>
                   ))}
                 </div>

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, Search, ShoppingCart, X, ImagePlus, CreditCard, Banknote } from 'lucide-react'
+import { ChevronLeft, Search, ShoppingCart, X, ImagePlus } from 'lucide-react'
 import { uploadReceiptImages } from '../lib/imageUtils'
 import toast from 'react-hot-toast'
 
@@ -307,10 +307,7 @@ export default function BulkSale() {
                   <button key={m} onClick={()=>setPayMethod(m)}
                     className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all
                       ${payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
-                    <span className="inline-flex items-center justify-center gap-1">
-                      {m==='โอน'?<CreditCard size={14}/>:<Banknote size={14}/>}
-                      {m==='โอน'?'โอน':'เงินสด'}
-                    </span>
+                    {m==='โอน'?'💳 โอน':'💵 เงินสด'}
                   </button>
                 ))}
               </div>

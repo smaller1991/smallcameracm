@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
 import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus, User, CreditCard, Banknote, Package, CheckCircle, Wallet, RotateCcw } from 'lucide-react'
+import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 
@@ -684,7 +684,7 @@ export default function ProductDetail() {
               )}
               {product.customer_note && (
                 <div className="bg-blue-50 rounded-xl px-3 py-2">
-                  <p className="text-xs text-blue-400 mb-0.5 flex items-center gap-1"><User size={12}/>รายละเอียดลูกค้า</p>
+                  <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
                   <p className="text-sm text-blue-700 whitespace-pre-wrap">{product.customer_note}</p>
                 </div>
               )}
@@ -742,10 +742,7 @@ export default function ProductDetail() {
                     <button key={m} onClick={()=>setAccPayMethod(m)}
                       className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all
                         ${accPayMethod===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
-                      <span className="inline-flex items-center justify-center gap-1">
-                        {m==='โอน'?<CreditCard size={14}/>:<Banknote size={14}/>}
-                        {m==='โอน'?'โอน':'เงินสด'}
-                      </span>
+                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
                     </button>
                   ))}
                 </div>
@@ -816,7 +813,7 @@ export default function ProductDetail() {
                 </button>
                 <button onClick={()=>setSellType('installment')}
                   className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${sellType==='installment'?'bg-orange-500 text-white border-orange-500':'bg-white text-gray-400 border-gray-200'}`}>
-                  <span className="inline-flex items-center justify-center gap-1"><CreditCard size={14}/>ผ่อนจ่าย</span>
+                  💳 ผ่อนจ่าย
                 </button>
               </div>
 
@@ -850,9 +847,9 @@ export default function ProductDetail() {
                     {installTotal && installFirst !== '' && (
                       <p className={`text-xs mt-1 font-medium ${Number(installFirst)>Number(installTotal)?'text-red-500':Number(installFirst)>=Number(installTotal)?'text-green-600':'text-orange-500'}`}>
                         {Number(installFirst)>Number(installTotal)
-                          ? 'เกินราคาตกลง'
+                          ? '⚠️ เกินราคาตกลง'
                           : Number(installFirst)>=Number(installTotal)
-                            ? 'ชำระเต็มจำนวน - สินค้าจะเปลี่ยนเป็น "ขายแล้ว"'
+                            ? '✅ ชำระเต็มจำนวน → สินค้าจะเปลี่ยนเป็น "ขายแล้ว"'
                             : `คงเหลือ: ฿${fmt(Number(installTotal)-Number(installFirst))} → สินค้าจะเปลี่ยนเป็น "รอชำระ"`}
                       </p>
                     )}
@@ -898,15 +895,12 @@ export default function ProductDetail() {
                   {['โอน','เงินสด'].map(m=>(
                     <button key={m} onClick={()=>setPayMethod(m)}
                       className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200')}>
-                      <span className="inline-flex items-center justify-center gap-1">
-                        {m==='โอน'?<CreditCard size={14}/>:<Banknote size={14}/>}
-                        {m==='โอน'?'โอน':'เงินสด'}
-                      </span>
+                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
                     </button>
                   ))}
                 </div>
                 <p className="text-xs text-gray-400 mt-1.5">
-                  <span className="inline-flex items-center gap-1"><CheckCircle size={12}/>{payMethod==='โอน'?'ยอดจะบวกเพิ่มใน "ยอดโอน" อัตโนมัติ':'ยอดจะบวกเพิ่มใน "เงินสด" อัตโนมัติ'}</span>
+                  {payMethod==='โอน'?'✅ ยอดจะบวกเพิ่มใน "ยอดโอน" อัตโนมัติ':'✅ ยอดจะบวกเพิ่มใน "เงินสด" อัตโนมัติ'}
                 </p>
               </div>
               <div>
@@ -936,7 +930,7 @@ export default function ProductDetail() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-sm">ผ่อนจ่าย</h3>
-                {isBatch && <span className="text-xs text-blue-600 font-medium inline-flex items-center gap-1"><Package size={12}/>ขายรวม {batchProducts.length} ชิ้น</span>}
+                {isBatch && <span className="text-xs text-blue-600 font-medium">📦 ขายรวม {batchProducts.length} ชิ้น</span>}
               </div>
               <span className="badge-pending">รอชำระ</span>
             </div>
@@ -969,7 +963,7 @@ export default function ProductDetail() {
                         <div key={bp.id} className="flex items-center justify-between text-xs py-0.5">
                           <span className="text-gray-600 truncate flex-1 mr-2">{bp.model}</span>
                           {bp.status==='Sold'
-                            ? <span className="text-green-500 font-medium inline-flex items-center gap-1"><CheckCircle size={12}/>ครบ</span>
+                            ? <span className="text-green-500 font-medium">✅ ครบ</span>
                             : <span className="text-orange-500 font-medium">฿{fmt(bpRemaining)}</span>}
                         </div>
                       )
@@ -1003,7 +997,7 @@ export default function ProductDetail() {
             {!payMode ? (
               <button onClick={()=>{setPayMode(true);setPayAmount('');setPayMethod2('โอน');setPayDate2('');setPayImgFiles([]);setPayImgPrev([])}}
                 className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
-                <Wallet size={16}/>รับชำระงวด
+                💰 รับชำระงวด
               </button>
             ) : (
               <div className="bg-orange-50 rounded-xl p-3 space-y-2">
@@ -1014,10 +1008,7 @@ export default function ProductDetail() {
                   {['โอน','เงินสด'].map(m=>(
                     <button key={m} onClick={()=>setPayMethod2(m)}
                       className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${payMethod2===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
-                      <span className="inline-flex items-center justify-center gap-1">
-                        {m==='โอน'?<CreditCard size={14}/>:<Banknote size={14}/>}
-                        {m==='โอน'?'โอน':'เงินสด'}
-                      </span>
+                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
                     </button>
                   ))}
                 </div>
@@ -1054,10 +1045,10 @@ export default function ProductDetail() {
                     : (Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)?'text-green-600':'text-orange-500')}`}>
                     {isBatch
                       ? (Number(payAmount)>=batchTotalRemaining
-                          ? 'ชำระครบทั้งกลุ่ม - สินค้าทั้งหมดจะเปลี่ยนเป็น "ขายแล้ว"'
+                          ? '✅ ชำระครบทั้งกลุ่ม — สินค้าทั้งหมดจะเปลี่ยนเป็น "ขายแล้ว"'
                           : `คงเหลือทั้งกลุ่มหลังชำระ: ฿${fmt(Math.max(0,batchTotalRemaining-Number(payAmount)))}`)
                       : (Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)
-                          ? 'ชำระครบ - สินค้าจะเปลี่ยนเป็น "ขายแล้ว" อัตโนมัติ'
+                          ? '✅ ชำระครบ — สินค้าจะเปลี่ยนเป็น "ขายแล้ว" อัตโนมัติ'
                           : `คงเหลือหลังชำระ: ฿${fmt(Number(product.installment_total||0)-Number(product.installment_paid||0)-Number(payAmount))}`)}
                   </p>
                 )}
@@ -1072,7 +1063,7 @@ export default function ProductDetail() {
             {!payMode && (
               <button onClick={cancelInstallment} disabled={saving}
                 className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
-                <RotateCcw size={15}/>ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
+                ↩️ ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
               </button>
             )}
           </div>
@@ -1086,21 +1077,21 @@ export default function ProductDetail() {
         {product.status==='Sold' && !product.trade_ref_id && !product.installment_total && (
           <button onClick={cancelSale} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
-            <RotateCcw size={15}/>ยกเลิกการขาย (คืนสถานะ + หักยอดเงิน)
+            ↩️ ยกเลิกการขาย (คืนสถานะ + หักยอดเงิน)
           </button>
         )}
 
         {product.status==='Sold' && !product.trade_ref_id && product.installment_total && (
           <button onClick={cancelInstallment} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
-            <RotateCcw size={15}/>ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
+            ↩️ ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
           </button>
         )}
 
         {((product.status==='Sold' && product.trade_ref_id) || product.is_trade_in) && (
           <button onClick={cancelTrade} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-blue-500 border border-blue-200 rounded-xl py-2.5 hover:bg-blue-50 transition-colors">
-            <RotateCcw size={15}/>ยกเลิกการแลกเปลี่ยน (คืนสถานะ + ลบสินค้า B)
+            ↩️ ยกเลิกการแลกเปลี่ยน (คืนสถานะ + ลบสินค้า B)
           </button>
         )}
 
