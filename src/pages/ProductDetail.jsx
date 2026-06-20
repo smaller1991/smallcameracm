@@ -570,7 +570,7 @@ export default function ProductDetail() {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-amber-100 bg-white sticky top-0 z-10">
+      <div className="liquid-sub-header flex items-center justify-between px-4 py-3">
         <button onClick={()=>navigate(-1)}><ChevronLeft size={24}/></button>
         <span className="font-bold truncate max-w-xs">{product.model}</span>
         <button onClick={()=>setEditing(!editing)} className="p-1.5 text-gray-400">

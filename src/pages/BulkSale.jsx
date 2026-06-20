@@ -175,7 +175,7 @@ export default function BulkSale() {
 
   return (
     <div>
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-amber-100 bg-white sticky top-0 z-10">
+      <div className="liquid-sub-header flex items-center gap-3 px-4 py-3">
         <button onClick={()=>navigate(-1)}><ChevronLeft size={24}/></button>
         <h1 className="font-bold text-lg flex items-center gap-2">
           <ShoppingCart size={20} className="text-amber-500"/>ขายสินค้ารวม

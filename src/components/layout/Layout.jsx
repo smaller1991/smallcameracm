@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Outlet, NavLink, useNavigate } from 'react-router-dom'
+import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { LayoutDashboard, Package, DollarSign, Download, LogOut, Sun, Moon } from 'lucide-react'
 
@@ -16,9 +16,11 @@ const FONT_LABELS = ['S', 'M', 'L', 'XL']
 export default function Layout() {
   const signOut  = useAuthStore(s => s.signOut)
   const navigate = useNavigate()
+  const location = useLocation()
 
   const [fontIdx, setFontIdx] = useState(() => Number(localStorage.getItem('cs_fontsize') || 1))
   const [dark,    setDark]    = useState(() => localStorage.getItem('cs_dark') === '1')
+  const activeIndex = Math.max(0, nav.findIndex(item => item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)))
 
   useEffect(() => {
     document.documentElement.style.fontSize = FONT_SIZES[fontIdx] + 'px'
@@ -38,46 +40,50 @@ export default function Layout() {
   const increase = () => setFontIdx(i => Math.min(FONT_SIZES.length - 1, i + 1))
 
   return (
-    <div className="flex flex-col min-h-screen max-w-[430px] mx-auto bg-brand-light">
-      <header className="h-12 flex items-center justify-between px-4 bg-brand-dark sticky top-0 z-40 overflow-visible">
+    <div className="app-shell flex flex-col min-h-screen max-w-[430px] mx-auto bg-brand-light">
+      <header className="app-header fixed top-2 left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] max-w-[414px] h-14 flex items-center justify-between px-4 z-40 overflow-visible">
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="Snapman CM" className="h-24 w-auto object-contain"/>
+          <img src="/logo.png" alt="Snapman CM" className="h-24 w-auto object-contain drop-shadow-lg"/>
         </div>
         <div className="flex items-center gap-2">
           {/* Dark mode toggle */}
           <button onClick={() => setDark(d => !d)}
-            className="text-white/60 hover:text-white transition-colors p-1.5 rounded-lg hover:bg-white/10">
+            className="header-icon-btn text-brand-dark/70 hover:text-brand-dark transition-colors p-1.5 rounded-2xl">
             {dark ? <Sun size={17}/> : <Moon size={17}/>}
           </button>
 
           {/* Font size controls */}
-          <div className="flex items-center gap-0.5 bg-white/10 rounded-lg px-1 py-0.5">
+          <div className="header-pill flex items-center gap-0.5 rounded-2xl px-1 py-0.5">
             <button onClick={decrease} disabled={fontIdx===0}
-              className="text-white/60 hover:text-white disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold">
+              className="text-brand-dark/60 hover:text-brand-dark disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold">
               A-
             </button>
-            <span className="text-brand-yellow text-xs font-semibold w-4 text-center">{FONT_LABELS[fontIdx]}</span>
+            <span className="text-brand-dark text-xs font-bold w-4 text-center">{FONT_LABELS[fontIdx]}</span>
             <button onClick={increase} disabled={fontIdx===FONT_SIZES.length-1}
-              className="text-white/60 hover:text-white disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold">
+              className="text-brand-dark/60 hover:text-brand-dark disabled:opacity-30 w-6 h-6 flex items-center justify-center text-sm font-bold">
               A+
             </button>
           </div>
 
           <button onClick={async () => { await signOut(); navigate('/login') }}
-            className="text-white/50 hover:text-white transition-colors p-1">
+            className="header-icon-btn text-brand-dark/55 hover:text-brand-dark transition-colors p-1.5 rounded-2xl">
             <LogOut size={18}/>
           </button>
         </div>
       </header>
-      <main className="flex-1 overflow-y-auto pb-24"><Outlet/></main>
-      <nav className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] bg-brand-dark border-t border-white/10 pb-safe z-40">
-        <div className="flex items-center justify-around px-1 pt-2 pb-1">
+      <main className="flex-1 overflow-y-auto pt-[4.5rem] pb-24"><Outlet/></main>
+      <nav className="app-bottom-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] pb-safe z-40">
+        <div className="liquid-nav-track relative grid grid-cols-4 items-center mx-3 mt-2 mb-1 px-1 py-1.5">
+          <span
+            className="liquid-nav-indicator"
+            style={{ transform: `translateX(${activeIndex * 100}%)` }}
+          />
           {nav.map(({ to, icon: Icon, label }) => (
             <NavLink key={to} to={to} end={to === '/'}
               className={({ isActive }) =>
-                `flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-xl text-[11px] transition-all
-                 ${isActive ? 'text-brand-yellow font-semibold' : 'text-white/40 hover:text-white/70'}`}>
-              <Icon size={22} strokeWidth={1.8}/>
+                `liquid-nav-item relative z-10 flex flex-col items-center gap-0.5 px-2 py-1.5 rounded-[20px] text-[11px] transition-all duration-300 ease-out
+                 ${isActive ? 'is-active text-brand-dark font-bold' : 'text-brand-dark/45 hover:text-brand-dark/75'}`}>
+              <Icon size={22} strokeWidth={2}/>
               <span>{label}</span>
             </NavLink>
           ))}

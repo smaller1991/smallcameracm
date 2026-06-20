@@ -1,6 +1,7 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal, Search } from 'lucide-react'
+import { Banknote, CreditCard, Edit2, ImagePlus, Package, Plus, Scissors, Search, SlidersHorizontal, X, Check } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
@@ -24,6 +25,12 @@ const CAT_COLOR = {
 const catColor = cat => CAT_COLOR[cat] || 'bg-gray-100 text-gray-600 border-gray-200'
 const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400', 'Shipping':'bg-orange-400' }
 const txBar    = cat => TX_BAR[cat] || 'bg-gray-300'
+const txCardTone = tx => {
+  if (tx.type === 'Income') return 'finance-tx-card-income'
+  if (tx.category === 'Buy Stock') return 'finance-tx-card-buy'
+  return 'finance-tx-card-other'
+}
+const firstTxImage = tx => tx.images?.[0] || null
 
 const monthStart = () => {
   const d = new Date()
@@ -238,11 +245,12 @@ export default function Finance() {
   const clearFilters = () => { setSelCats([]); setSelTypes([]); setSelProdCats([]) }
   const setDateRange = range => { setDateFrom(range.from); setDateTo(range.to) }
   const isDateRange = range => dateFrom === range.from && dateTo === range.to
-  const datePresetClass = active => `py-2 rounded-xl text-xs font-semibold border active:scale-95 transition-all ${
-    active
-      ? 'bg-brand-dark text-brand-yellow border-brand-dark shadow-sm'
-      : 'bg-white text-gray-500 border-gray-200'
-  }`
+  const dateRangeOptions = [
+    { label: 'เดือนนี้', range: monthRange(0) },
+    { label: 'เดือนที่แล้ว', range: monthRange(-1) },
+    { label: 'ทั้งปี', range: yearRange() },
+  ]
+  const activeDateRangeIndex = Math.max(0, dateRangeOptions.findIndex(item => isDateRange(item.range)))
   const openIncomeDetail = () => { setDetailFrom(dateFrom); setDetailTo(dateTo); setShowIncome(true) }
   const openExpenseDetail = () => { setDetailFrom(dateFrom); setDetailTo(dateTo); setShowExpense(true) }
   const openProfitDetail = () => { setProfitFrom(dateFrom); setProfitTo(dateTo); setShowProfit(true) }
@@ -496,25 +504,22 @@ export default function Finance() {
   return (
     <div>
       {/* Summary top */}
-      <div className="bg-brand-dark px-4 pt-4 pb-4 space-y-3">
+      <div className="liquid-panel mx-3 mt-3 px-4 pt-4 pb-4 space-y-3 rounded-[30px]">
         {/* รายรับ / รายจ่าย / กำไร */}
         <div className="flex gap-2">
           <button onClick={openIncomeDetail}
-            className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
-            style={{background:'rgba(255,255,255,0.08)'}}>
-            <p className="text-white/50 text-xs">รายรับ 🔍</p>
+            className="liquid-glass flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all">
+            <p className="text-brand-dark/55 text-xs inline-flex items-center justify-center gap-1">รายรับ <Search size={11}/></p>
             <p className="font-bold text-sm mt-0.5 text-green-400">฿{fmt(income)}</p>
           </button>
           <button onClick={openExpenseDetail}
-            className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
-            style={{background:'rgba(255,255,255,0.08)'}}>
-            <p className="text-white/50 text-xs">รายจ่าย 🔍</p>
+            className="liquid-glass flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all">
+            <p className="text-brand-dark/55 text-xs inline-flex items-center justify-center gap-1">รายจ่าย <Search size={11}/></p>
             <p className="font-bold text-sm mt-0.5 text-red-400">฿{fmt(expense)}</p>
           </button>
           <button onClick={openProfitDetail}
-            className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
-            style={{background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,184,56,0.3)'}}>
-            <p className="text-white/50 text-xs">กำไรขาย 🔍</p>
+            className="liquid-glass flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all">
+            <p className="text-brand-dark/55 text-xs inline-flex items-center justify-center gap-1">กำไรขาย <Search size={11}/></p>
             <p className={`font-bold text-sm mt-0.5 ${summaryProfit>=0?'text-brand-yellow':'text-red-400'}`}>
               {summaryProfit<0?'-':''}฿{fmt(Math.abs(summaryProfit))}
             </p>
@@ -528,13 +533,13 @@ export default function Finance() {
             return txMatchesFilters(t, detailFrom, detailTo)
           })
           const total = items.reduce((a,t)=>a+Number(t.amount),0)
-          return (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={()=>setShowIncome(false)}>
-              <div className="bg-white w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
-                <div className="px-5 pt-5 pb-3 border-b border-amber-100">
+          return createPortal((
+            <div className="modal-backdrop fixed inset-0 z-50 flex items-end justify-center" onClick={()=>setShowIncome(false)}>
+              <div className="liquid-bottom-sheet relative w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+                <div className="px-5 pt-7 pb-3 border-b border-amber-100">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="font-bold text-lg text-brand-dark">รายละเอียดรายรับ</h2>
-                    <button onClick={()=>setShowIncome(false)} className="text-gray-400 p-1">✕</button>
+                    <button onClick={()=>setShowIncome(false)} className="text-gray-500 p-1"><X size={18}/></button>
                   </div>
                   <div className="flex gap-2 items-center">
                     <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
@@ -563,7 +568,7 @@ export default function Finance() {
                 </div>
               </div>
             </div>
-          )
+          ), document.body)
         })()}
 
         {/* Modal รายจ่าย */}
@@ -573,13 +578,13 @@ export default function Finance() {
             return txMatchesFilters(t, detailFrom, detailTo)
           })
           const total = items.reduce((a,t)=>a+Number(t.amount),0)
-          return (
-            <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={()=>setShowExpense(false)}>
-              <div className="bg-white w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
-                <div className="px-5 pt-5 pb-3 border-b border-amber-100">
+          return createPortal((
+            <div className="modal-backdrop fixed inset-0 z-50 flex items-end justify-center" onClick={()=>setShowExpense(false)}>
+              <div className="liquid-bottom-sheet relative w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+                <div className="px-5 pt-7 pb-3 border-b border-amber-100">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="font-bold text-lg text-brand-dark">รายละเอียดรายจ่าย</h2>
-                    <button onClick={()=>setShowExpense(false)} className="text-gray-400 p-1">✕</button>
+                    <button onClick={()=>setShowExpense(false)} className="text-gray-500 p-1"><X size={18}/></button>
                   </div>
                   <div className="flex gap-2 items-center">
                     <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
@@ -608,17 +613,17 @@ export default function Finance() {
                 </div>
               </div>
             </div>
-          )
+          ), document.body)
         })()}
 
         {/* Profit Detail Modal */}
-        {showProfit && (
-          <div className="fixed inset-0 bg-black/60 z-50 flex items-end justify-center" onClick={()=>setShowProfit(false)}>
-            <div className="bg-white w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
-              <div className="px-5 pt-5 pb-3 border-b border-amber-100">
+        {showProfit && createPortal((
+          <div className="modal-backdrop fixed inset-0 z-50 flex items-end justify-center" onClick={()=>setShowProfit(false)}>
+            <div className="liquid-bottom-sheet relative w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
+              <div className="px-5 pt-7 pb-3 border-b border-amber-100">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-bold text-lg text-brand-dark">รายละเอียดกำไรขาย</h2>
-                  <button onClick={()=>setShowProfit(false)} className="text-gray-400 p-1">✕</button>
+                  <button onClick={()=>setShowProfit(false)} className="text-gray-500 p-1"><X size={18}/></button>
                 </div>
                 {/* date filter */}
                 <div className="flex gap-2 items-center">
@@ -682,23 +687,23 @@ export default function Finance() {
               </div>
             </div>
           </div>
-        )}
+        ), document.body)}
 
         {/* ยอดเงินคงเหลือ + เงินสด + มูลค่ารวม */}
-        <div className="bg-white/8 rounded-xl p-3 space-y-2" style={{background:'rgba(255,255,255,0.08)'}}>
+        <div className="liquid-glass rounded-xl p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-white/60 text-xs font-medium">ยอดเงินคงเหลือ</span>
+            <span className="text-brand-dark/60 text-xs font-medium">ยอดเงินคงเหลือ</span>
             <button onClick={()=>{setBalForm({bank:balance.bank,cash:balance.cash});setEditBal(!editBal)}}
-              className="text-brand-yellow text-xs">✏️ แก้ไข</button>
+              className="text-brand-yellow text-xs inline-flex items-center gap-1"><Edit2 size={12}/>แก้ไข</button>
           </div>
           {editBal ? (
             <div className="space-y-2">
               <div className="flex gap-2 items-center">
-                <span className="text-white/60 text-xs w-16">ยอดโอน</span>
+                <span className="text-brand-dark/60 text-xs w-16">ยอดโอน</span>
                 <input autoComplete="off" className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.bank} onChange={e=>setBalForm({...balForm,bank:e.target.value})}/>
               </div>
               <div className="flex gap-2 items-center">
-                <span className="text-white/60 text-xs w-16">เงินสด</span>
+                <span className="text-brand-dark/60 text-xs w-16">เงินสด</span>
                 <input autoComplete="off" className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.cash} onChange={e=>setBalForm({...balForm,cash:e.target.value})}/>
               </div>
               <div className="flex gap-2">
@@ -709,22 +714,22 @@ export default function Finance() {
           ) : (
             <div className="grid grid-cols-3 gap-2">
               <div className="text-center">
-                <p className="text-white/40 text-xs">💳 ยอดโอน</p>
-                <p className="text-blue-300 font-bold text-sm">฿{fmt(balance.bank)}</p>
+                <p className="text-brand-dark/45 text-xs inline-flex items-center justify-center gap-1"><CreditCard size={12}/>ยอดโอน</p>
+                <p className="text-blue-600 font-bold text-sm">฿{fmt(balance.bank)}</p>
               </div>
               <div className="text-center">
-                <p className="text-white/40 text-xs">💵 เงินสด</p>
-                <p className="text-green-300 font-bold text-sm">฿{fmt(balance.cash)}</p>
+                <p className="text-brand-dark/45 text-xs inline-flex items-center justify-center gap-1"><Banknote size={12}/>เงินสด</p>
+                <p className="text-green-600 font-bold text-sm">฿{fmt(balance.cash)}</p>
               </div>
               <div className="text-center">
-                <p className="text-white/40 text-xs">📦 สต็อก</p>
-                <p className="text-amber-300 font-bold text-sm">฿{fmt(stockValue)}</p>
+                <p className="text-brand-dark/45 text-xs inline-flex items-center justify-center gap-1"><Package size={12}/>สต็อก</p>
+                <p className="text-amber-700 font-bold text-sm">฿{fmt(stockValue)}</p>
               </div>
             </div>
           )}
           {!editBal && (
             <div className="border-t border-white/10 pt-2 flex justify-between items-center">
-              <span className="text-white/60 text-xs">มูลค่ารวมทั้งหมด</span>
+              <span className="text-brand-dark/60 text-xs">มูลค่ารวมทั้งหมด</span>
               <span className="text-brand-yellow font-bold">฿{fmt(totalWealth)}</span>
             </div>
           )}
@@ -733,19 +738,20 @@ export default function Finance() {
 
       {/* Date filter + Filter button */}
       <div className="px-4 py-3 border-b border-amber-100 bg-white">
-        <div className="grid grid-cols-3 gap-2 mb-2">
-          <button onClick={()=>setDateRange(monthRange(0))}
-            className={datePresetClass(isDateRange(monthRange(0)))}>
-            เดือนนี้
-          </button>
-          <button onClick={()=>setDateRange(monthRange(-1))}
-            className={datePresetClass(isDateRange(monthRange(-1)))}>
-            เดือนที่แล้ว
-          </button>
-          <button onClick={()=>setDateRange(yearRange())}
-            className={datePresetClass(isDateRange(yearRange()))}>
-            ทั้งปี
-          </button>
+        <div className="liquid-filter-track grid-cols-3 mb-2">
+          <span
+            className="liquid-filter-indicator"
+            style={{ width: 'calc((100% - .5rem) / 3)', transform: `translateX(${activeDateRangeIndex * 100}%)` }}
+          />
+          {dateRangeOptions.map(({ label, range }, index) => (
+            <button
+              key={label}
+              onClick={()=>setDateRange(range)}
+              className={`liquid-filter-btn py-2 text-xs active:scale-95 ${activeDateRangeIndex === index ? 'is-active' : ''}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2 items-center">
           <ThaiDatePicker value={dateFrom} onChange={setDateFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
@@ -755,8 +761,8 @@ export default function Finance() {
             <button onClick={()=>{setDateFrom('');setDateTo('')}} className="text-gray-400 p-1"><X size={15}/></button>
           )}
           <button onClick={()=>setShowFilter(f=>!f)}
-            className={`relative flex items-center gap-1 px-3 py-1.5 rounded-xl border text-sm font-medium transition-all flex-shrink-0
-              ${showFilter||activeFilters>0 ? 'bg-brand-dark text-brand-yellow border-brand-dark' : 'bg-white text-gray-500 border-gray-200'}`}>
+            className={`liquid-chip relative flex items-center gap-1 px-3 py-1.5 text-sm font-medium flex-shrink-0
+              ${showFilter||activeFilters>0 ? 'is-active' : ''}`}>
             <SlidersHorizontal size={14}/>
             {activeFilters>0 && (
               <span className="absolute -top-1.5 -right-1.5 bg-brand-red text-white text-xs w-4 h-4 rounded-full flex items-center justify-center font-bold">
@@ -789,16 +795,13 @@ export default function Finance() {
             {/* ประเภท Income/Expense */}
             <div>
               <p className="text-xs font-semibold text-gray-500 mb-1.5">ประเภทรายการ</p>
-              <div className="flex gap-2">
+              <div className="liquid-chip-grid grid-cols-2">
                 {TX_TYPES.map(t=>{
                   const active = selTypes.includes(t)
                   return (
                     <button key={t} onClick={()=>toggle(selTypes,setSelTypes,t)}
-                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border transition-all
-                        ${active
-                          ? t==='Income' ? 'bg-green-600 text-white border-green-600' : 'bg-brand-red text-white border-brand-red'
-                          : 'bg-white text-gray-500 border-gray-200'}`}>
-                      <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-white/30 border-white':'border-gray-300'}`}>
+                      className={`liquid-chip flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold ${active ? 'is-active' : ''}`}>
+                      <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-brand-yellow/30 border-brand-yellow':'border-gray-300'}`}>
                         {active && <Check size={10} strokeWidth={3}/>}
                       </span>
                       {t==='Income'?'รายรับ':'รายจ่าย'}
@@ -811,13 +814,12 @@ export default function Finance() {
             {/* หมวดหมู่ */}
             <div>
               <p className="text-xs font-semibold text-gray-500 mb-1.5">หมวดหมู่</p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="liquid-chip-grid grid-cols-2">
                 {CATS.map(c=>{
                   const active = selCats.includes(c)
                   return (
                     <button key={c} onClick={()=>toggle(selCats,setSelCats,c)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
-                        ${active ? 'bg-brand-dark text-brand-yellow border-brand-dark' : 'bg-white text-gray-500 border-gray-200'}`}>
+                      className={`liquid-chip flex items-center justify-center gap-1 px-2.5 py-1 text-xs font-semibold ${active ? 'is-active' : ''}`}>
                       <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-brand-yellow/30 border-brand-yellow':'border-gray-300'}`}>
                         {active && <Check size={8} strokeWidth={3} className="text-brand-yellow"/>}
                       </span>
@@ -831,14 +833,13 @@ export default function Finance() {
             {/* ประเภทสินค้า */}
             <div>
               <p className="text-xs font-semibold text-gray-500 mb-1.5">ประเภทสินค้า</p>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="liquid-chip-grid grid-cols-3">
                 {PROD_CATS.map(c=>{
                   const active = selProdCats.includes(c)
                   return (
                     <button key={c} onClick={()=>toggle(selProdCats,setSelProdCats,c)}
-                      className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all
-                        ${active ? 'bg-amber-500 text-white border-amber-500' : 'bg-white text-gray-500 border-gray-200'}`}>
-                      <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-white/30 border-white':'border-gray-300'}`}>
+                      className={`liquid-chip flex items-center justify-center gap-1 px-2 py-1 text-[11px] font-semibold ${active ? 'is-active' : ''}`}>
+                      <span className={`w-3 h-3 rounded border flex items-center justify-center flex-shrink-0 ${active?'bg-brand-yellow/30 border-brand-yellow':'border-gray-300'}`}>
                         {active && <Check size={8} strokeWidth={3}/>}
                       </span>
                       {c}
@@ -895,7 +896,10 @@ export default function Finance() {
                         : m==='เงินสด' ? 'bg-green-600 text-white border-green-600'
                         : 'bg-purple-500 text-white border-purple-500'
                       : 'bg-white text-gray-400 border-gray-200'}`}>
-                  {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 สด':'✂️ แบ่ง'}
+                  <span className="inline-flex items-center justify-center gap-1">
+                    {m==='โอน'?<CreditCard size={14}/>:m==='เงินสด'?<Banknote size={14}/>:<Scissors size={14}/>}
+                    {m==='โอน'?'โอน':m==='เงินสด'?'สด':'แบ่ง'}
+                  </span>
                 </button>
               ))}
             </div>
@@ -982,13 +986,20 @@ export default function Finance() {
               const warrantyDays = tx.category==='Sale' && tx.products?.warranty_expiry
                 ? Math.ceil((new Date(tx.products.warranty_expiry)-new Date())/86400000) : null
               const isTrade = tx.category === 'Trade'
+              const coverImage = firstTxImage(tx)
 
               // Trade transaction — แสดงแบบพิเศษสีน้ำเงิน
               if (isTrade) {
                 return (
                   <button key={tx.id} {...tap(()=>setTxDetail(tx))}
-                    className="w-full text-left rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation">
-                    <div className="w-2 rounded-full flex-shrink-0 self-stretch bg-blue-400"/>
+                    className={`finance-tx-card ${txCardTone(tx)} w-full text-left flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation`}>
+                    {coverImage && (
+                      <img
+                        src={coverImage}
+                        className="finance-tx-thumb"
+                        onClick={e=>{e.stopPropagation();setLightbox({imgs:tx.images,idx:0})}}
+                      />
+                    )}
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between gap-2">
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-100 text-blue-700 border-blue-200 flex-shrink-0">🔄 Trade</span>
@@ -1011,15 +1022,6 @@ export default function Finance() {
                           ))}
                         </div>
                       )}
-                      {tx.images?.length > 0 && (
-                        <div className="flex gap-1 mt-1 overflow-x-auto" onClick={e=>e.stopPropagation()}>
-                          {tx.images.map((url,i)=>(
-                            <img key={i} src={url}
-                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-200 cursor-zoom-in"
-                              onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
-                          ))}
-                        </div>
-                      )}
                       <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
                       {stockMap[tx.id] != null && (
                         <div className="flex gap-2 mt-1" style={{color:'#555'}}>
@@ -1033,8 +1035,14 @@ export default function Finance() {
 
               return (
               <button key={tx.id} {...tap(()=>setTxDetail(tx))}
-                className="card w-full text-left flex items-center gap-3 active:opacity-70 transition-opacity touch-manipulation">
-                <div className={`w-2 rounded-full flex-shrink-0 self-stretch ${TX_BAR[tx.category]||(tx.type==='Income'?'bg-green-400':'bg-red-400')}`}/>
+                className={`finance-tx-card ${txCardTone(tx)} w-full text-left flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation`}>
+                {coverImage && (
+                  <img
+                    src={coverImage}
+                    className="finance-tx-thumb"
+                    onClick={e=>{e.stopPropagation();setLightbox({imgs:tx.images,idx:0})}}
+                  />
+                )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-wrap gap-1 flex-1">
@@ -1077,15 +1085,6 @@ export default function Finance() {
                   {tx.category==='Sale' && tx.products?.customer_note && tx.products.customer_note !== tx.note && (
                     <p className="text-xs text-blue-500 truncate">👤 {tx.products.customer_note}</p>
                   )}
-                  {tx.images?.length > 0 && (
-                    <div className="flex gap-1 mt-1 overflow-x-auto" onClick={e=>e.stopPropagation()}>
-                      {tx.images.map((url,i)=>(
-                        <img key={i} src={url}
-                          className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-amber-100 cursor-zoom-in"
-                          onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
-                      ))}
-                    </div>
-                  )}
                   <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
                   {balMap[tx.id] && (
                     <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1" style={{color:'#555'}}>
@@ -1105,9 +1104,9 @@ export default function Finance() {
       {/* Transaction Detail Sheet */}
       {txDetail && (
         <div className="fixed inset-0 z-50 flex flex-col justify-end"
-          style={{background:'rgba(0,0,0,0.5)'}}
+          style={{background:'rgba(0,0,0,0.62)', backdropFilter:'blur(3px)'}}
           onPointerDown={e=>{if(e.target===e.currentTarget)setTxDetail(null)}}>
-          <div className="bg-white dark:bg-[#1A1208] rounded-t-2xl w-full max-w-[430px] mx-auto max-h-[85vh] flex flex-col">
+          <div className="finance-detail-sheet rounded-t-2xl w-full max-w-[430px] mx-auto max-h-[85vh] flex flex-col">
 
             {/* header */}
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-amber-100 dark:border-white/10 flex-shrink-0">
@@ -1124,35 +1123,35 @@ export default function Finance() {
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
               {txDetail.products?.model && (
                 <div>
-                  <p className="text-xs text-gray-400">สินค้า</p>
-                  <p className="font-semibold text-brand-dark dark:text-white">
+                  <p className="text-xs text-gray-500 font-semibold">สินค้า</p>
+                  <p className="font-bold text-brand-dark">
                     {txDetail.products.model}{txDetail.products.category ? ` (${txDetail.products.category})` : ''}
                   </p>
                 </div>
               )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <p className="text-xs text-gray-400">วันที่</p>
-                  <p className="text-sm font-medium dark:text-white">{thDate(txDetail.date)}</p>
+                  <p className="text-xs text-gray-500 font-semibold">วันที่</p>
+                  <p className="text-sm font-bold text-brand-dark">{thDate(txDetail.date)}</p>
                 </div>
                 {txDetail.payment_method && (
                   <div>
-                    <p className="text-xs text-gray-400">ช่องทางชำระ</p>
+                    <p className="text-xs text-gray-500 font-semibold">ช่องทางชำระ</p>
                     {txDetail.payment_method === 'แบ่งจ่าย' ? (
                       <div className="flex gap-3 mt-0.5">
                         {txDetail.bank_amount ? <span className="text-sm font-medium text-blue-600">💳 ฿{fmt(txDetail.bank_amount)}</span> : null}
                         {txDetail.cash_amount ? <span className="text-sm font-medium text-green-600">💵 ฿{fmt(txDetail.cash_amount)}</span> : null}
                       </div>
                     ) : (
-                      <p className="text-sm font-medium dark:text-white">{txDetail.payment_method}</p>
+                      <p className="text-sm font-bold text-brand-dark">{txDetail.payment_method}</p>
                     )}
                   </div>
                 )}
               </div>
               {txDetail.note && (
                 <div>
-                  <p className="text-xs text-gray-400">หมายเหตุ</p>
-                  <p className="text-sm whitespace-pre-wrap dark:text-white">{txDetail.note}</p>
+                  <p className="text-xs text-gray-500 font-semibold">หมายเหตุ</p>
+                  <p className="text-sm font-semibold text-brand-dark whitespace-pre-wrap">{txDetail.note}</p>
                 </div>
               )}
               {txDetail.category==='Sale' && txDetail.products?.customer_note && txDetail.products.customer_note !== txDetail.note && (
@@ -1162,8 +1161,8 @@ export default function Finance() {
                 </div>
               )}
               {balMap[txDetail?.id] && (
-                <div className="bg-gray-50 dark:bg-white/5 rounded-xl px-3 py-2.5">
-                  <p className="text-xs text-gray-400 mb-1.5">ยอดคงเหลือหลังรายการ</p>
+                <div className="finance-detail-panel rounded-xl px-3 py-2.5">
+                  <p className="text-xs text-gray-600 font-semibold mb-1.5">ยอดคงเหลือหลังรายการ</p>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <p className="text-xs text-blue-400">💳 ธนาคาร</p>
@@ -1182,7 +1181,7 @@ export default function Finance() {
               )}
               {txDetail.images?.length > 0 && (
                 <div>
-                  <p className="text-xs text-gray-400 mb-1.5">รูปใบเสร็จ</p>
+                  <p className="text-xs text-gray-600 font-semibold mb-1.5">รูปใบเสร็จ</p>
                   <div className="flex gap-2 flex-wrap">
                     {txDetail.images.map((url,i)=>(
                       <img key={i} src={url}

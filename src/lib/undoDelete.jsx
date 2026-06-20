@@ -22,7 +22,7 @@ export function scheduleDelete({ label, onCommit, onUndo, ms = 8000 }) {
             toast.success('ยกเลิกการลบแล้ว', { duration: 2000 })
           }}
           style={{
-            background:'#FFB838', color:'#1A1208', border:'none',
+            background:'#D32F23', color:'#fff', border:'none',
             borderRadius:'8px', padding:'4px 14px', fontWeight:'bold',
             cursor:'pointer', fontSize:'13px', whiteSpace:'nowrap',
           }}

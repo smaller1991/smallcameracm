@@ -173,10 +173,14 @@ export default function Export() {
   const setTxRange = range => { setFrom(range.from); setTo(range.to) }
 
   const fmtBtns = (val, set) => (
-    <div className="flex gap-2 mt-2">
+    <div className="liquid-filter-track grid-cols-2 mt-2">
+      <span
+        className="liquid-filter-indicator"
+        style={{ width: 'calc((100% - .5rem) / 2)', transform: `translateX(${['xlsx','pdf'].indexOf(val) * 100}%)` }}
+      />
       {['xlsx','pdf'].map(f=>(
         <button key={f} onClick={()=>set(f)}
-          className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${val===f?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-400 border-gray-200'}`}>
+          className={`liquid-filter-btn py-2 text-sm ${val===f?'is-active':''}`}>
           {f==='xlsx'?'📊 Excel (.xlsx)':'📄 PDF'}
         </button>
       ))}
@@ -573,7 +577,7 @@ function openPDFPreviewWindow(message = 'กำลังเตรียม PDF..
   }
   w.document.open()
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PDF Preview</title>
-  <style>body{font-family:sans-serif;margin:24px;color:#1A1208;background:#FFFBF0}.box{max-width:520px;margin:12vh auto;background:white;border:1px solid #f0e8d8;border-radius:16px;padding:24px;box-shadow:0 12px 40px rgba(26,18,8,.08)}h2{margin:0 0 8px;font-size:20px}p{margin:0;color:#777;font-size:13px}</style>
+  <style>body{font-family:sans-serif;margin:24px;color:#1F1412;background:#FFFBF0}.box{max-width:520px;margin:12vh auto;background:white;border:1px solid #f0e8d8;border-radius:16px;padding:24px;box-shadow:0 12px 40px rgba(26,18,8,.08)}h2{margin:0 0 8px;font-size:20px}p{margin:0;color:#777;font-size:13px}</style>
   </head><body><div class="box"><h2>${message}</h2><p>หน้าต่างนี้ถูกเปิดจากการกดปุ่มโดยตรง จึงไม่โดนบล็อก popup</p></div></body></html>`)
   w.document.close()
   return w
@@ -615,30 +619,30 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
   <style>
     @page{size:A4 landscape;margin:8mm}
     *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:#f7f1e5;color:#1A1208}
-    .toolbar{position:sticky;top:0;z-index:10;background:#1A1208;color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
-    .toolbar-title{font-weight:800;font-size:15px;color:#FFB838}
+    body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:#f7f1e5;color:#1F1412}
+    .toolbar{position:sticky;top:0;z-index:10;background:#1F1412;color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+    .toolbar-title{font-weight:800;font-size:15px;color:#D32F23}
     .toolbar-actions{display:flex;gap:8px}
     button,a{border:0;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none}
     .back{background:rgba(255,255,255,.1);color:white}
-    .print{background:#FFB838;color:#1A1208}
+    .print{background:#D32F23;color:#1F1412}
     .page{background:white;margin:12px auto;padding:14px;max-width:1180px;box-shadow:0 10px 32px rgba(26,18,8,.08)}
-    .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:2px solid #1A1208;padding-bottom:9px;margin-bottom:10px}
-    h1{font-size:21px;line-height:1.1;margin:0;color:#1A1208}
+    .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:2px solid #1F1412;padding-bottom:9px;margin-bottom:10px}
+    h1{font-size:21px;line-height:1.1;margin:0;color:#1F1412}
     .meta{font-size:10px;color:#8a7a65;margin-top:4px}
-    .brand{font-weight:800;color:#FFB838;background:#1A1208;border-radius:11px;padding:8px 12px;white-space:nowrap}
+    .brand{font-weight:800;color:#D32F23;background:#1F1412;border-radius:11px;padding:8px 12px;white-space:nowrap}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:6px;margin:8px 0 10px}
     .stats.cols-4{grid-template-columns:repeat(4,1fr)}
     .stat{border:1px solid #efe2c7;border-radius:9px;padding:6px 8px;background:#FFFBF0;min-height:45px}
     .stat-label{font-size:8.4px;color:#8a7a65;margin-bottom:3px;white-space:nowrap}
-    .stat-value{font-size:12.5px;font-weight:800;color:#1A1208;line-height:1.12;overflow-wrap:anywhere}
+    .stat-value{font-size:12.5px;font-weight:800;color:#1F1412;line-height:1.12;overflow-wrap:anywhere}
     .stat.in .stat-value{color:#16a34a}.stat.out .stat-value{color:#dc2626}.stat.warn .stat-value{color:#d97706}.stat.bank .stat-value{color:#2563eb}.stat.cash .stat-value{color:#16a34a}
     .table-wrap{border:1px solid #efe2c7;border-radius:12px;overflow:hidden}
     table{width:100%;border-collapse:collapse;table-layout:fixed}
-    th{background:#1A1208;color:#FFB838;padding:5px 5px;text-align:left;font-size:8.1px;line-height:1.22;vertical-align:bottom;overflow-wrap:anywhere}
+    th{background:#1F1412;color:#D32F23;padding:5px 5px;text-align:left;font-size:8.1px;line-height:1.22;vertical-align:bottom;overflow-wrap:anywhere}
     td{padding:4.5px 5px;border-bottom:1px solid #f0e8d8;font-size:7.8px;line-height:1.28;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
     td.num{text-align:right;font-weight:700;white-space:normal}
-    .summary-cell{font-weight:400!important;text-align:left!important;background:#fff7e6;color:#1A1208;font-size:8.1px;line-height:1.45;padding-left:7px!important;padding-right:7px!important}
+    .summary-cell{font-weight:400!important;text-align:left!important;background:#fff7e6;color:#1F1412;font-size:8.1px;line-height:1.45;padding-left:7px!important;padding-right:7px!important}
     .summary-cell span{display:inline-block;margin-right:14px;white-space:nowrap}
     tr:nth-child(even){background:#FFFBF0}
     tr:last-child td{border-bottom:0}

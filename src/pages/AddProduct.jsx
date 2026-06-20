@@ -165,7 +165,7 @@ export default function AddProduct() {
 
   return (
     <div>
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-amber-100 bg-white sticky top-0 z-10">
+      <div className="liquid-sub-header flex items-center gap-3 px-4 py-3">
         <button onClick={()=>navigate(-1)}><ChevronLeft size={24} className="text-brand-dark"/></button>
         <h1 className="font-bold text-brand-dark text-lg">รับสินค้าเข้าสต็อก</h1>
       </div>

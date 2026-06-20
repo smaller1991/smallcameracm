@@ -174,11 +174,14 @@ export default function Dashboard() {
   const selectedLabel = `${thDateShort(dateFrom)} — ${thDateShort(dateTo)}`
   const totalWealth = stats.stockValue + raw.balance.bank + raw.balance.cash
   const stockTotalForShare = stats.stockValue || 1
-  const rangeClass = active => `py-2 rounded-xl text-xs font-semibold border active:scale-95 transition-all ${
-    active ? 'bg-brand-dark text-brand-yellow border-brand-dark shadow-sm' : 'bg-white text-gray-500 border-gray-200'
-  }`
   const isRange = r => dateFrom === r.from && dateTo === r.to
   const setRange = r => { setDateFrom(r.from); setDateTo(r.to) }
+  const rangeOptions = [
+    { label: 'เดือนนี้', range: monthRange(0) },
+    { label: 'เดือนที่แล้ว', range: monthRange(-1) },
+    { label: 'ทั้งปี', range: yearRange() },
+  ]
+  const activeRangeIndex = Math.max(0, rangeOptions.findIndex(item => isRange(item.range)))
   const selectedAgeBucket = stats.ageBuckets.find(b => b.label === ageDetail)
   const saleDetailItems = saleDetail === 'profit'
     ? [...stats.soldItems].sort((a,b)=>b.profit-a.profit)
@@ -231,29 +234,39 @@ export default function Dashboard() {
 
   return (
     <div className="pb-5">
-      <div className="bg-brand-dark px-4 pt-4 pb-4 space-y-3">
+      <div className="liquid-panel mx-3 mt-3 px-4 pt-4 pb-4 space-y-3 rounded-[30px]">
         <div className="flex items-start justify-between gap-3">
           <div>
-            <p className="text-white/50 text-xs">ศูนย์ควบคุมแดชบอร์ด</p>
+            <p className="text-brand-dark/55 text-xs font-medium">ศูนย์ควบคุมแดชบอร์ด</p>
             <h1 className="text-brand-yellow font-bold text-xl">ภาพรวมร้าน</h1>
           </div>
           <div className="text-right">
-            <p className="text-white/40 text-xs">ช่วงที่เลือก</p>
-            <p className="text-white text-xs font-semibold">{selectedLabel}</p>
+            <p className="text-brand-dark/45 text-xs">ช่วงที่เลือก</p>
+            <p className="text-brand-dark text-xs font-semibold">{selectedLabel}</p>
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-2">
-          <button onClick={()=>setRange(monthRange(0))} className={rangeClass(isRange(monthRange(0)))}>เดือนนี้</button>
-          <button onClick={()=>setRange(monthRange(-1))} className={rangeClass(isRange(monthRange(-1)))}>เดือนที่แล้ว</button>
-          <button onClick={()=>setRange(yearRange())} className={rangeClass(isRange(yearRange()))}>ทั้งปี</button>
+        <div className="liquid-filter-track grid-cols-3">
+          <span
+            className="liquid-filter-indicator"
+            style={{ width: 'calc((100% - .5rem) / 3)', transform: `translateX(${activeRangeIndex * 100}%)` }}
+          />
+          {rangeOptions.map(({ label, range }, index) => (
+            <button
+              key={label}
+              onClick={()=>setRange(range)}
+              className={`liquid-filter-btn py-2 text-xs active:scale-95 ${activeRangeIndex === index ? 'is-active' : ''}`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
         <div className="flex gap-2 items-center">
           <ThaiDatePicker value={dateFrom} onChange={setDateFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
-          <span className="text-white/40 text-sm">—</span>
+          <span className="text-brand-dark/35 text-sm">—</span>
           <ThaiDatePicker value={dateTo} onChange={setDateTo} mode="calendar" className="input flex-1 text-sm py-1.5"/>
           {(dateFrom || dateTo) && (
-            <button onClick={()=>setRange(monthRange(0))} className="text-white/40 p-1"><X size={16}/></button>
+            <button onClick={()=>setRange(monthRange(0))} className="text-brand-dark/45 p-1"><X size={16}/></button>
           )}
         </div>
       </div>

@@ -78,6 +78,7 @@ export default function Inventory() {
         default: return 0
       }
     })
+  const activeTabIndex = Math.max(0, TABS.findIndex(t => t.key === tab))
 
   // มูลค่าคงคลัง โหลดจาก state ที่ query มาแล้ว
 
@@ -90,7 +91,7 @@ export default function Inventory() {
             <input autoComplete="off" className="input pl-9" placeholder="ค้นหารุ่นหรือ Serial..." value={search} onChange={e=>setSearch(e.target.value)}/>
           </div>
           <button onClick={()=>setShowSort(!showSort)}
-            className={`flex items-center gap-1 px-3 py-2 rounded-xl border text-sm font-medium transition-all ${showSort?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-500 border-gray-200'}`}>
+            className={`liquid-chip flex items-center gap-1 px-3 py-2 text-sm font-medium ${showSort?'is-active':''}`}>
             <ArrowUpDown size={15}/>
           </button>
         </div>
@@ -104,18 +105,22 @@ export default function Inventory() {
             ))}
           </div>
         )}
-        <div className="flex gap-2 mt-2 overflow-x-auto pb-1">
+        <div className="liquid-filter-track grid-cols-5 mt-2">
+          <span
+            className="liquid-filter-indicator"
+            style={{ width: 'calc((100% - .5rem) / 5)', transform: `translateX(${activeTabIndex * 100}%)` }}
+          />
           {TABS.map(t=>(
             <button key={t.key} onClick={()=>setTab(t.key)}
-              className={`px-3 py-1 rounded-full text-xs font-semibold whitespace-nowrap border transition-all ${tab===t.key?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-500 border-gray-200'}`}>
+              className={`liquid-filter-btn inventory-filter-btn px-1 text-[11px] ${tab===t.key?'is-active':''}`}>
               {t.label}
             </button>
           ))}
         </div>
-        <div className="flex gap-2 mt-1.5 overflow-x-auto pb-1">
+        <div className="liquid-chip-grid grid-cols-4 mt-1.5">
           {CAT_TABS.map(c=>(
             <button key={c} onClick={()=>setCatTab(c)}
-              className={`px-3 py-1 rounded-full text-xs font-medium whitespace-nowrap border transition-all ${catTab===c?'bg-brand-yellow text-brand-dark border-brand-yellow':'bg-white text-gray-400 border-gray-100'}`}>
+              className={`liquid-chip inventory-filter-btn px-1.5 text-[11px] font-semibold ${c.length > 8 ? 'inventory-filter-btn-compact' : ''} ${catTab===c?'is-active':''}`}>
               {c}
             </button>
           ))}
