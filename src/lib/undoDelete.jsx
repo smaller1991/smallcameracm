@@ -1,4 +1,5 @@
 import toast from 'react-hot-toast'
+import { RotateCcw, Trash2 } from 'lucide-react'
 
 export function scheduleDelete({ label, onCommit, onUndo, ms = 8000 }) {
   let cancelled = false
@@ -12,7 +13,7 @@ export function scheduleDelete({ label, onCommit, onUndo, ms = 8000 }) {
   toast(
     (t) => (
       <div style={{ display:'flex', alignItems:'center', gap:'12px' }}>
-        <span style={{ fontSize:'14px' }}>🗑 ลบ <b>{label}</b> แล้ว</span>
+        <span style={{ display:'inline-flex', alignItems:'center', gap:'6px', fontSize:'14px' }}><Trash2 size={15}/>ลบ <b>{label}</b> แล้ว</span>
         <button
           onClick={() => {
             cancelled = true
@@ -26,7 +27,7 @@ export function scheduleDelete({ label, onCommit, onUndo, ms = 8000 }) {
             borderRadius:'8px', padding:'4px 14px', fontWeight:'bold',
             cursor:'pointer', fontSize:'13px', whiteSpace:'nowrap',
           }}
-        >↩ Undo</button>
+        ><span style={{ display:'inline-flex', alignItems:'center', gap:'5px' }}><RotateCcw size={13}/>Undo</span></button>
       </div>
     ),
     {

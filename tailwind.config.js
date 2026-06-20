@@ -4,9 +4,9 @@ export default {
   theme: {
     extend: {
       colors: {
-        brand: { yellow:'#FFB838', red:'#D32F23', dark:'#1A1208', light:'#FFF8EC' }
+        brand: { yellow:'#007AFF', red:'#FF3B30', dark:'#1D1D1F', light:'#F5F5F7' }
       },
-      fontFamily: { sans: ['Sarabun','system-ui','sans-serif'] }
+      fontFamily: { sans: ['-apple-system','BlinkMacSystemFont','SF Pro Text','SF Pro Display','Helvetica Neue','Sarabun','system-ui','sans-serif'] }
     }
   },
   plugins: []

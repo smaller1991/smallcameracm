@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, ImagePlus, X, Plus, Trash2 } from 'lucide-react'
+import { ChevronLeft, ImagePlus, X, Plus, Trash2, CreditCard, Banknote, CheckCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -99,10 +99,10 @@ export default function AddProduct() {
       const paymentMethod = methods.length === 1 ? methods[0] : (bankDeduct >= cashDeduct ? 'โอน' : 'เงินสด')
 
       const payBreakdown = validPayments.map(p =>
-        `  • ${p.method === 'โอน' ? '💳 โอน' : '💵 เงินสด'} ฿${parseFloat(p.amount).toLocaleString('th-TH')}`
+        `  • ${p.method === 'โอน' ? 'โอน' : 'เงินสด'} ฿${parseFloat(p.amount).toLocaleString('th-TH')}`
       ).join('\n')
 
-      const remainNote = remaining > 0 ? `\n⚠️ ค้างจ่าย ฿${remaining.toLocaleString('th-TH')}` : ''
+      const remainNote = remaining > 0 ? `\nค้างจ่าย ฿${remaining.toLocaleString('th-TH')}` : ''
 
       // สร้าง transaction
       if (isMulti) {
@@ -209,7 +209,7 @@ export default function AddProduct() {
                           ${pay.method===m
                             ? (m==='โอน' ? 'bg-blue-500 text-white border-blue-500' : 'bg-green-600 text-white border-green-600')
                             : 'bg-white text-gray-400 border-gray-200'}`}>
-                        {m==='โอน' ? '💳' : '💵'} {m}
+                        {m==='โอน' ? <CreditCard size={13}/> : <Banknote size={13}/>} {m}
                       </button>
                     ))}
                   </div>
@@ -242,7 +242,7 @@ export default function AddProduct() {
                 {remaining === 0 && totalPaid > 0 && (
                   <div className="flex justify-between text-green-600 font-semibold border-t border-gray-200 pt-1 mt-1">
                     <span>ชำระครบแล้ว</span>
-                    <span>✓</span>
+                    <CheckCircle size={15}/>
                   </div>
                 )}
               </div>
@@ -331,7 +331,7 @@ export default function AddProduct() {
 
         {/* ── save ── */}
         <button onClick={save} disabled={saving} className="btn-primary w-full py-3 text-base disabled:opacity-60">
-          {saving ? 'กำลังบันทึก...' : `✓ บันทึก${items.length > 1 ? ` ${items.length} รายการ` : 'สินค้า'}`}
+          {saving ? 'กำลังบันทึก...' : `บันทึก${items.length > 1 ? ` ${items.length} รายการ` : 'สินค้า'}`}
         </button>
       </div>
     </div>

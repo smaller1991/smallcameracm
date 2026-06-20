@@ -177,7 +177,10 @@ export default function Export() {
       {['xlsx','pdf'].map(f=>(
         <button key={f} onClick={()=>set(f)}
           className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${val===f?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-400 border-gray-200'}`}>
-          {f==='xlsx'?'📊 Excel (.xlsx)':'📄 PDF'}
+          <span className="inline-flex items-center justify-center gap-1.5">
+            {f==='xlsx'?<FileSpreadsheet size={15}/>:<FileText size={15}/>}
+            {f==='xlsx'?'Excel (.xlsx)':'PDF'}
+          </span>
         </button>
       ))}
     </div>

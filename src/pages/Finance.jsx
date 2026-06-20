@@ -1,6 +1,28 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { Plus, Edit2, X, Check, ImagePlus, SlidersHorizontal, Search } from 'lucide-react'
+import {
+  Plus,
+  Edit2,
+  X,
+  Check,
+  ImagePlus,
+  SlidersHorizontal,
+  Search,
+  Eye,
+  CreditCard,
+  Banknote,
+  Package,
+  Repeat2,
+  Scissors,
+  Shield,
+  TrendingUp,
+  TrendingDown,
+  User,
+  BarChart3,
+  Send,
+  RotateCcw,
+  Image as ImageIcon,
+} from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
@@ -22,8 +44,13 @@ const CAT_COLOR = {
   'รายรับ/จ่ายที่ไม่มีผลกับกำไร': 'bg-gray-100 text-gray-500 border-gray-200',
 }
 const catColor = cat => CAT_COLOR[cat] || 'bg-gray-100 text-gray-600 border-gray-200'
-const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400', 'Shipping':'bg-orange-400' }
-const txBar    = cat => TX_BAR[cat] || 'bg-gray-300'
+const txCardClass = tx => tx.category === 'Trade'
+  ? 'tx-card tx-card-trade'
+  : tx.type === 'Income'
+    ? 'tx-card tx-card-income'
+    : tx.type === 'Expense'
+      ? 'tx-card tx-card-expense'
+      : 'tx-card tx-card-neutral'
 
 const monthStart = () => {
   const d = new Date()
@@ -395,7 +422,7 @@ export default function Finance() {
     const willRevertSale    = tx.category === 'Sale'      && tx.product_id
     const willDeleteProduct = tx.category === 'Buy Stock' && tx.product_id
     const msg = willDeleteProduct
-      ? 'ย้อนกลับรายการนี้?\n⚠️ สินค้าที่เชื่อมอยู่จะถูกลบออกจากสต็อก\n• ยอดเงินจะถูกคืนอัตโนมัติ'
+      ? 'ย้อนกลับรายการนี้?\nสินค้าที่เชื่อมอยู่จะถูกลบออกจากสต็อก\n• ยอดเงินจะถูกคืนอัตโนมัติ'
       : willRevertSale
       ? 'ย้อนกลับรายการนี้?\n• สินค้าที่เชื่อมอยู่จะกลับเป็นพร้อมขาย\n• ยอดเงินจะถูกคืนอัตโนมัติ'
       : 'ย้อนกลับรายการนี้?\n• ยอดเงินจะถูกคืนอัตโนมัติ'
@@ -496,26 +523,23 @@ export default function Finance() {
   return (
     <div>
       {/* Summary top */}
-      <div className="bg-brand-dark px-4 pt-4 pb-4 space-y-3">
+      <div className="finance-liquid-panel space-y-3">
         {/* รายรับ / รายจ่าย / กำไร */}
         <div className="flex gap-2">
           <button onClick={openIncomeDetail}
-            className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
-            style={{background:'rgba(255,255,255,0.08)'}}>
-            <p className="text-white/50 text-xs">รายรับ 🔍</p>
-            <p className="font-bold text-sm mt-0.5 text-green-400">฿{fmt(income)}</p>
+            className="finance-liquid-stat flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all">
+            <p className="text-white/50 text-xs flex items-center justify-center gap-1">รายรับ <Eye size={12}/></p>
+            <p className="font-bold text-sm mt-0.5 text-green-600">฿{fmt(income)}</p>
           </button>
           <button onClick={openExpenseDetail}
-            className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
-            style={{background:'rgba(255,255,255,0.08)'}}>
-            <p className="text-white/50 text-xs">รายจ่าย 🔍</p>
-            <p className="font-bold text-sm mt-0.5 text-red-400">฿{fmt(expense)}</p>
+            className="finance-liquid-stat flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all">
+            <p className="text-white/50 text-xs flex items-center justify-center gap-1">รายจ่าย <Eye size={12}/></p>
+            <p className="font-bold text-sm mt-0.5 text-red-500">฿{fmt(expense)}</p>
           </button>
           <button onClick={openProfitDetail}
-            className="flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all"
-            style={{background:'rgba(255,255,255,0.12)',border:'1px solid rgba(255,184,56,0.3)'}}>
-            <p className="text-white/50 text-xs">กำไรขาย 🔍</p>
-            <p className={`font-bold text-sm mt-0.5 ${summaryProfit>=0?'text-brand-yellow':'text-red-400'}`}>
+            className="finance-liquid-stat flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all">
+            <p className="text-white/50 text-xs flex items-center justify-center gap-1">กำไรขาย <Eye size={12}/></p>
+            <p className={`font-bold text-sm mt-0.5 ${summaryProfit>=0?'text-brand-yellow':'text-red-500'}`}>
               {summaryProfit<0?'-':''}฿{fmt(Math.abs(summaryProfit))}
             </p>
           </button>
@@ -534,13 +558,13 @@ export default function Finance() {
                 <div className="px-5 pt-5 pb-3 border-b border-amber-100">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="font-bold text-lg text-brand-dark">รายละเอียดรายรับ</h2>
-                    <button onClick={()=>setShowIncome(false)} className="text-gray-400 p-1">✕</button>
+                    <button onClick={()=>setShowIncome(false)} className="text-gray-400 p-1"><X size={18}/></button>
                   </div>
                   <div className="flex gap-2 items-center">
                     <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
                     <span className="text-gray-400">—</span>
                     <ThaiDatePicker value={detailTo} onChange={setDetailTo} mode="calendar" className="input flex-1 text-sm py-1.5"/>
-                    {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 text-lg">✕</button>}
+                    {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 p-1"><X size={16}/></button>}
                   </div>
                   <div className="flex justify-between mt-2">
                     <p className="text-xs text-gray-500">{items.length} รายการ</p>
@@ -579,13 +603,13 @@ export default function Finance() {
                 <div className="px-5 pt-5 pb-3 border-b border-amber-100">
                   <div className="flex items-center justify-between mb-3">
                     <h2 className="font-bold text-lg text-brand-dark">รายละเอียดรายจ่าย</h2>
-                    <button onClick={()=>setShowExpense(false)} className="text-gray-400 p-1">✕</button>
+                    <button onClick={()=>setShowExpense(false)} className="text-gray-400 p-1"><X size={18}/></button>
                   </div>
                   <div className="flex gap-2 items-center">
                     <ThaiDatePicker value={detailFrom} onChange={setDetailFrom} mode="calendar" className="input flex-1 text-sm py-1.5"/>
                     <span className="text-gray-400">—</span>
                     <ThaiDatePicker value={detailTo} onChange={setDetailTo} mode="calendar" className="input flex-1 text-sm py-1.5"/>
-                    {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 text-lg">✕</button>}
+                    {(detailFrom||detailTo) && <button onClick={()=>{setDetailFrom('');setDetailTo('')}} className="text-gray-400 p-1"><X size={16}/></button>}
                   </div>
                   <div className="flex justify-between mt-2">
                     <p className="text-xs text-gray-500">{items.length} รายการ</p>
@@ -618,7 +642,7 @@ export default function Finance() {
               <div className="px-5 pt-5 pb-3 border-b border-amber-100">
                 <div className="flex items-center justify-between mb-3">
                   <h2 className="font-bold text-lg text-brand-dark">รายละเอียดกำไรขาย</h2>
-                  <button onClick={()=>setShowProfit(false)} className="text-gray-400 p-1">✕</button>
+                  <button onClick={()=>setShowProfit(false)} className="text-gray-400 p-1"><X size={18}/></button>
                 </div>
                 {/* date filter */}
                 <div className="flex gap-2 items-center">
@@ -626,7 +650,7 @@ export default function Finance() {
                   <span className="text-gray-400 text-sm">—</span>
                   <ThaiDatePicker value={profitTo} onChange={setProfitTo} mode="calendar" className="input flex-1 text-sm py-1.5" placeholder="ถึงวันที่"/>
                   {(profitFrom||profitTo) && (
-                    <button onClick={()=>{setProfitFrom('');setProfitTo('')}} className="text-gray-400 text-lg">✕</button>
+                    <button onClick={()=>{setProfitFrom('');setProfitTo('')}} className="text-gray-400 p-1"><X size={16}/></button>
                   )}
                 </div>
                 <div className="mt-2 space-y-0.5">
@@ -636,7 +660,7 @@ export default function Finance() {
                   </div>
                   {filteredDeductions.map(d => (
                     <div key={d.cat} className="flex justify-between items-center">
-                      <p className="text-xs text-orange-500">📤 {d.cat}</p>
+                      <p className="text-xs text-orange-500 flex items-center gap-1"><Send size={12}/>{d.cat}</p>
                       <p className="text-sm font-semibold text-orange-500">-฿{fmt(d.amount)}</p>
                     </div>
                   ))}
@@ -650,7 +674,7 @@ export default function Finance() {
               </div>
               <div className="overflow-y-auto flex-1 px-4 py-3 space-y-2">
                 {filteredSoldItems.length===0
-                  ? <div className="text-center py-10 text-gray-400"><div className="text-4xl mb-2">📊</div>ไม่มีข้อมูลในช่วงนี้</div>
+                  ? <div className="flex flex-col items-center py-10 text-gray-400"><BarChart3 size={42} strokeWidth={1.7} className="mb-2"/>ไม่มีข้อมูลในช่วงนี้</div>
                   : filteredSoldItems
                       .sort((a,b)=>new Date(b.sold_date)-new Date(a.sold_date))
                       .map(p=>{
@@ -685,20 +709,20 @@ export default function Finance() {
         )}
 
         {/* ยอดเงินคงเหลือ + เงินสด + มูลค่ารวม */}
-        <div className="bg-white/8 rounded-xl p-3 space-y-2" style={{background:'rgba(255,255,255,0.08)'}}>
+        <div className="finance-liquid-balance rounded-xl p-3 space-y-2">
           <div className="flex items-center justify-between">
-            <span className="text-white/60 text-xs font-medium">ยอดเงินคงเหลือ</span>
+            <span className="finance-liquid-label text-xs font-medium">ยอดเงินคงเหลือ</span>
             <button onClick={()=>{setBalForm({bank:balance.bank,cash:balance.cash});setEditBal(!editBal)}}
-              className="text-brand-yellow text-xs">✏️ แก้ไข</button>
+              className="text-brand-yellow text-xs flex items-center gap-1"><Edit2 size={12}/>แก้ไข</button>
           </div>
           {editBal ? (
             <div className="space-y-2">
               <div className="flex gap-2 items-center">
-                <span className="text-white/60 text-xs w-16">ยอดโอน</span>
+                <span className="finance-liquid-label text-xs w-16">ยอดโอน</span>
                 <input autoComplete="off" className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.bank} onChange={e=>setBalForm({...balForm,bank:e.target.value})}/>
               </div>
               <div className="flex gap-2 items-center">
-                <span className="text-white/60 text-xs w-16">เงินสด</span>
+                <span className="finance-liquid-label text-xs w-16">เงินสด</span>
                 <input autoComplete="off" className="input flex-1 text-sm py-1.5" type="number" placeholder="0" value={balForm.cash} onChange={e=>setBalForm({...balForm,cash:e.target.value})}/>
               </div>
               <div className="flex gap-2">
@@ -709,22 +733,22 @@ export default function Finance() {
           ) : (
             <div className="grid grid-cols-3 gap-2">
               <div className="text-center">
-                <p className="text-white/40 text-xs">💳 ยอดโอน</p>
-                <p className="text-blue-300 font-bold text-sm">฿{fmt(balance.bank)}</p>
+                <p className="finance-liquid-label text-xs flex items-center justify-center gap-1"><CreditCard size={12}/>ยอดโอน</p>
+                <p className="text-blue-600 font-bold text-sm">฿{fmt(balance.bank)}</p>
               </div>
               <div className="text-center">
-                <p className="text-white/40 text-xs">💵 เงินสด</p>
-                <p className="text-green-300 font-bold text-sm">฿{fmt(balance.cash)}</p>
+                <p className="finance-liquid-label text-xs flex items-center justify-center gap-1"><Banknote size={12}/>เงินสด</p>
+                <p className="text-green-600 font-bold text-sm">฿{fmt(balance.cash)}</p>
               </div>
               <div className="text-center">
-                <p className="text-white/40 text-xs">📦 สต็อก</p>
-                <p className="text-amber-300 font-bold text-sm">฿{fmt(stockValue)}</p>
+                <p className="finance-liquid-label text-xs flex items-center justify-center gap-1"><Package size={12}/>สต็อก</p>
+                <p className="text-amber-600 font-bold text-sm">฿{fmt(stockValue)}</p>
               </div>
             </div>
           )}
           {!editBal && (
-            <div className="border-t border-white/10 pt-2 flex justify-between items-center">
-              <span className="text-white/60 text-xs">มูลค่ารวมทั้งหมด</span>
+            <div className="border-t border-white/30 pt-2 flex justify-between items-center">
+              <span className="finance-liquid-label text-xs">มูลค่ารวมทั้งหมด</span>
               <span className="text-brand-yellow font-bold">฿{fmt(totalWealth)}</span>
             </div>
           )}
@@ -878,7 +902,7 @@ export default function Finance() {
             ))}
           </div>
           {editId && form.category === 'Trade'
-            ? <div className="input text-sm bg-gray-50 text-gray-400 flex items-center">🔄 Trade (ไม่สามารถเปลี่ยนได้)</div>
+            ? <div className="input text-sm bg-gray-50 text-gray-400 flex items-center gap-2"><Repeat2 size={14}/>Trade (ไม่สามารถเปลี่ยนได้)</div>
             : <select className="input text-sm" value={form.category} onChange={e=>setForm({...form,category:e.target.value})}>
                 {CATS.map(c=><option key={c}>{c}</option>)}
               </select>
@@ -895,15 +919,18 @@ export default function Finance() {
                         : m==='เงินสด' ? 'bg-green-600 text-white border-green-600'
                         : 'bg-purple-500 text-white border-purple-500'
                       : 'bg-white text-gray-400 border-gray-200'}`}>
-                  {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 สด':'✂️ แบ่ง'}
+                  <span className="inline-flex items-center justify-center gap-1">
+                    {m==='โอน' ? <CreditCard size={14}/> : m==='เงินสด' ? <Banknote size={14}/> : <Scissors size={14}/>}
+                    {m==='โอน'?'โอน':m==='เงินสด'?'สด':'แบ่ง'}
+                  </span>
                 </button>
               ))}
             </div>
           </div>
           {form.payment_method === 'แบ่งจ่าย' ? (
             <div className="flex gap-2">
-              <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💳 ยอดโอน" value={form.bank_amount} onChange={e=>setForm({...form,bank_amount:e.target.value})}/>
-              <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💵 เงินสด" value={form.cash_amount} onChange={e=>setForm({...form,cash_amount:e.target.value})}/>
+              <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="ยอดโอน" value={form.bank_amount} onChange={e=>setForm({...form,bank_amount:e.target.value})}/>
+              <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="เงินสด" value={form.cash_amount} onChange={e=>setForm({...form,cash_amount:e.target.value})}/>
             </div>
           ) : (
             <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)" value={form.amount} onChange={e=>setForm({...form,amount:e.target.value})}/>
@@ -912,8 +939,8 @@ export default function Finance() {
             <div>
               <p className="text-xs text-gray-500 mb-1">ยอดคงเหลือหลังรายการ</p>
               <div className="flex gap-2">
-                <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💳 ยอดโอน" value={form.bank_after} onChange={e=>setForm({...form,bank_after:e.target.value})}/>
-                <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="💵 เงินสด" value={form.cash_after} onChange={e=>setForm({...form,cash_after:e.target.value})}/>
+                <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="ยอดโอน" value={form.bank_after} onChange={e=>setForm({...form,bank_after:e.target.value})}/>
+                <input autoComplete="off" className="input flex-1 text-sm" type="number" placeholder="เงินสด" value={form.cash_after} onChange={e=>setForm({...form,cash_after:e.target.value})}/>
               </div>
             </div>
           )}
@@ -975,57 +1002,64 @@ export default function Finance() {
       {loading
         ? <div className="flex justify-center pt-12"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
         : <div className="px-4 pb-4 space-y-2 mt-2">
-            {searched.length===0 && <div className="text-center pt-16 text-gray-400"><div className="text-5xl mb-3">💰</div>ไม่มีรายการในช่วงนี้</div>}
+            {searched.length===0 && <div className="flex flex-col items-center pt-16 text-gray-400"><Banknote size={44} strokeWidth={1.7} className="mb-3"/>ไม่มีรายการในช่วงนี้</div>}
             {searched.map(tx=>{
               const profit = tx.category==='Sale' && tx.products?.total_cost!=null
                 ? Number(tx.amount)-Number(tx.products.total_cost) : null
               const warrantyDays = tx.category==='Sale' && tx.products?.warranty_expiry
                 ? Math.ceil((new Date(tx.products.warranty_expiry)-new Date())/86400000) : null
               const isTrade = tx.category === 'Trade'
+              const thumb = tx.images?.[0]
+              const imageCount = tx.images?.length || 0
+              const thumbNode = (
+                <div
+                  className={`finance-tx-thumb relative flex-shrink-0 ${thumb ? '' : 'finance-tx-thumb-placeholder flex items-center justify-center'}`}
+                  onClick={e=>{
+                    if (!thumb) return
+                    e.stopPropagation()
+                    setLightbox({imgs:tx.images,idx:0})
+                  }}>
+                  {thumb
+                    ? <img src={thumb} alt="" />
+                    : <ImageIcon size={22} strokeWidth={1.8}/>}
+                  {imageCount > 1 && <span className="finance-tx-count">{imageCount}</span>}
+                </div>
+              )
 
               // Trade transaction — แสดงแบบพิเศษสีน้ำเงิน
               if (isTrade) {
                 return (
                   <button key={tx.id} {...tap(()=>setTxDetail(tx))}
-                    className="w-full text-left rounded-2xl border-2 border-blue-300 bg-blue-50 p-3 flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation">
-                    <div className="w-2 rounded-full flex-shrink-0 self-stretch bg-blue-400"/>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between gap-2">
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-100 text-blue-700 border-blue-200 flex-shrink-0">🔄 Trade</span>
+                    className={`finance-tx-card w-full text-left rounded-2xl p-3 flex items-center gap-3 active:opacity-70 transition-opacity touch-manipulation ${txCardClass(tx)}`}>
+                    {thumbNode}
+                    <div className="finance-tx-content">
+                      <div className="flex items-start justify-between gap-2 min-w-0">
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full border bg-blue-100 text-blue-700 border-blue-200 flex-shrink-0 inline-flex items-center gap-1"><Repeat2 size={12}/>Trade</span>
                         <div className="text-right flex-shrink-0">
-                          {tx.trade_sell_a && <p className="text-xs text-gray-500">ขาย ฿{fmt(tx.trade_sell_a)}</p>}
+                          {tx.trade_sell_a && <p className="text-xs finance-tx-meta">ขาย ฿{fmt(tx.trade_sell_a)}</p>}
                           {tx.trade_profit_a != null && (
-                            <p className={`text-xs font-bold ${Number(tx.trade_profit_a)>=0?'text-green-600':'text-red-500'}`}>
+                            <p className={`text-xs font-semibold tx-amount ${Number(tx.trade_profit_a)>=0?'text-green-600':'text-red-500'}`}>
                               กำไร {Number(tx.trade_profit_a)>=0?'+':''}฿{fmt(tx.trade_profit_a)}
                             </p>
                           )}
                         </div>
                       </div>
                       {tx.products?.model && (
-                        <p className="text-sm font-semibold text-blue-700 mt-0.5 truncate">{tx.products.model}</p>
+                        <p className="text-sm font-semibold tx-title finance-tx-line">{tx.products.model}</p>
                       )}
                       {tx.note && (
-                        <div className="mt-1 space-y-0.5">
+                        <div className="space-y-0.5">
                           {tx.note.split(' | ').map((line,i)=>(
-                            <p key={i} className="text-xs text-blue-600/80 truncate">{line}</p>
+                            <p key={i} className="text-xs finance-tx-meta finance-tx-line">{line}</p>
                           ))}
                         </div>
                       )}
-                      {tx.images?.length > 0 && (
-                        <div className="flex gap-1 mt-1 overflow-x-auto" onClick={e=>e.stopPropagation()}>
-                          {tx.images.map((url,i)=>(
-                            <img key={i} src={url}
-                              className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-blue-200 cursor-zoom-in"
-                              onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
-                          ))}
-                        </div>
-                      )}
-                      <p className="text-xs text-gray-400 mt-1">{thDate(tx.date)}</p>
-                      {stockMap[tx.id] != null && (
-                        <div className="flex gap-2 mt-1" style={{color:'#555'}}>
-                          <span className="text-xs font-medium">📦 ฿{fmt(stockMap[tx.id])}</span>
-                        </div>
-                      )}
+                      <div className="flex items-center justify-between gap-2 finance-tx-meta">
+                        <p className="text-xs finance-tx-line">{thDate(tx.date)}</p>
+                        {stockMap[tx.id] != null && (
+                          <span className="text-xs font-medium inline-flex items-center gap-1 flex-shrink-0"><Package size={12}/>฿{fmt(stockMap[tx.id])}</span>
+                        )}
+                      </div>
                     </div>
                   </button>
                 )
@@ -1033,17 +1067,17 @@ export default function Finance() {
 
               return (
               <button key={tx.id} {...tap(()=>setTxDetail(tx))}
-                className="card w-full text-left flex items-center gap-3 active:opacity-70 transition-opacity touch-manipulation">
-                <div className={`w-2 rounded-full flex-shrink-0 self-stretch ${TX_BAR[tx.category]||(tx.type==='Income'?'bg-green-400':'bg-red-400')}`}/>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex flex-wrap gap-1 flex-1">
+                className={`finance-tx-card card w-full text-left flex items-center gap-3 active:opacity-70 transition-opacity touch-manipulation ${txCardClass(tx)}`}>
+                {thumbNode}
+                <div className="finance-tx-content">
+                  <div className="flex items-start justify-between gap-2 min-w-0">
+                    <div className="flex flex-wrap gap-1 flex-1 min-w-0 max-h-6 overflow-hidden">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${catColor(tx.category)}`}>{tx.category}</span>
                       {tx.payment_method === 'แบ่งจ่าย' && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-purple-100 text-purple-700">
-                          ✂️ แบ่งจ่าย {tx.bank_amount?`💳${fmt(tx.bank_amount)}`:''}
+                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-purple-100 text-purple-700 inline-flex items-center gap-1">
+                          <Scissors size={12}/> แบ่งจ่าย {tx.bank_amount?`โอน ${fmt(tx.bank_amount)}`:''}
                           {tx.bank_amount&&tx.cash_amount?'+':''}
-                          {tx.cash_amount?`💵${fmt(tx.cash_amount)}`:''}
+                          {tx.cash_amount?`สด ${fmt(tx.cash_amount)}`:''}
                         </span>
                       )}
                       {tx.category==='Sale' && tx.products?.payment_method && (
@@ -1053,46 +1087,43 @@ export default function Finance() {
                       )}
                       {tx.category==='Sale' && warrantyDays!==null && (
                         warrantyDays>=0
-                          ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0">🛡️ ประกันเหลือ {warrantyDays} วัน</span>
-                          : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600 flex-shrink-0">🛡️ หมดประกัน</span>
+                          ? <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-700 flex-shrink-0 inline-flex items-center gap-1"><Shield size={12}/>ประกันเหลือ {warrantyDays} วัน</span>
+                          : <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-600 flex-shrink-0 inline-flex items-center gap-1"><Shield size={12}/>หมดประกัน</span>
                       )}
                     </div>
                     <div className="text-right flex-shrink-0">
-                      <p className={`text-sm font-bold ${tx.type==='Income'?'text-green-600':'text-brand-red'}`}>
+                      <p className={`text-sm font-semibold tx-amount ${tx.type==='Income'?'text-green-600':'text-brand-red'}`}>
                         {tx.type==='Income'?'+':'-'}฿{fmt(tx.amount)}
                       </p>
                       {profit!==null && (
-                        <p className={`text-xs font-semibold ${profit>=0?'text-green-500':'text-red-500'}`}>
-                          {profit>=0?'📈+':'📉'}฿{fmt(Math.abs(profit))}
+                        <p className={`text-xs font-medium tx-amount ${profit>=0?'text-green-500':'text-red-500'}`}>
+                          <span className="inline-flex items-center justify-end gap-1">{profit>=0?<TrendingUp size={12}/>:<TrendingDown size={12}/>}฿{fmt(Math.abs(profit))}</span>
                         </p>
                       )}
                     </div>
                   </div>
                   {tx.products?.model && (
-                    <p className={`text-sm font-semibold truncate mt-0.5 ${tx.type==='Income'?'text-green-700':'text-red-600'}`}>
+                    <p className={`text-sm font-semibold finance-tx-line tx-title ${tx.type==='Income'?'text-green-700':'text-red-600'}`}>
                       {tx.products.model}{tx.products.category?` (${tx.products.category})`:''}
                     </p>
                   )}
-                  {tx.note && <p className="text-xs text-gray-400 truncate">{tx.note}</p>}
+                  {tx.note && <p className="text-xs finance-tx-meta finance-tx-line">{tx.note}</p>}
                   {tx.category==='Sale' && tx.products?.customer_note && tx.products.customer_note !== tx.note && (
-                    <p className="text-xs text-blue-500 truncate">👤 {tx.products.customer_note}</p>
+                    <p className="text-xs finance-tx-meta finance-tx-line flex items-center gap-1"><User size={12}/>{tx.products.customer_note}</p>
                   )}
-                  {tx.images?.length > 0 && (
-                    <div className="flex gap-1 mt-1 overflow-x-auto" onClick={e=>e.stopPropagation()}>
-                      {tx.images.map((url,i)=>(
-                        <img key={i} src={url}
-                          className="w-10 h-10 rounded-lg object-cover flex-shrink-0 border border-amber-100 cursor-zoom-in"
-                          onClick={()=>setLightbox({imgs:tx.images,idx:i})}/>
-                      ))}
-                    </div>
-                  )}
-                  <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
-                  {balMap[tx.id] && (
-                    <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1" style={{color:'#555'}}>
-                      <span className="text-xs font-medium">💳 ฿{fmt(balMap[tx.id].bank)}</span>
-                      <span className="text-xs font-medium">💵 ฿{fmt(balMap[tx.id].cash)}</span>
+                  <div className="flex items-center justify-between gap-2 finance-tx-meta">
+                    <p className="text-xs finance-tx-line">{thDate(tx.date)}</p>
+                    {balMap[tx.id] && (
+                      <div className="flex gap-x-2 flex-shrink-0">
+                        <span className="text-xs font-medium inline-flex items-center gap-1"><CreditCard size={12}/>฿{fmt(balMap[tx.id].bank)}</span>
+                        <span className="text-xs font-medium inline-flex items-center gap-1"><Banknote size={12}/>฿{fmt(balMap[tx.id].cash)}</span>
+                      </div>
+                    )}
+                  </div>
+                  {balMap[tx.id] && stockMap[tx.id] != null && (
+                    <div className="finance-tx-meta">
                       {stockMap[tx.id] != null && (
-                        <span className="text-xs font-medium">📦 ฿{fmt(stockMap[tx.id])}</span>
+                        <span className="text-xs font-medium inline-flex items-center gap-1"><Package size={12}/>฿{fmt(stockMap[tx.id])}</span>
                       )}
                     </div>
                   )}
@@ -1112,7 +1143,7 @@ export default function Finance() {
             {/* header */}
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-amber-100 dark:border-white/10 flex-shrink-0">
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${catColor(txDetail.category)}`}>
-                {txDetail.category === 'Trade' ? '🔄 Trade' : txDetail.category}
+                {txDetail.category === 'Trade' ? <span className="inline-flex items-center gap-1"><Repeat2 size={12}/>Trade</span> : txDetail.category}
               </span>
               <p className={`text-lg font-bold ${txDetail.type==='Income'?'text-green-600':'text-brand-red'}`}>
                 {txDetail.type==='Income'?'+':'-'}฿{fmt(txDetail.amount)}
@@ -1140,8 +1171,8 @@ export default function Finance() {
                     <p className="text-xs text-gray-400">ช่องทางชำระ</p>
                     {txDetail.payment_method === 'แบ่งจ่าย' ? (
                       <div className="flex gap-3 mt-0.5">
-                        {txDetail.bank_amount ? <span className="text-sm font-medium text-blue-600">💳 ฿{fmt(txDetail.bank_amount)}</span> : null}
-                        {txDetail.cash_amount ? <span className="text-sm font-medium text-green-600">💵 ฿{fmt(txDetail.cash_amount)}</span> : null}
+                        {txDetail.bank_amount ? <span className="text-sm font-medium text-blue-600 inline-flex items-center gap-1"><CreditCard size={14}/>฿{fmt(txDetail.bank_amount)}</span> : null}
+                        {txDetail.cash_amount ? <span className="text-sm font-medium text-green-600 inline-flex items-center gap-1"><Banknote size={14}/>฿{fmt(txDetail.cash_amount)}</span> : null}
                       </div>
                     ) : (
                       <p className="text-sm font-medium dark:text-white">{txDetail.payment_method}</p>
@@ -1157,7 +1188,7 @@ export default function Finance() {
               )}
               {txDetail.category==='Sale' && txDetail.products?.customer_note && txDetail.products.customer_note !== txDetail.note && (
                 <div className="bg-blue-50 rounded-xl px-3 py-2">
-                  <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
+                  <p className="text-xs text-blue-400 mb-0.5 flex items-center gap-1"><User size={12}/>รายละเอียดลูกค้า</p>
                   <p className="text-sm text-blue-700">{txDetail.products.customer_note}</p>
                 </div>
               )}
@@ -1166,15 +1197,15 @@ export default function Finance() {
                   <p className="text-xs text-gray-400 mb-1.5">ยอดคงเหลือหลังรายการ</p>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
-                      <p className="text-xs text-blue-400">💳 ธนาคาร</p>
+                      <p className="text-xs text-blue-400 flex items-center gap-1"><CreditCard size={12}/>ธนาคาร</p>
                       <p className="font-semibold text-sm text-blue-600">฿{fmt(balMap[txDetail.id].bank)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-green-500">💵 เงินสด</p>
+                      <p className="text-xs text-green-500 flex items-center gap-1"><Banknote size={12}/>เงินสด</p>
                       <p className="font-semibold text-sm text-green-600">฿{fmt(balMap[txDetail.id].cash)}</p>
                     </div>
                     <div>
-                      <p className="text-xs text-amber-500">📦 สต๊อก</p>
+                      <p className="text-xs text-amber-500 flex items-center gap-1"><Package size={12}/>สต๊อก</p>
                       <p className="font-semibold text-sm text-amber-600">฿{fmt(stockMap[txDetail.id])}</p>
                     </div>
                   </div>
@@ -1210,7 +1241,7 @@ export default function Finance() {
                 : <button
                     onClick={()=>del(txDetail, ()=>setTxDetail(null))}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-200 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors">
-                    ↩ ย้อนกลับรายการ
+                    <RotateCcw size={15}/>ย้อนกลับรายการ
                   </button>
               }
             </div>

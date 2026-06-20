@@ -231,7 +231,7 @@ export default function Dashboard() {
 
   return (
     <div className="pb-5">
-      <div className="bg-brand-dark px-4 pt-4 pb-4 space-y-3">
+      <div className="bg-brand-dark mx-4 rounded-3xl border border-white/60 px-4 pt-4 pb-4 space-y-3 overflow-hidden">
         <div className="flex items-start justify-between gap-3">
           <div>
             <p className="text-white/50 text-xs">ศูนย์ควบคุมแดชบอร์ด</p>
