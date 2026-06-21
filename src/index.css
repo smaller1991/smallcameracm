@@ -439,6 +439,111 @@
   background-color: #D32F23 !important;
 }
 
+/* Solid date/time picker surfaces. Keep these scoped so the glass theme
+   does not make calendar or time selection controls translucent. */
+.thai-date-picker-sheet {
+  background: #fffaf2 !important;
+  background-color: #fffaf2 !important;
+  border: 1px solid #f1d8c7;
+  box-shadow: 0 -20px 54px rgba(49, 35, 17, .24);
+  color: var(--ink);
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.thai-date-picker-sheet .bg-white,
+.thai-date-picker-sheet [class*="bg-white"] {
+  background-color: #fffaf2 !important;
+}
+
+.thai-date-picker-sheet .bg-gradient-to-b {
+  background: linear-gradient(180deg, #fffaf2 0%, #fffaf2 42%, rgba(255,250,242,0) 100%) !important;
+}
+
+.thai-date-picker-sheet .bg-gradient-to-t {
+  background: linear-gradient(0deg, #fffaf2 0%, #fffaf2 42%, rgba(255,250,242,0) 100%) !important;
+}
+
+.thai-date-picker-sheet .bg-amber-400\/10,
+.thai-date-picker-sheet [class*="bg-amber-400"] {
+  background-color: #ffe7a8 !important;
+}
+
+.thai-date-picker-calendar,
+.thai-date-picker-drum {
+  background: #fffaf2 !important;
+  background-color: #fffaf2 !important;
+}
+
+.thai-date-picker-sheet,
+.thai-date-picker-sheet span,
+.thai-date-picker-drum div {
+  color: #211412;
+}
+
+.thai-date-picker-sheet .text-gray-300,
+.thai-date-picker-sheet .text-gray-400,
+.thai-date-picker-sheet .text-gray-500,
+.thai-date-picker-sheet .text-gray-600 {
+  color: #6f5753 !important;
+}
+
+.thai-date-picker-sheet .text-amber-500,
+.thai-date-picker-sheet .text-brand-yellow {
+  color: #D32F23 !important;
+}
+
+.thai-date-picker-calendar button {
+  background-color: #fffaf2 !important;
+}
+
+.thai-date-picker-calendar button:not(:disabled).bg-brand-dark,
+.thai-date-picker-calendar button:not(:disabled)[class*="bg-brand-dark"] {
+  background: #211412 !important;
+  background-color: #211412 !important;
+  border-color: #211412 !important;
+}
+
+.thai-date-picker-calendar button:not(:disabled).bg-amber-50,
+.thai-date-picker-calendar button:not(:disabled)[class*="bg-amber-50"] {
+  background-color: #ffe7a8 !important;
+}
+
+.thai-date-picker-calendar button:not(:disabled):active {
+  background-color: #fff0c7 !important;
+}
+
+.thai-date-picker-sheet button,
+.thai-date-picker-sheet input,
+.thai-date-picker-sheet select {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.react-datepicker,
+.react-datepicker__header,
+.react-datepicker__month,
+.react-datepicker__time-container,
+.react-datepicker__time,
+.react-datepicker__time-box,
+.react-datepicker__day,
+.react-datepicker__time-list-item {
+  background-color: #fffaf2 !important;
+}
+
+.react-datepicker__day--selected,
+.react-datepicker__day--keyboard-selected,
+.react-datepicker__time-list-item--selected {
+  background-color: #211412 !important;
+  color: #FDE047 !important;
+}
+
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  background-color: #ffffff !important;
+}
+
 .hover\:border-brand-yellow:hover,
 .hover\:text-brand-yellow:hover {
   border-color: #D32F23 !important;
@@ -673,3 +778,81 @@
 
 /* ── Finance filter panel ── */
 .dark [class*="bg-white"][class*="border-b"] { background-color: #1A160D !important; border-color: #2A2318 !important; }
+
+.dark .thai-date-picker-sheet,
+.dark .thai-date-picker-calendar,
+.dark .thai-date-picker-drum,
+.dark .thai-date-picker-sheet .bg-white,
+.dark .thai-date-picker-sheet [class*="bg-white"] {
+  background: #1A1208 !important;
+  background-color: #1A1208 !important;
+  border-color: #3D3526 !important;
+  color: #EDE8DC !important;
+}
+
+.dark .thai-date-picker-sheet .bg-gradient-to-b {
+  background: linear-gradient(180deg, #1A1208 0%, #1A1208 42%, rgba(26,18,8,0) 100%) !important;
+}
+
+.dark .thai-date-picker-sheet .bg-gradient-to-t {
+  background: linear-gradient(0deg, #1A1208 0%, #1A1208 42%, rgba(26,18,8,0) 100%) !important;
+}
+
+.dark .thai-date-picker-sheet .bg-amber-400\/10,
+.dark .thai-date-picker-sheet [class*="bg-amber-400"] {
+  background-color: #3A1612 !important;
+}
+
+.dark .thai-date-picker-calendar button {
+  background-color: #1A1208 !important;
+}
+
+.dark .thai-date-picker-sheet,
+.dark .thai-date-picker-sheet span,
+.dark .thai-date-picker-drum div {
+  color: #EDE8DC !important;
+}
+
+.dark .thai-date-picker-sheet .text-gray-300,
+.dark .thai-date-picker-sheet .text-gray-400,
+.dark .thai-date-picker-sheet .text-gray-500,
+.dark .thai-date-picker-sheet .text-gray-600 {
+  color: #ADA090 !important;
+}
+
+.dark .thai-date-picker-sheet .text-amber-500,
+.dark .thai-date-picker-sheet .text-brand-yellow {
+  color: #FCA5A5 !important;
+}
+
+.dark .thai-date-picker-calendar button:not(:disabled).bg-brand-dark,
+.dark .thai-date-picker-calendar button:not(:disabled)[class*="bg-brand-dark"] {
+  background: #3A1612 !important;
+  background-color: #3A1612 !important;
+  border-color: #FCA5A5 !important;
+}
+
+.dark .thai-date-picker-calendar button:not(:disabled).bg-amber-50,
+.dark .thai-date-picker-calendar button:not(:disabled)[class*="bg-amber-50"],
+.dark .thai-date-picker-calendar button:not(:disabled):active {
+  background-color: #2A2318 !important;
+}
+
+.dark .react-datepicker,
+.dark .react-datepicker__header,
+.dark .react-datepicker__month,
+.dark .react-datepicker__time-container,
+.dark .react-datepicker__time,
+.dark .react-datepicker__time-box,
+.dark .react-datepicker__day,
+.dark .react-datepicker__time-list-item {
+  background-color: #1A1208 !important;
+  color: #EDE8DC !important;
+}
+
+.dark .react-datepicker__day--selected,
+.dark .react-datepicker__day--keyboard-selected,
+.dark .react-datepicker__time-list-item--selected {
+  background-color: #3A1612 !important;
+  color: #FCA5A5 !important;
+}

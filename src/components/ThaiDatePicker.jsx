@@ -43,7 +43,7 @@ function DrumCol({ items, idx, onSelect, width = 'flex-1' }) {
   return (
     <div className={`relative ${width}`} style={{ height: ITEM_H * VISIBLE, overflow: 'hidden' }}>
       {/* selection highlight */}
-      <div className="absolute inset-x-0 pointer-events-none z-10 border-y border-amber-400/50 bg-amber-400/10"
+      <div className="absolute inset-x-0 pointer-events-none z-0 border-y border-amber-400/50 bg-amber-400/10"
         style={{ top: PAD * ITEM_H, height: ITEM_H }} />
       {/* fade top */}
       <div className="absolute inset-x-0 top-0 pointer-events-none z-10 bg-gradient-to-b from-white dark:from-[#1A1208] to-transparent"
@@ -59,7 +59,7 @@ function DrumCol({ items, idx, onSelect, width = 'flex-1' }) {
         {items.map((label, i) => (
           <div key={i}
             style={{ height: ITEM_H, scrollSnapAlign: 'center' }}
-            className={`flex items-center justify-center select-none transition-colors ${
+            className={`relative z-20 flex items-center justify-center select-none transition-colors ${
               i === idx
                 ? 'text-amber-500 dark:text-brand-yellow font-bold text-base'
                 : 'text-gray-400 text-sm'
@@ -183,11 +183,11 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
       </div>
 
       {open && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end"
+        <div className="thai-date-picker-backdrop fixed inset-0 z-50 flex flex-col justify-end"
           style={{ background: 'rgba(0,0,0,0.45)' }}
           onPointerDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
 
-          <div className="bg-white dark:bg-[#1A1208] rounded-t-2xl w-full max-w-[430px] mx-auto">
+          <div className="thai-date-picker-sheet bg-white dark:bg-[#1A1208] rounded-t-2xl w-full max-w-[430px] mx-auto">
             {/* toolbar */}
             <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-white/10">
               <button className="text-gray-400 text-sm py-1 px-2" onClick={() => setOpen(false)}>ยกเลิก</button>
@@ -198,7 +198,7 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
             </div>
 
             {isCalendar ? (
-              <div className="px-5 py-4">
+              <div className="thai-date-picker-calendar px-5 py-4">
                 <div className="flex items-center justify-between mb-3">
                   <button
                     onClick={() => moveMonth(-1)}
@@ -245,7 +245,7 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
                 </div>
               </div>
             ) : (
-              <div className="flex items-stretch px-2 py-1">
+              <div className="thai-date-picker-drum flex items-stretch px-2 py-1">
                 <DrumCol items={dayList}   idx={sel.day}  onSelect={v => setSel(s => ({ ...s, day: v }))}  width="w-14" />
                 <DrumCol items={monthList} idx={sel.mon}  onSelect={v => setSel(s => ({ ...s, mon: v }))}  width="flex-1" />
                 <DrumCol items={yearList}  idx={sel.year} onSelect={v => setSel(s => ({ ...s, year: v }))} width="w-20" />
