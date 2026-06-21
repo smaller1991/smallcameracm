@@ -35,6 +35,7 @@ const CAT_MAP     = { 'กล้อง':'กล้อง','เลนส์':'เ
 const PAY_MAP     = { 'โอน':'โอน','เงินสด':'เงินสด' }
 const TX_TYPE_MAP = { 'income':'Income','expense':'Expense' }
 const TX_CAT_LIST = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
+const PRODUCT_CATEGORY_ORDER = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const pad = n => String(n).padStart(2, '0')
 const localDate = d => `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`
@@ -60,6 +61,17 @@ const inDateRange = (t, from, to) => {
   if (from && dateStr < from) return false
   if (to && dateStr > to) return false
   return true
+}
+const sortProductsForStockPDF = products => {
+  const categoryRank = category => {
+    const index = PRODUCT_CATEGORY_ORDER.indexOf(category || 'กล้อง')
+    return index === -1 ? PRODUCT_CATEGORY_ORDER.length : index
+  }
+  return [...products].sort((a, b) => (
+    categoryRank(a.category) - categoryRank(b.category) ||
+    String(a.model || '').localeCompare(String(b.model || ''), 'th', { numeric: true, sensitivity: 'base' }) ||
+    String(a.serial_number || '').localeCompare(String(b.serial_number || ''), 'th', { numeric: true, sensitivity: 'base' })
+  ))
 }
 const buildBalanceMap = (txs, balance) => {
   const map = {}
@@ -577,7 +589,7 @@ function openPDFPreviewWindow(message = 'กำลังเตรียม PDF..
   }
   w.document.open()
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PDF Preview</title>
-  <style>body{font-family:sans-serif;margin:24px;color:#1F1412;background:#FFFBF0}.box{max-width:520px;margin:12vh auto;background:white;border:1px solid #f0e8d8;border-radius:16px;padding:24px;box-shadow:0 12px 40px rgba(26,18,8,.08)}h2{margin:0 0 8px;font-size:20px}p{margin:0;color:#777;font-size:13px}</style>
+  <style>body{font-family:sans-serif;margin:24px;color:#1F1412;background:linear-gradient(145deg,#fff7f6,#fff,#fff1ef)}.box{max-width:520px;margin:12vh auto;background:rgba(255,255,255,.88);border:1px solid rgba(211,47,35,.14);border-radius:28px;padding:24px;box-shadow:0 18px 48px rgba(150,34,28,.12),inset 0 1px 0 rgba(255,255,255,.9)}h2{margin:0 0 8px;font-size:20px;color:#D32F23}p{margin:0;color:#6f5753;font-size:13px}</style>
   </head><body><div class="box"><h2>${message}</h2><p>หน้าต่างนี้ถูกเปิดจากการกดปุ่มโดยตรง จึงไม่โดนบล็อก popup</p></div></body></html>`)
   w.document.close()
   return w
@@ -619,37 +631,37 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
   <style>
     @page{size:A4 landscape;margin:8mm}
     *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:#f7f1e5;color:#1F1412}
-    .toolbar{position:sticky;top:0;z-index:10;background:#1F1412;color:white;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 4px 14px rgba(0,0,0,.12)}
+    body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:linear-gradient(145deg,#fff7f6,#fff,#fff1ef);color:#1F1412}
+    .toolbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.92);color:#1F1412;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 12px 34px rgba(150,34,28,.12);border-bottom:1px solid rgba(211,47,35,.12);backdrop-filter:blur(18px)}
     .toolbar-title{font-weight:800;font-size:15px;color:#D32F23}
     .toolbar-actions{display:flex;gap:8px}
     button,a{border:0;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none}
-    .back{background:rgba(255,255,255,.1);color:white}
-    .print{background:#D32F23;color:#1F1412}
-    .page{background:white;margin:12px auto;padding:14px;max-width:1180px;box-shadow:0 10px 32px rgba(26,18,8,.08)}
-    .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:2px solid #1F1412;padding-bottom:9px;margin-bottom:10px}
+    .back{background:rgba(211,47,35,.08);color:#1F1412;border:1px solid rgba(211,47,35,.18)}
+    .print{background:#D32F23;color:white}
+    .page{background:rgba(255,255,255,.9);margin:12px auto;padding:16px;max-width:1180px;border:1px solid rgba(211,47,35,.12);border-radius:24px;box-shadow:0 18px 48px rgba(150,34,28,.12),inset 0 1px 0 rgba(255,255,255,.9)}
+    .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:2px solid rgba(211,47,35,.2);padding-bottom:10px;margin-bottom:11px}
     h1{font-size:21px;line-height:1.1;margin:0;color:#1F1412}
-    .meta{font-size:10px;color:#8a7a65;margin-top:4px}
-    .brand{font-weight:800;color:#D32F23;background:#1F1412;border-radius:11px;padding:8px 12px;white-space:nowrap}
+    .meta{font-size:10px;color:#7b5a56;margin-top:4px}
+    .brand{font-weight:800;color:white;background:#D32F23;border-radius:16px;padding:8px 12px;white-space:nowrap;box-shadow:0 10px 24px rgba(211,47,35,.18)}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:6px;margin:8px 0 10px}
     .stats.cols-4{grid-template-columns:repeat(4,1fr)}
-    .stat{border:1px solid #efe2c7;border-radius:9px;padding:6px 8px;background:#FFFBF0;min-height:45px}
-    .stat-label{font-size:8.4px;color:#8a7a65;margin-bottom:3px;white-space:nowrap}
+    .stat{border:1px solid rgba(211,47,35,.12);border-radius:16px;padding:7px 9px;background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(255,241,239,.76));min-height:45px;box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}
+    .stat-label{font-size:8.4px;color:#7b5a56;margin-bottom:3px;white-space:nowrap}
     .stat-value{font-size:12.5px;font-weight:800;color:#1F1412;line-height:1.12;overflow-wrap:anywhere}
     .stat.in .stat-value{color:#16a34a}.stat.out .stat-value{color:#dc2626}.stat.warn .stat-value{color:#d97706}.stat.bank .stat-value{color:#2563eb}.stat.cash .stat-value{color:#16a34a}
-    .table-wrap{border:1px solid #efe2c7;border-radius:12px;overflow:hidden}
+    .table-wrap{border:1px solid rgba(211,47,35,.14);border-radius:18px;overflow:hidden;background:white}
     table{width:100%;border-collapse:collapse;table-layout:fixed}
-    th{background:#1F1412;color:#D32F23;padding:5px 5px;text-align:left;font-size:8.1px;line-height:1.22;vertical-align:bottom;overflow-wrap:anywhere}
-    td{padding:4.5px 5px;border-bottom:1px solid #f0e8d8;font-size:7.8px;line-height:1.28;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
+    th{background:#D32F23;color:white;padding:5.5px 5px;text-align:left;font-size:8.1px;line-height:1.22;vertical-align:bottom;overflow-wrap:anywhere}
+    td{padding:4.8px 5px;border-bottom:1px solid rgba(211,47,35,.09);font-size:7.8px;line-height:1.28;vertical-align:top;overflow-wrap:anywhere;word-break:break-word}
     td.num{text-align:right;font-weight:700;white-space:normal}
-    .summary-cell{font-weight:400!important;text-align:left!important;background:#fff7e6;color:#1F1412;font-size:8.1px;line-height:1.45;padding-left:7px!important;padding-right:7px!important}
+    .summary-cell{font-weight:400!important;text-align:left!important;background:#fff1ef;color:#1F1412;font-size:8.1px;line-height:1.45;padding-left:7px!important;padding-right:7px!important}
     .summary-cell span{display:inline-block;margin-right:14px;white-space:nowrap}
-    tr:nth-child(even){background:#FFFBF0}
+    tr:nth-child(even){background:#fff8f7}
     tr:last-child td{border-bottom:0}
     thead{display:table-header-group}
     tfoot{display:table-row-group}
     tr{break-inside:avoid;page-break-inside:avoid}
-    @media print{body{background:white;-webkit-print-color-adjust:exact;print-color-adjust:exact}.toolbar{display:none}.page{margin:0;padding:0;box-shadow:none;max-width:none}.stats{page-break-inside:avoid}.table-wrap{border-radius:0}}
+    @media print{body{background:white;-webkit-print-color-adjust:exact;print-color-adjust:exact}.toolbar{display:none}.page{margin:0;padding:0;box-shadow:none;max-width:none;border:0}.stats{page-break-inside:avoid}.table-wrap{border-radius:0}}
   </style>
   </head><body>
   <div class="toolbar">
@@ -678,7 +690,7 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
 }
 
 function exportInventoryPDF(products, statusFilter='all', previewWindow=null) {
-  const filtered = products.filter(p=>statusFilter==='all'||p.status===statusFilter)
+  const filtered = sortProductsForStockPDF(products.filter(p=>statusFilter==='all'||p.status===statusFilter))
   const rows = filtered
     .map(p=>[p.model,p.serial_number,p.category||'กล้อง',p.condition,STATUS_TH[p.status]||p.status,
              `฿${fmt(p.base_cost)}`,`฿${fmt(p.total_cost)}`,

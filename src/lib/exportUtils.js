@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { thDate } from './dateUtils'
 
 const STATUS_TH = { Available: 'พร้อมขาย', Reserved: 'จอง', Sold: 'ขายแล้ว', Pending: 'รอชำระ' }
+const PRODUCT_CATEGORY_ORDER = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const stamp = () => new Date().toISOString().slice(0, 10).replace(/-/g, '')
 const safeStr = s => (s || '').replace(/[/\\:*?"<>|]/g, '_')
 const PROFIT_DEDUCT_CATS = new Set(['Shipping','Marketing','Operating','Other'])
@@ -75,6 +76,17 @@ const txProductCost = t => (
     ? Number(t.products?.batch_total_cost || t.products?.total_cost || 0)
     : Number(t.products?.total_cost || 0)
 )
+const sortProductsForStockPDF = products => {
+  const categoryRank = category => {
+    const index = PRODUCT_CATEGORY_ORDER.indexOf(category || 'กล้อง')
+    return index === -1 ? PRODUCT_CATEGORY_ORDER.length : index
+  }
+  return [...products].sort((a, b) => (
+    categoryRank(a.category) - categoryRank(b.category) ||
+    String(a.model || '').localeCompare(String(b.model || ''), 'th', { numeric: true, sensitivity: 'base' }) ||
+    String(a.serial_number || '').localeCompare(String(b.serial_number || ''), 'th', { numeric: true, sensitivity: 'base' })
+  ))
+}
 
 // ─── Generate Import Template ─────────────────────────────────
 export function downloadImportTemplate() {
@@ -216,23 +228,28 @@ const toneColor = tone => {
   if (tone === 'out') return [220, 38, 38]
   if (tone === 'bank') return [37, 99, 235]
   if (tone === 'cash') return [22, 163, 74]
-  if (tone === 'warn') return [217, 119, 6]
-  return [26, 18, 8]
+  if (tone === 'warn') return [211, 47, 35]
+  return [31, 20, 18]
 }
 function drawReportHeader(doc, title, subtitle = '') {
-  doc.setFillColor(26, 18, 8)
-  doc.rect(10, 8, 277, 15, 'F')
-  doc.setTextColor(255, 184, 56)
+  doc.setFillColor(255, 247, 246)
+  doc.rect(0, 0, 297, 210, 'F')
+  doc.setFillColor(255, 255, 255)
+  doc.setDrawColor(245, 205, 201)
+  doc.roundedRect(10, 8, 277, 18, 4, 4, 'FD')
+  doc.setTextColor(211, 47, 35)
   doc.setFontSize(13)
   doc.text(title, 14, 18)
-  doc.setTextColor(255, 184, 56)
+  doc.setFillColor(211, 47, 35)
+  doc.roundedRect(253, 11, 30, 9, 3, 3, 'F')
+  doc.setTextColor(255, 255, 255)
   doc.setFontSize(9)
-  doc.text('Snapman CM', 258, 18)
-  doc.setTextColor(138, 122, 101)
+  doc.text('Snapman CM', 258, 17.2)
+  doc.setTextColor(123, 90, 86)
   doc.setFontSize(7.5)
-  if (subtitle) doc.text(subtitle, 10, 29)
-  doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 10, subtitle ? 34 : 29)
-  return subtitle ? 39 : 34
+  if (subtitle) doc.text(subtitle, 12, 32)
+  doc.text(`สร้างเมื่อ ${new Date().toLocaleString('th-TH')}`, 12, subtitle ? 37 : 32)
+  return subtitle ? 42 : 37
 }
 function drawStatCards(doc, stats, y) {
   const gap = 3
@@ -247,10 +264,10 @@ function drawStatCards(doc, stats, y) {
     const row = Math.floor(i / cols)
     const x = left + col * (cardW + gap)
     const cardY = y + row * (cardH + gap)
-    doc.setFillColor(255, 251, 240)
-    doc.setDrawColor(239, 226, 199)
-    doc.roundedRect(x, cardY, cardW, cardH, 2, 2, 'FD')
-    doc.setTextColor(138, 122, 101)
+    doc.setFillColor(255, 255, 255)
+    doc.setDrawColor(245, 205, 201)
+    doc.roundedRect(x, cardY, cardW, cardH, 3, 3, 'FD')
+    doc.setTextColor(123, 90, 86)
     doc.setFontSize(6.2)
     doc.text(s.label, x + 2.2, cardY + 4.5)
     doc.setTextColor(...toneColor(s.tone))
@@ -264,24 +281,24 @@ const reportTableOptions = {
     font: 'Sarabun',
     fontSize: 6.9,
     cellPadding: { top: 1.25, right: 1.55, bottom: 1.25, left: 1.55 },
-    lineColor: [240, 232, 216],
+    lineColor: [245, 205, 201],
     lineWidth: 0.1,
     valign: 'top',
     overflow: 'linebreak',
   },
   headStyles: {
-    fillColor: [26, 18, 8],
-    textColor: [255, 184, 56],
+    fillColor: [211, 47, 35],
+    textColor: [255, 255, 255],
     fontStyle: 'normal',
     fontSize: 7,
   },
   footStyles: {
-    fillColor: [255, 247, 230],
-    textColor: [26, 18, 8],
+    fillColor: [255, 241, 239],
+    textColor: [31, 20, 18],
     fontStyle: 'normal',
     fontSize: 7.1,
   },
-  alternateRowStyles: { fillColor: [255, 251, 240] },
+  alternateRowStyles: { fillColor: [255, 248, 247] },
   margin: { left: 10, right: 10 },
   showFoot: 'lastPage',
 }
@@ -294,20 +311,21 @@ const summaryFoot = (columnCount, lines) => [[{
 // ─── Inventory PDF blob ───────────────────────────────────────
 async function buildInventoryPDF(filtered) {
   const { doc, autoTable } = await initPDFDoc()
+  const sorted = sortProductsForStockPDF(filtered)
 
-  const totalCost = filtered.reduce((a,p)=>a+Number(p.total_cost||0),0)
-  const totalSold = filtered.reduce((a,p)=>p.sold_price?a+Number(p.sold_price):a,0)
-  const soldCount = filtered.filter(p=>p.status==='Sold').length
-  const totalProfit = filtered.reduce((a,p)=>p.sold_price?a+(Number(p.sold_price)-Number(p.total_cost||0)):a,0)
-  let startY = drawReportHeader(doc, 'รายงานสต็อกสินค้า', `จำนวน ${filtered.length} รายการ`)
+  const totalCost = sorted.reduce((a,p)=>a+Number(p.total_cost||0),0)
+  const totalSold = sorted.reduce((a,p)=>p.sold_price?a+Number(p.sold_price):a,0)
+  const soldCount = sorted.filter(p=>p.status==='Sold').length
+  const totalProfit = sorted.reduce((a,p)=>p.sold_price?a+(Number(p.sold_price)-Number(p.total_cost||0)):a,0)
+  let startY = drawReportHeader(doc, 'รายงานสต็อกสินค้า', `จำนวน ${sorted.length} รายการ`)
   startY = drawStatCards(doc, [
-    { label: 'จำนวนรายการ', value: `${filtered.length} รายการ` },
+    { label: 'จำนวนรายการ', value: `${sorted.length} รายการ` },
     { label: 'ขายแล้ว', value: `${soldCount} รายการ`, tone: 'in' },
     { label: 'ต้นทุนรวม', value: moneyText(totalCost), tone: 'warn' },
     { label: 'กำไรรวม', value: moneyText(totalProfit), tone: totalProfit >= 0 ? 'in' : 'out' },
   ], startY)
   const head = [['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ']]
-  const body = filtered.map(p => {
+  const body = sorted.map(p => {
     const profit = p.sold_price ? Number(p.sold_price) - Number(p.total_cost) : ''
     return [
       p.model || '', p.serial_number || '', p.category || 'กล้อง',
