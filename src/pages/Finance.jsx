@@ -26,9 +26,11 @@ const CAT_COLOR = {
 const catColor = cat => CAT_COLOR[cat] || 'bg-gray-100 text-gray-600 border-gray-200'
 const TX_BAR   = { 'Sale':'bg-green-400', 'Buy Stock':'bg-red-400', 'Add-on':'bg-yellow-400', 'Trade':'bg-blue-400', 'Shipping':'bg-orange-400' }
 const txBar    = cat => TX_BAR[cat] || 'bg-gray-300'
-const txCardTone = tx => {
-  if (tx.type === 'Income') return 'finance-tx-card-income'
-  if (tx.category === 'Buy Stock') return 'finance-tx-card-buy'
+const txCardTone = item => {
+  if (item?.installment?.hasInstallments) return 'finance-tx-card-installment'
+  if (item?.kind === 'trade' || item?.category === 'Trade') return 'finance-tx-card-trade'
+  if (item.type === 'Income') return 'finance-tx-card-income'
+  if (item.category === 'Buy Stock') return 'finance-tx-card-buy'
   return 'finance-tx-card-other'
 }
 const firstTxImage = tx => tx.images?.[0] || null
@@ -104,7 +106,7 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products},{data:allProducts}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,status,warranty_expiry,payment_method,customer_note,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,sold_price,status,warranty_expiry,payment_method,customer_note,installment_total,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
       supabase.from('products').select('id,model,serial_number,category,total_cost,status,batch_id,notes,created_at'),
@@ -247,7 +249,7 @@ export default function Finance() {
         String(t.amount||'').includes(q)
       )
     : filtered
-  const groupedSearched = buildTransactionGroups(searched)
+  const groupedSearched = buildTransactionGroups(searched, txs)
 
   const activeFilters = selCats.length + selTypes.length + selProdCats.length
   const clearFilters = () => { setSelCats([]); setSelTypes([]); setSelProdCats([]) }
@@ -1098,7 +1100,7 @@ export default function Finance() {
                 const customerNote = groupCustomerNote(group)
                 return (
                   <button key={group.key} {...tap(()=>setTxDetail({__group:true, ...group}))}
-                    className={`finance-tx-card ${txCardTone(tx)} w-full text-left active:opacity-70 transition-opacity touch-manipulation`}>
+                    className={`finance-tx-card ${txCardTone(group)} w-full text-left active:opacity-70 transition-opacity touch-manipulation`}>
                     <div className="flex items-start gap-3">
                       {coverImage && (
                         <img
@@ -1113,6 +1115,11 @@ export default function Finance() {
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${isTrade ? 'bg-blue-100 text-blue-700 border-blue-200' : catColor(tx.category)}`}>
                               {groupKindLabel(group)}
                             </span>
+                            {group.installment?.hasInstallments && (
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 border bg-red-100 text-red-700 border-red-200">
+                                งวดที่ {group.installment.installmentNumber}
+                              </span>
+                            )}
                             {group.paymentLabel && (
                               <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-white/80 text-gray-600 border border-gray-200">
                                 {group.paymentLabel}
@@ -1146,6 +1153,20 @@ export default function Finance() {
                             <p className="pt-1 text-xs text-gray-400">+ อีก {group.lines.length - 4} รายการ</p>
                           )}
                         </div>
+                        {group.installment?.hasInstallments && (
+                          <>
+                            <p className={`text-xs font-semibold mt-1 ${group.installment.isFinalInstallment ? 'text-green-600' : 'text-amber-600'}`}>
+                              {group.installment.isFinalInstallment
+                                ? `จ่ายครบแล้ว (ยอดรวมทั้งหมด ฿${fmt(group.installment.totalDue)})`
+                                : `คงเหลือที่ต้องจ่ายหลังงวดนี้ ฿${fmt(group.installment.remainingAfter)}`}
+                            </p>
+                            {group.installment.installmentNumber > 1 && group.installment.firstPaymentDate && (
+                              <p className="text-xs text-red-500 mt-0.5">
+                                หมายเหตุ: งวดแรกวันที่ {thDate(group.installment.firstPaymentDate)}
+                              </p>
+                            )}
+                          </>
+                        )}
                         {group.kind === 'sale' && customerNote && (
                           <p className="text-xs text-blue-500 truncate mt-1">👤 {customerNote}</p>
                         )}
@@ -1287,9 +1308,16 @@ export default function Finance() {
 
             {/* header */}
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-amber-100 dark:border-white/10 flex-shrink-0">
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${catColor(txDetail.category)}`}>
-                {txDetail.__group ? groupKindLabel(txDetail) : txDetail.category === 'Trade' ? '🔄 Trade' : txDetail.category}
-              </span>
+              <div className="flex flex-wrap items-center gap-1.5">
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${catColor(txDetail.category)}`}>
+                  {txDetail.__group ? groupKindLabel(txDetail) : txDetail.category === 'Trade' ? '🔄 Trade' : txDetail.category}
+                </span>
+                {txDetail.__group && txDetail.installment?.hasInstallments && (
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-red-100 text-red-700 border-red-200">
+                    งวดที่ {txDetail.installment.installmentNumber}
+                  </span>
+                )}
+              </div>
               <p className={`text-lg font-bold ${txDetail.type==='Income'?'text-green-600':'text-brand-red'}`}>
                 {txDetail.type==='Income'?'+':'-'}฿{fmt(txDetail.__group ? txDetail.totalAmount : txDetail.amount)}
               </p>
@@ -1334,6 +1362,36 @@ export default function Finance() {
                 <div className="bg-blue-50 rounded-xl px-3 py-2">
                   <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
                   <p className="text-sm text-blue-700">{groupCustomerNote(txDetail)}</p>
+                </div>
+              )}
+              {txDetail.__group && txDetail.installment?.hasInstallments && (
+                <div className="finance-detail-panel rounded-xl px-3 py-2.5">
+                  <p className="text-xs text-gray-600 font-semibold mb-1.5">สถานะการชำระ</p>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <p className="text-xs text-green-500">จ่ายงวดนี้</p>
+                      <p className="font-semibold text-sm text-green-600">฿{fmt(txDetail.installment.paidThisRound)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-blue-400">จ่ายสะสม</p>
+                      <p className="font-semibold text-sm text-blue-600">฿{fmt(txDetail.installment.paidSoFar)}</p>
+                    </div>
+                    <div>
+                      <p className={`text-xs ${txDetail.installment.isFinalInstallment ? 'text-green-500' : 'text-amber-500'}`}>
+                        {txDetail.installment.isFinalInstallment ? 'สถานะ' : 'คงเหลือ'}
+                      </p>
+                      <p className={`font-semibold text-sm ${txDetail.installment.isFinalInstallment ? 'text-green-600' : 'text-amber-600'}`}>
+                        {txDetail.installment.isFinalInstallment
+                          ? `จ่ายครบแล้ว ฿${fmt(txDetail.installment.totalDue)}`
+                          : `฿${fmt(txDetail.installment.remainingAfter)}`}
+                      </p>
+                    </div>
+                  </div>
+                  {txDetail.installment.installmentNumber > 1 && txDetail.installment.firstPaymentDate && (
+                    <p className="text-xs text-red-500 mt-2">
+                      หมายเหตุ: งวดแรกวันที่ {thDate(txDetail.installment.firstPaymentDate)}
+                    </p>
+                  )}
                 </div>
               )}
               {!txDetail.__group && txDetail.products?.model && (

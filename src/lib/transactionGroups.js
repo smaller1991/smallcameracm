@@ -11,7 +11,13 @@ export const txProductCost = tx => (
 
 export const transactionGroupKey = tx => {
   if (SALE_GROUP_CATEGORIES.has(tx.category) && tx.products?.sale_batch_id) {
-    return `sale:${tx.products.sale_batch_id}`
+    const paymentEvent = [
+      tx.date || '',
+      tx.payment_method || '',
+      tx.bank_amount || '',
+      tx.cash_amount || '',
+    ].join(':')
+    return `sale:${tx.products.sale_batch_id}:${paymentEvent}`
   }
   if (PURCHASE_GROUP_CATEGORIES.has(tx.category) && tx.products?.batch_id) {
     return `purchase:${tx.products.batch_id}`
@@ -39,6 +45,83 @@ export const groupPaymentLabel = txs => {
   return methods.length ? methods.join(', ') : ''
 }
 
+const saleProductKey = tx => tx.product_id || tx.products?.id || tx.id
+
+const saleProductTotal = tx => num(tx.products?.installment_total || tx.products?.sold_price || tx.amount)
+
+const saleBatchTotal = txs => {
+  const seen = new Set()
+  return txs.reduce((sum, tx) => {
+    const key = saleProductKey(tx)
+    if (seen.has(key)) return sum
+    seen.add(key)
+    return sum + saleProductTotal(tx)
+  }, 0)
+}
+
+const buildSaleInstallmentMeta = (groups, allTxs) => {
+  const txsByInstallment = (allTxs || []).reduce((map, tx) => {
+    const batchId = tx.products?.sale_batch_id
+    const productId = tx.product_id || tx.products?.id
+    if (!SALE_GROUP_CATEGORIES.has(tx.category)) return map
+    if (!batchId && !tx.products?.installment_total) return map
+    const installmentKey = batchId ? `batch:${batchId}` : `product:${productId}`
+    if (!map.has(installmentKey)) map.set(installmentKey, [])
+    map.get(installmentKey).push(tx)
+    return map
+  }, new Map())
+
+  const metaByKey = new Map()
+  for (const [installmentKey, installmentTxs] of txsByInstallment.entries()) {
+    const paymentGroups = new Map()
+    const paymentOrder = []
+    for (const tx of installmentTxs) {
+      const key = transactionGroupKey(tx)
+      if (!paymentGroups.has(key)) {
+        paymentGroups.set(key, { key, txs: [], date: tx.date })
+        paymentOrder.push(key)
+      }
+      const paymentGroup = paymentGroups.get(key)
+      paymentGroup.txs.push(tx)
+      if (new Date(tx.date || 0) < new Date(paymentGroup.date || 0)) paymentGroup.date = tx.date
+    }
+
+    const totalDue = installmentKey.startsWith('batch:')
+      ? saleBatchTotal(installmentTxs)
+      : saleProductTotal(installmentTxs[0])
+    let paidSoFar = 0
+    let firstPaymentDate = null
+    paymentOrder
+      .map(key => paymentGroups.get(key))
+      .sort((a, b) => new Date(a.date || 0) - new Date(b.date || 0))
+      .forEach((paymentGroup, index) => {
+        if (index === 0) firstPaymentDate = paymentGroup.date
+        const paidThisRound = paymentGroup.txs.reduce((sum, tx) => sum + num(tx.amount), 0)
+        paidSoFar += paidThisRound
+        const remainingAfter = Math.max(0, totalDue - paidSoFar)
+        metaByKey.set(paymentGroup.key, {
+          installmentKey,
+          installmentNumber: index + 1,
+          paidThisRound,
+          paidSoFar,
+          totalDue,
+          remainingAfter,
+          firstPaymentDate,
+          isFinalInstallment: totalDue > 0 && remainingAfter <= 0,
+          hasInstallments: paymentOrder.length > 1 || remainingAfter > 0,
+        })
+      })
+  }
+
+  return groups.reduce((map, group) => {
+    if (group.kind === 'sale') {
+      const meta = metaByKey.get(group.key)
+      if (meta) map[group.key] = meta
+    }
+    return map
+  }, {})
+}
+
 export const groupLineItems = group => {
   if (group.kind === 'purchase') {
     const batchItems = group.txs[0]?.products?.batch_items || []
@@ -63,8 +146,8 @@ export const groupLineItems = group => {
     category: tx.products?.category || '',
     amount: num(tx.amount),
     cost: txProductCost(tx),
-    profit: tx.category === 'Sale' && tx.products?.total_cost != null
-      ? num(tx.amount) - num(tx.products.total_cost)
+    profit: tx.category === 'Sale' && tx.products?.total_cost != null && (!group.installment || group.installment.isFinalInstallment)
+      ? saleProductTotal(tx) - num(tx.products.total_cost)
       : tx.category === 'Trade' && tx.trade_profit_a != null
       ? num(tx.trade_profit_a)
       : null,
@@ -72,7 +155,7 @@ export const groupLineItems = group => {
   }))
 }
 
-export const buildTransactionGroups = txs => {
+export const buildTransactionGroups = (txs, allTxs = txs) => {
   const map = new Map()
   const order = []
 
@@ -83,6 +166,8 @@ export const buildTransactionGroups = txs => {
         ? 'sale'
         : key.startsWith('purchase:')
         ? 'purchase'
+        : tx.category === 'Sale'
+        ? 'sale'
         : tx.category === 'Trade'
         ? 'trade'
         : 'single'
@@ -99,7 +184,7 @@ export const buildTransactionGroups = txs => {
     map.get(key).txs.push(tx)
   }
 
-  return order.map(key => {
+  const groups = order.map(key => {
     const group = map.get(key)
     const representative = group.txs[0]
     const balanceTx = group.txs.reduce((latest, tx) => (
@@ -124,6 +209,22 @@ export const buildTransactionGroups = txs => {
       isGrouped,
       title: groupKindLabel({ ...group, itemCount }),
       paymentLabel: groupPaymentLabel(group.txs),
+    }
+  })
+
+  const installmentMeta = buildSaleInstallmentMeta(groups, allTxs)
+
+  return groups.map(group => {
+    const installment = installmentMeta[group.key] || null
+    const lines = groupLineItems({ ...group, installment })
+    const itemCount = Math.max(lines.length, group.txs.length)
+    return {
+      ...group,
+      lines,
+      itemCount,
+      isGrouped: group.isGrouped || Boolean(installment?.hasInstallments),
+      title: groupKindLabel({ ...group, itemCount }),
+      installment,
     }
   })
 }

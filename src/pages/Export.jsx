@@ -623,6 +623,17 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
         </td>
       </tr>
     </tfoot>` : ''
+  const footnotes = options.footnotes || []
+  const footnotesHtml = footnotes.length ? `
+    <section class="footnotes">
+      <h2>คำอธิบายหมายเหตุท้ายรายงาน</h2>
+      ${footnotes.map(note => `
+        <div class="footnote-item">
+          <div class="footnote-title">${escapeHtml(note.title)}</div>
+          <div class="footnote-body">${escapeHtml(note.body)}</div>
+        </div>
+      `).join('')}
+    </section>` : ''
   const statsClass = options.statsColumns ? `stats cols-${options.statsColumns}` : 'stats'
   const statsHtml = (options.stats || []).length ? `
     <section class="${statsClass}">
@@ -663,6 +674,12 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
     td.num{text-align:right;font-weight:700;white-space:normal}
     .summary-cell{font-weight:400!important;text-align:left!important;background:#fff1ef;color:#1F1412;font-size:8.1px;line-height:1.45;padding-left:7px!important;padding-right:7px!important}
     .summary-cell span{display:inline-block;margin-right:14px;white-space:nowrap}
+    .footnotes{margin-top:10px;border:1px solid rgba(211,47,35,.14);border-radius:18px;background:#fffaf9;overflow:hidden;break-inside:avoid;page-break-inside:avoid}
+    .footnotes h2{margin:0;padding:7px 9px;background:#fff1ef;color:#1F1412;font-size:10px;border-bottom:1px solid rgba(211,47,35,.12)}
+    .footnote-item{padding:7px 9px;border-bottom:1px solid rgba(211,47,35,.08)}
+    .footnote-item:last-child{border-bottom:0}
+    .footnote-title{font-size:8.5px;font-weight:800;color:#D32F23;margin-bottom:3px}
+    .footnote-body{font-size:8px;line-height:1.45;color:#1F1412;white-space:pre-wrap;overflow-wrap:anywhere}
     tr:nth-child(even){background:#fff8f7}
     tr:last-child td{border-bottom:0}
     thead{display:table-header-group}
@@ -691,6 +708,7 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
     <section class="table-wrap">
       <table>${colgroupHtml}<thead><tr>${headerHtml}</tr></thead><tbody>${rowsHtml}</tbody>${summaryHtml}</table>
     </section>
+    ${footnotesHtml}
   </main>
   </body></html>`)
   w.document.close()
@@ -751,9 +769,17 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
   const totalExpense = filtered.filter(t=>t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
   const DEDUCT = new Set(['Shipping','Marketing','Operating','Other'])
   const popupCounted = new Set()
+  const saleInstallmentGroups = buildTransactionGroups(txs, txs).filter(group => group.kind === 'sale' && group.installment?.hasInstallments)
+  const installmentSaleTxIds = new Set(saleInstallmentGroups.flatMap(group => group.txs.map(tx => tx.id)))
+  const finalInstallmentSaleTxIds = new Set(
+    saleInstallmentGroups
+      .filter(group => group.installment?.isFinalInstallment)
+      .flatMap(group => group.txs.map(tx => tx.id))
+  )
   const plValues = filtered.map(t=>{
     if (t.category==='Sale'&&t.products?.total_cost!=null) {
       if (!t.products?.installment_total) return Number(t.amount)-Number(t.products.total_cost)
+      if (installmentSaleTxIds.has(t.id) && !finalInstallmentSaleTxIds.has(t.id)) return null
       if (t.products?.status==='Sold'&&!popupCounted.has(t.product_id)) {
         popupCounted.add(t.product_id)
         return Number(t.products.installment_total)-Number(t.products.total_cost)
@@ -771,7 +797,10 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
     map[tx.id] = plValues[index]
     return map
   }, {})
-  const groups = buildTransactionGroups(filtered)
+  const groups = buildTransactionGroups(filtered, txs)
+  const footnotes = []
+  const LONG_GROUP_NOTE_LIMIT = 90
+  const LONG_GROUP_DETAIL_LIMIT = 120
   const rows = groups.map(group => {
     const t = group.representative
     const balanceTx = group.balanceTx || t
@@ -789,6 +818,24 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
     const noteLines = group.txs
       .map(tx => tx.note)
       .filter(Boolean)
+    const uniqueNote = [...new Set(noteLines)].join('\n')
+    const shouldMoveDetailToFootnote = group.kind === 'sale' && group.itemCount > 1 && detailLines.length > LONG_GROUP_DETAIL_LIMIT
+    const shouldMoveNoteToFootnote = group.kind === 'sale' && group.itemCount > 1 && uniqueNote.length > LONG_GROUP_NOTE_LIMIT
+    let tableDetail = detailLines
+    let tableNote = uniqueNote
+    if (shouldMoveDetailToFootnote || shouldMoveNoteToFootnote) {
+      const ref = `หมายเหตุ ${footnotes.length + 1}`
+      const refText = `ดู${ref}ท้ายรายงาน`
+      if (shouldMoveDetailToFootnote) tableDetail = refText
+      if (shouldMoveNoteToFootnote) tableNote = refText
+      footnotes.push({
+        title: `${ref}: ${groupKindLabel(group)} · ${thDate(t.date)} · ฿${fmt(group.totalAmount)}`,
+        body: [
+          shouldMoveDetailToFootnote ? `รายการสินค้า:\n${detailLines}` : '',
+          shouldMoveNoteToFootnote ? `หมายเหตุ:\n${uniqueNote}` : '',
+        ].filter(Boolean).join('\n\n'),
+      })
+    }
     const stockCost = group.lines.reduce((sum, item) => sum + Number(item.cost || 0), 0)
     return [
       thDate(t.date),
@@ -798,11 +845,11 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
       t.type === 'Income' ? `฿${fmt(group.totalAmount)}` : '',
       t.type === 'Expense' ? `฿${fmt(group.totalAmount)}` : '',
       hasPl ? `฿${fmt(groupPl)}` : '',
-      detailLines,
+      tableDetail,
       t.products?.created_at ? thDate(t.products.created_at) : '',
       stockCost ? `฿${fmt(stockCost)}` : '',
       [...new Set(customerLines)].join('\n'),
-      [...new Set(noteLines)].join('\n'),
+      tableNote,
       bal ? `฿${fmt(bal.bank)}` : '',
       bal ? `฿${fmt(bal.cash)}` : '',
       `฿${fmt(stockMap[balanceTx.id])}`,
@@ -814,6 +861,7 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
     numericCols: [3,4,5,6,9,12,13,14],
     colWidths: ['6%','4%','5.5%','5.8%','5.8%','5.8%','6%','7%','6%','5.2%','12.5%','10%','6.8%','6.8%','6.8%'],
     statsColumns: 4,
+    footnotes,
     summaryLines: [
       `รวมรายรับ ฿${fmt(totalIncome)}`,
       `รวมรายจ่าย ฿${fmt(totalExpense)}`,

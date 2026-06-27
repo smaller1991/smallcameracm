@@ -271,6 +271,20 @@
   border-color: rgba(211, 47, 35, .2) !important;
 }
 
+.finance-tx-card-installment {
+  background:
+    radial-gradient(circle at 16% 0%, rgba(255,255,255,.9), transparent 42%),
+    linear-gradient(135deg, rgba(252,248,255,.96), rgba(237,225,255,.84)) !important;
+  border-color: rgba(147, 51, 234, .22) !important;
+}
+
+.finance-tx-card-trade {
+  background:
+    radial-gradient(circle at 16% 0%, rgba(255,255,255,.9), transparent 42%),
+    linear-gradient(135deg, rgba(247,252,255,.96), rgba(219,238,255,.84)) !important;
+  border-color: rgba(37, 99, 235, .2) !important;
+}
+
 .finance-tx-card-other {
   background:
     radial-gradient(circle at 16% 0%, rgba(255,255,255,.9), transparent 42%),
