@@ -5,6 +5,7 @@ import { exportInventory, exportTransactions, exportInventoryWithImages, exportT
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Download, Package, FileText, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
+import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
 
 // ─── Import helpers ────────────────────────────────────────────
 function parseThDate(val) {
@@ -149,9 +150,15 @@ const withPurchaseBatchTotals = (txs, products) => {
     if (p.batch_id) map[p.batch_id] = (map[p.batch_id] || 0) + Number(p.total_cost || 0)
     return map
   }, {})
+  const batchItems = (products || []).reduce((map, p) => {
+    if (!p.batch_id) return map
+    if (!map[p.batch_id]) map[p.batch_id] = []
+    map[p.batch_id].push(p)
+    return map
+  }, {})
   return (txs || []).map(t => (
     t.products?.batch_id
-      ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0) } }
+      ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0), batch_items: batchItems[t.products.batch_id] || [] } }
       : t
   ))
 }
@@ -226,9 +233,9 @@ export default function Export() {
     setBusy(true); setTxImgProgress(null)
     try {
       const [{ data }, { data: balData }, { data: stockData }] = await Promise.all([
-        supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status,batch_id)').order('date',{ascending:false}),
+        supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
         supabase.from('balances').select('bank,cash').eq('id','main').single(),
-        supabase.from('products').select('total_cost,status,batch_id'),
+        supabase.from('products').select('id,model,serial_number,category,total_cost,status,batch_id,notes,created_at'),
       ])
       const txData = withPurchaseBatchTotals(data || [], stockData || [])
       const balance = balData ? { bank: Number(balData.bank||0), cash: Number(balData.cash||0) } : null
@@ -760,25 +767,50 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
   const totalProfit = plValues.reduce((a,v)=>v!=null?a+v:a,0)
   const deductions  = filtered.filter(t=>t.type==='Expense'&&DEDUCT.has(t.category)).reduce((a,t)=>a+Number(t.amount),0)
   const grossProfit = totalProfit + deductions
-  const rows = filtered.map((t,i)=>{
-    const pl=plValues[i]
-    const bal=balMap[t.id]
-    const custCell = t.category==='Sale'?(t.products?.customer_note||''):''
-    const stockCost = t.category === 'Buy Stock'
-      ? Number(t.products?.batch_total_cost || t.products?.total_cost || 0)
-      : Number(t.products?.total_cost || 0)
-    return [thDate(t.date),t.type==='Income'?'รายรับ':'รายจ่าย',t.category,`฿${fmt(t.amount)}`,
-            t.type==='Income'?`฿${fmt(t.amount)}`:'',t.type==='Expense'?`฿${fmt(t.amount)}`:'',
-            pl!=null?`฿${fmt(pl)}`:'',t.products?.model||'',
-            t.products?.created_at?thDate(t.products.created_at):'',
-            stockCost?`฿${fmt(stockCost)}`:'',
-            custCell,t.note||'',
-            bal?`฿${fmt(bal.bank)}`:'',bal?`฿${fmt(bal.cash)}`:'',
-            `฿${fmt(stockMap[t.id])}`]
+  const plById = filtered.reduce((map, tx, index) => {
+    map[tx.id] = plValues[index]
+    return map
+  }, {})
+  const groups = buildTransactionGroups(filtered)
+  const rows = groups.map(group => {
+    const t = group.representative
+    const balanceTx = group.balanceTx || t
+    const bal = balMap[balanceTx.id]
+    const groupPl = group.txs.reduce((sum, tx) => (
+      plById[tx.id] != null ? sum + Number(plById[tx.id]) : sum
+    ), 0)
+    const hasPl = group.txs.some(tx => plById[tx.id] != null)
+    const detailLines = group.lines.map((item, index) => (
+      `${index + 1}. ${item.model || item.note || group.category}${item.serial ? ` SN:${item.serial}` : ''} ฿${fmt(item.amount)}${item.profit != null ? ` | กำไร ${item.profit >= 0 ? '+' : '-'}฿${fmt(Math.abs(item.profit))}` : ''}`
+    )).join('\n')
+    const customerLines = group.txs
+      .map(tx => tx.category === 'Sale' ? tx.products?.customer_note : '')
+      .filter(Boolean)
+    const noteLines = group.txs
+      .map(tx => tx.note)
+      .filter(Boolean)
+    const stockCost = group.lines.reduce((sum, item) => sum + Number(item.cost || 0), 0)
+    return [
+      thDate(t.date),
+      t.type === 'Income' ? 'รายรับ' : 'รายจ่าย',
+      groupKindLabel(group),
+      `฿${fmt(group.totalAmount)}`,
+      t.type === 'Income' ? `฿${fmt(group.totalAmount)}` : '',
+      t.type === 'Expense' ? `฿${fmt(group.totalAmount)}` : '',
+      hasPl ? `฿${fmt(groupPl)}` : '',
+      detailLines,
+      t.products?.created_at ? thDate(t.products.created_at) : '',
+      stockCost ? `฿${fmt(stockCost)}` : '',
+      [...new Set(customerLines)].join('\n'),
+      [...new Set(noteLines)].join('\n'),
+      bal ? `฿${fmt(bal.bank)}` : '',
+      bal ? `฿${fmt(bal.cash)}` : '',
+      `฿${fmt(stockMap[balanceTx.id])}`,
+    ]
   })
   const period = from || to ? `${from || 'เริ่มต้น'} ถึง ${to || 'ล่าสุด'}` : 'ทั้งหมด'
   makePDF('รายงานรายการบัญชี',['วันที่','ประเภท','หมวดหมู่','จำนวน','รายรับ','รายจ่าย','กำไรขาดทุน','รุ่นกล้อง','วันที่ซื้อ','ต้นทุน','รายละเอียดลูกค้า','หมายเหตุ','ธนาคารคงเหลือ','เงินสดคงเหลือ','สต๊อกคงเหลือ'],rows,previewWindow,{
-    subtitle: `ช่วงรายงาน: ${period} · ${filtered.length} รายการ`,
+    subtitle: `ช่วงรายงาน: ${period} · ${groups.length} รายการ${groups.length !== filtered.length ? ` (${filtered.length} ธุรกรรม)` : ''}`,
     numericCols: [3,4,5,6,9,12,13,14],
     colWidths: ['6%','4%','5.5%','5.8%','5.8%','5.8%','6%','7%','6%','5.2%','12.5%','10%','6.8%','6.8%','6.8%'],
     statsColumns: 4,

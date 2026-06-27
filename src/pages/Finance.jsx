@@ -7,6 +7,7 @@ import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
+import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
@@ -103,18 +104,24 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products},{data:allProducts}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,category,total_cost,status,warranty_expiry,payment_method,customer_note,batch_id)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,status,warranty_expiry,payment_method,customer_note,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
-      supabase.from('products').select('total_cost,status,batch_id'),
+      supabase.from('products').select('id,model,serial_number,category,total_cost,status,batch_id,notes,created_at'),
     ])
     const batchTotals = (allProducts||[]).reduce((map, p) => {
       if (p.batch_id) map[p.batch_id] = (map[p.batch_id] || 0) + Number(p.total_cost || 0)
       return map
     }, {})
+    const batchItems = (allProducts||[]).reduce((map, p) => {
+      if (!p.batch_id) return map
+      if (!map[p.batch_id]) map[p.batch_id] = []
+      map[p.batch_id].push(p)
+      return map
+    }, {})
     const txsWithBatchTotals = (txData||[]).map(t => (
       t.products?.batch_id
-        ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0) } }
+        ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0), batch_items: batchItems[t.products.batch_id] || [] } }
         : t
     ))
     setTxs(txsWithBatchTotals)
@@ -240,6 +247,7 @@ export default function Finance() {
         String(t.amount||'').includes(q)
       )
     : filtered
+  const groupedSearched = buildTransactionGroups(searched)
 
   const activeFilters = selCats.length + selTypes.length + selProdCats.length
   const clearFilters = () => { setSelCats([]); setSelTypes([]); setSelProdCats([]) }
@@ -339,6 +347,24 @@ export default function Finance() {
     }
     await supabase.from('balances').update({ bank, cash, updated_at: new Date().toISOString() }).eq('id','main')
   }
+  const revertBalance = async (type, method, amount, bAmt, cAmt) => {
+    if (!method) return
+    const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id', 'main').single()
+    if (!bal) return
+    let upd = {}
+    if (method === 'แบ่งจ่าย') {
+      const b = Number(bAmt || 0), c = Number(cAmt || 0)
+      if (type === 'Income') upd = { bank: Math.max(0, Number(bal.bank) - b), cash: Math.max(0, Number(bal.cash) - c) }
+      else upd = { bank: Number(bal.bank) + b, cash: Number(bal.cash) + c }
+    } else if (type === 'Income') {
+      if (method === 'โอน') upd = { bank: Math.max(0, Number(bal.bank) - amount) }
+      else upd = { cash: Math.max(0, Number(bal.cash) - amount) }
+    } else {
+      if (method === 'โอน') upd = { bank: Number(bal.bank) + amount }
+      else upd = { cash: Number(bal.cash) + amount }
+    }
+    await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', 'main')
+  }
 
   const save = async () => {
     if (form.payment_method === 'แบ่งจ่าย') {
@@ -418,25 +444,6 @@ export default function Finance() {
       label,
       onUndo: () => setTxs(snap),
       onCommit: async () => {
-        const revertBalance = async (type, method, amount, bAmt, cAmt) => {
-          if (!method) return
-          const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id', 'main').single()
-          if (!bal) return
-          let upd = {}
-          if (method === 'แบ่งจ่าย') {
-            const b = Number(bAmt || 0), c = Number(cAmt || 0)
-            if (type === 'Income') upd = { bank: Math.max(0, Number(bal.bank) - b), cash: Math.max(0, Number(bal.cash) - c) }
-            else upd = { bank: Number(bal.bank) + b, cash: Number(bal.cash) + c }
-          } else if (type === 'Income') {
-            if (method === 'โอน') upd = { bank: Math.max(0, Number(bal.bank) - amount) }
-            else upd = { cash: Math.max(0, Number(bal.cash) - amount) }
-          } else {
-            if (method === 'โอน') upd = { bank: Number(bal.bank) + amount }
-            else upd = { cash: Number(bal.cash) + amount }
-          }
-          await supabase.from('balances').update({ ...upd, updated_at: new Date().toISOString() }).eq('id', 'main')
-        }
-
         if (willRevertSale) {
           await supabase.from('products').update({
             status: 'Available', sold_price: null, sold_date: null,
@@ -460,8 +467,74 @@ export default function Finance() {
     })
   }
 
-  const cancelTrade = async tx => {
+  const delGroup = async (group, onConfirmed) => {
+    if (group.kind === 'trade') return cancelTrade(group.representative, onConfirmed)
+
+    const isPurchase = group.kind === 'purchase'
+    const isSale = group.kind === 'sale'
+    const msg = isPurchase
+      ? `ย้อนกลับ${groupKindLabel(group)}?\n⚠️ สินค้าในกลุ่ม ${group.itemCount} รายการจะถูกลบออกจากสต็อก\n• ยอดเงินจะถูกคืนอัตโนมัติ`
+      : isSale
+      ? `ย้อนกลับ${groupKindLabel(group)}?\n• สินค้าในกลุ่ม ${group.itemCount} รายการจะกลับเป็นพร้อมขาย\n• ยอดเงินจะถูกคืนอัตโนมัติ`
+      : `ย้อนกลับ${groupKindLabel(group)}?\n• ยอดเงินจะถูกคืนอัตโนมัติ`
+    if (!confirm(msg)) return
+    onConfirmed?.()
+
+    const snap = txs
+    const groupIds = new Set(group.txs.map(tx => tx.id))
+    setTxs(prev => prev.filter(tx => !groupIds.has(tx.id)))
+
+    scheduleDelete({
+      label: groupKindLabel(group),
+      onUndo: () => setTxs(snap),
+      onCommit: async () => {
+        if (isPurchase) {
+          const productIds = [...new Set(group.lines.map(item => item.id).filter(Boolean))]
+          for (const tx of group.txs) {
+            await revertBalance(tx.type, tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
+          }
+          if (productIds.length) {
+            await supabase.from('transactions').delete().in('product_id', productIds)
+            for (const productId of productIds) await deleteAllProductImages(supabase, productId)
+            await supabase.from('products').delete().in('id', productIds)
+          } else {
+            await supabase.from('transactions').delete().in('id', group.txs.map(tx => tx.id))
+          }
+          load(); return
+        }
+
+        if (isSale) {
+          for (const tx of group.txs) {
+            if (tx.product_id) {
+              await supabase.from('products').update({
+                status: 'Available',
+                sold_price: null,
+                sold_date: null,
+                payment_method: null,
+                warranty_expiry: null,
+                installment_total: null,
+                installment_paid: null,
+                sale_batch_id: null,
+              }).eq('id', tx.product_id)
+            }
+            await revertBalance(tx.type, tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
+            await supabase.from('transactions').delete().eq('id', tx.id)
+          }
+          load(); return
+        }
+
+        for (const tx of group.txs) {
+          await revertBalance(tx.type, tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
+          await supabase.from('transactions').delete().eq('id', tx.id)
+        }
+        load()
+      },
+    })
+  }
+
+  const cancelTrade = async (tx, onConfirmed) => {
     if (!confirm('ยกเลิกการแลกเปลี่ยนนี้?\n• สินค้า A จะกลับมาเป็นพร้อมขาย\n• สินค้า B จะถูกลบออกจากสต็อก')) return
+    onConfirmed?.()
     try {
       // หา product B จาก trade_ref_id ของ product A
       const { data: pA } = await supabase.from('products').select('trade_ref_id').eq('id', tx.product_id).single()
@@ -859,7 +932,7 @@ export default function Finance() {
       </div>
 
       <div className="px-4 py-3 flex justify-between items-center border-b border-amber-100">
-        <p className="text-sm text-gray-500">{searched.length} รายการ</p>
+        <p className="text-sm text-gray-500">{groupedSearched.length} รายการ{searched.length !== groupedSearched.length ? ` (${searched.length} ธุรกรรม)` : ''}</p>
         <button onClick={openAdd} className="btn-primary px-3 py-1.5 text-sm flex items-center gap-1">
           <Plus size={15}/>เพิ่มรายการ
         </button>
@@ -980,13 +1053,84 @@ export default function Finance() {
         ? <div className="flex justify-center pt-12"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
         : <div className="px-4 pb-4 space-y-2 mt-2">
             {searched.length===0 && <div className="text-center pt-16 text-gray-400"><div className="text-5xl mb-3">💰</div>ไม่มีรายการในช่วงนี้</div>}
-            {searched.map(tx=>{
+            {groupedSearched.map(group=>{
+              const tx = group.representative
               const profit = tx.category==='Sale' && tx.products?.total_cost!=null
                 ? Number(tx.amount)-Number(tx.products.total_cost) : null
               const warrantyDays = tx.category==='Sale' && tx.products?.warranty_expiry
                 ? Math.ceil((new Date(tx.products.warranty_expiry)-new Date())/86400000) : null
               const isTrade = tx.category === 'Trade'
-              const coverImage = firstTxImage(tx)
+              const coverImage = firstTxImage(group.coverTx)
+
+              if (group.isGrouped) {
+                const groupProfit = group.lines.reduce((sum, item) => item.profit != null ? sum + Number(item.profit) : sum, 0)
+                const hasProfit = group.lines.some(item => item.profit != null)
+                const balanceAnchor = group.balanceTx
+                return (
+                  <button key={group.key} {...tap(()=>setTxDetail({__group:true, ...group}))}
+                    className={`finance-tx-card ${txCardTone(tx)} w-full text-left active:opacity-70 transition-opacity touch-manipulation`}>
+                    <div className="flex items-start gap-3">
+                      {coverImage && (
+                        <img
+                          src={coverImage}
+                          className="finance-tx-thumb"
+                          onClick={e=>{e.stopPropagation();setLightbox({imgs:group.coverTx.images,idx:0})}}
+                        />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-wrap gap-1 flex-1">
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${isTrade ? 'bg-blue-100 text-blue-700 border-blue-200' : catColor(tx.category)}`}>
+                              {groupKindLabel(group)}
+                            </span>
+                            {group.paymentLabel && (
+                              <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-white/80 text-gray-600 border border-gray-200">
+                                {group.paymentLabel}
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className={`text-sm font-bold ${tx.type==='Income'?'text-green-600':'text-brand-red'}`}>
+                              {tx.type==='Income'?'+':'-'}฿{fmt(group.totalAmount)}
+                            </p>
+                            {hasProfit && (
+                              <p className={`text-xs font-semibold ${groupProfit>=0?'text-green-500':'text-red-500'}`}>
+                                {groupProfit>=0?'📈+':'📉'}฿{fmt(Math.abs(groupProfit))}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="mt-2 divide-y divide-black/5">
+                          {group.lines.slice(0, 4).map((item, index) => (
+                            <div key={item.id || index} className="py-1 flex items-center justify-between gap-2">
+                              <p className="text-xs text-brand-dark/75 truncate">
+                                {index + 1}. {item.model || item.note || tx.category}
+                                {item.serial ? ` SN:${item.serial}` : ''}
+                              </p>
+                              <p className={`text-xs font-semibold flex-shrink-0 ${tx.type==='Income'?'text-green-600':'text-brand-red'}`}>
+                                ฿{fmt(item.amount)}
+                              </p>
+                            </div>
+                          ))}
+                          {group.lines.length > 4 && (
+                            <p className="pt-1 text-xs text-gray-400">+ อีก {group.lines.length - 4} รายการ</p>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-300 mt-1">{thDate(tx.date)}</p>
+                        {balMap[balanceAnchor.id] && (
+                          <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1" style={{color:'#555'}}>
+                            <span className="text-xs font-medium">💳 ฿{fmt(balMap[balanceAnchor.id].bank)}</span>
+                            <span className="text-xs font-medium">💵 ฿{fmt(balMap[balanceAnchor.id].cash)}</span>
+                            {stockMap[balanceAnchor.id] != null && (
+                              <span className="text-xs font-medium">📦 ฿{fmt(stockMap[balanceAnchor.id])}</span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </button>
+                )
+              }
 
               // Trade transaction — แสดงแบบพิเศษสีน้ำเงิน
               if (isTrade) {
@@ -1111,17 +1255,49 @@ export default function Finance() {
             {/* header */}
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-amber-100 dark:border-white/10 flex-shrink-0">
               <span className={`text-xs font-semibold px-2.5 py-1 rounded-full border ${catColor(txDetail.category)}`}>
-                {txDetail.category === 'Trade' ? '🔄 Trade' : txDetail.category}
+                {txDetail.__group ? groupKindLabel(txDetail) : txDetail.category === 'Trade' ? '🔄 Trade' : txDetail.category}
               </span>
               <p className={`text-lg font-bold ${txDetail.type==='Income'?'text-green-600':'text-brand-red'}`}>
-                {txDetail.type==='Income'?'+':'-'}฿{fmt(txDetail.amount)}
+                {txDetail.type==='Income'?'+':'-'}฿{fmt(txDetail.__group ? txDetail.totalAmount : txDetail.amount)}
               </p>
               <button onClick={()=>setTxDetail(null)} className="text-gray-400 p-1"><X size={18}/></button>
             </div>
 
             {/* body */}
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
-              {txDetail.products?.model && (
+              {txDetail.__group && (
+                <div>
+                  <p className="text-xs text-gray-500 font-semibold mb-1.5">รายละเอียดในรายการนี้</p>
+                  <div className="finance-detail-panel rounded-xl overflow-hidden">
+                    {txDetail.lines.map((item, index) => (
+                      <div key={item.id || index} className="px-3 py-2 border-b border-amber-100/70 last:border-b-0">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-brand-dark truncate">
+                              {index + 1}. {item.model || item.note || txDetail.category}
+                            </p>
+                            <p className="text-xs text-gray-500 truncate">
+                              {[item.serial ? `SN:${item.serial}` : '', item.category].filter(Boolean).join(' · ')}
+                            </p>
+                          </div>
+                          <div className="text-right flex-shrink-0">
+                            <p className={`text-sm font-bold ${txDetail.type==='Income'?'text-green-600':'text-brand-red'}`}>฿{fmt(item.amount)}</p>
+                            {item.profit != null && (
+                              <p className={`text-xs font-semibold ${item.profit>=0?'text-green-500':'text-red-500'}`}>
+                                {item.profit>=0?'+':'-'}฿{fmt(Math.abs(item.profit))}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        {item.note && txDetail.kind !== 'purchase' && (
+                          <p className="text-xs text-gray-400 mt-1 line-clamp-2">{item.note}</p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {!txDetail.__group && txDetail.products?.model && (
                 <div>
                   <p className="text-xs text-gray-500 font-semibold">สินค้า</p>
                   <p className="font-bold text-brand-dark">
@@ -1148,45 +1324,47 @@ export default function Finance() {
                   </div>
                 )}
               </div>
-              {txDetail.note && (
+              {!txDetail.__group && txDetail.note && (
                 <div>
                   <p className="text-xs text-gray-500 font-semibold">หมายเหตุ</p>
                   <p className="text-sm font-semibold text-brand-dark whitespace-pre-wrap">{txDetail.note}</p>
                 </div>
               )}
-              {txDetail.category==='Sale' && txDetail.products?.customer_note && txDetail.products.customer_note !== txDetail.note && (
+              {!txDetail.__group && txDetail.category==='Sale' && txDetail.products?.customer_note && txDetail.products.customer_note !== txDetail.note && (
                 <div className="bg-blue-50 rounded-xl px-3 py-2">
                   <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
                   <p className="text-sm text-blue-700">{txDetail.products.customer_note}</p>
                 </div>
               )}
-              {balMap[txDetail?.id] && (
+              {(() => {
+                const balanceTx = txDetail.__group ? txDetail.balanceTx : txDetail
+                return balMap[balanceTx?.id] && (
                 <div className="finance-detail-panel rounded-xl px-3 py-2.5">
                   <p className="text-xs text-gray-600 font-semibold mb-1.5">ยอดคงเหลือหลังรายการ</p>
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <p className="text-xs text-blue-400">💳 ธนาคาร</p>
-                      <p className="font-semibold text-sm text-blue-600">฿{fmt(balMap[txDetail.id].bank)}</p>
+                      <p className="font-semibold text-sm text-blue-600">฿{fmt(balMap[balanceTx.id].bank)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-green-500">💵 เงินสด</p>
-                      <p className="font-semibold text-sm text-green-600">฿{fmt(balMap[txDetail.id].cash)}</p>
+                      <p className="font-semibold text-sm text-green-600">฿{fmt(balMap[balanceTx.id].cash)}</p>
                     </div>
                     <div>
                       <p className="text-xs text-amber-500">📦 สต๊อก</p>
-                      <p className="font-semibold text-sm text-amber-600">฿{fmt(stockMap[txDetail.id])}</p>
+                      <p className="font-semibold text-sm text-amber-600">฿{fmt(stockMap[balanceTx.id])}</p>
                     </div>
                   </div>
                 </div>
-              )}
-              {txDetail.images?.length > 0 && (
+              )})()}
+              {(!txDetail.__group ? txDetail.images : txDetail.coverTx?.images)?.length > 0 && (
                 <div>
                   <p className="text-xs text-gray-600 font-semibold mb-1.5">รูปใบเสร็จ</p>
                   <div className="flex gap-2 flex-wrap">
-                    {txDetail.images.map((url,i)=>(
+                    {(!txDetail.__group ? txDetail.images : txDetail.coverTx.images).map((url,i)=>(
                       <img key={i} src={url}
                         className="w-20 h-20 rounded-xl object-cover cursor-zoom-in border border-amber-100"
-                        onClick={()=>setLightbox({imgs:txDetail.images,idx:i})}/>
+                        onClick={()=>setLightbox({imgs:!txDetail.__group ? txDetail.images : txDetail.coverTx.images,idx:i})}/>
                     ))}
                   </div>
                 </div>
@@ -1195,14 +1373,32 @@ export default function Finance() {
 
             {/* actions */}
             <div className="px-5 pb-6 pt-3 border-t border-amber-100 dark:border-white/10 flex gap-3 flex-shrink-0">
-              <button
+              {txDetail.__group ? (
+                <>
+                  <button
+                    onClick={()=>setTxDetail(null)}
+                    className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:border-brand-dark hover:text-brand-dark transition-colors">
+                    ปิด
+                  </button>
+                  <button
+                    onClick={()=>delGroup(txDetail, ()=>setTxDetail(null))}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border text-sm font-semibold transition-colors ${
+                      txDetail.kind === 'trade'
+                        ? 'border-blue-200 text-blue-600 hover:bg-blue-50'
+                        : 'border-red-200 text-red-500 hover:bg-red-50'
+                    }`}>
+                    {txDetail.kind === 'trade' ? <><X size={15}/>ยกเลิก Trade</> : '↩ ย้อนกลับรายการ'}
+                  </button>
+                </>
+              ) : <>
+                <button
                 onClick={()=>{openEdit(txDetail);setTxDetail(null)}}
                 className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:border-brand-dark hover:text-brand-dark transition-colors">
                 <Edit2 size={15}/>แก้ไข
-              </button>
-              {txDetail.category === 'Trade'
+                </button>
+                {txDetail.category === 'Trade'
                 ? <button
-                    onClick={()=>{cancelTrade(txDetail);setTxDetail(null)}}
+                    onClick={()=>cancelTrade(txDetail, ()=>setTxDetail(null))}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-blue-200 text-sm font-semibold text-blue-600 hover:bg-blue-50 transition-colors">
                     <X size={15}/>ยกเลิก Trade
                   </button>
@@ -1211,7 +1407,8 @@ export default function Finance() {
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-red-200 text-sm font-semibold text-red-500 hover:bg-red-50 transition-colors">
                     ↩ ย้อนกลับรายการ
                   </button>
-              }
+                }
+              </>}
             </div>
           </div>
         </div>
