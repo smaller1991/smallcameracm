@@ -41,7 +41,7 @@ export default function Layout() {
 
   return (
     <div className="app-shell flex flex-col min-h-screen max-w-[430px] mx-auto bg-brand-light">
-      <header className="app-header fixed top-2 left-1/2 -translate-x-1/2 w-[calc(100%-1rem)] max-w-[414px] h-14 flex items-center justify-between px-4 z-40 overflow-visible">
+      <header className="app-header w-full h-16 flex items-center justify-between px-4 z-40 overflow-visible">
         <div className="flex items-center gap-2">
           <img src="/logo.png" alt="Snapman CM" className="h-24 w-auto object-contain drop-shadow-lg"/>
         </div>
@@ -71,7 +71,7 @@ export default function Layout() {
           </button>
         </div>
       </header>
-      <main className="flex-1 overflow-y-auto pt-[4.5rem] pb-24"><Outlet/></main>
+      <main className="flex-1 overflow-y-auto pb-24"><Outlet/></main>
       <nav className="app-bottom-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] pb-safe z-40">
         <div className="liquid-nav-track relative grid grid-cols-4 items-center mx-3 mt-2 mb-1 px-1 py-1.5">
           <span

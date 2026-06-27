@@ -327,6 +327,30 @@ export default function Finance() {
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
   }
+  const groupCustomerNote = group => (
+    group?.txs?.map(tx => tx.products?.customer_note).find(Boolean) || ''
+  )
+  const openEditSaleGroup = group => {
+    const tx = group.representative
+    setEditId(tx.id)
+    const displayed = balMap[group.balanceTx?.id] || balMap[tx.id]
+    setForm({
+      type: tx.type,
+      category: tx.category,
+      amount: tx.amount,
+      note: tx.note || '',
+      date: toLocal(tx.date),
+      customer_note: groupCustomerNote(group),
+      payment_method: tx.payment_method || 'โอน',
+      bank_amount: tx.bank_amount ?? '',
+      cash_amount: tx.cash_amount ?? '',
+      bank_after: displayed?.bank ?? group.balanceTx?.bank_after ?? tx.bank_after ?? '',
+      cash_after: displayed?.cash ?? group.balanceTx?.cash_after ?? tx.cash_after ?? '',
+      group_sale_batch_id: tx.products?.sale_batch_id,
+    })
+    setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
+    setShowForm(true)
+  }
   const addImgFiles = files => {
     setImgFiles(p=>[...p,...files])
     setImgPreviews(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
@@ -393,7 +417,12 @@ export default function Finance() {
         await supabase.from('transactions').update(payload).eq('id',editId)
         if (form.category === 'Sale') {
           const tx = txs.find(t=>t.id===editId)
-          if (tx?.product_id) await supabase.from('products').update({customer_note:form.customer_note?.trim()||null}).eq('id',tx.product_id)
+          const customerNote = form.customer_note?.trim() || null
+          if (form.group_sale_batch_id) {
+            await supabase.from('products').update({ customer_note: customerNote }).eq('sale_batch_id', form.group_sale_batch_id)
+          } else if (tx?.product_id) {
+            await supabase.from('products').update({customer_note:customerNote}).eq('id',tx.product_id)
+          }
         }
         toast.success('แก้ไขแล้ว')
       } else {
@@ -1066,6 +1095,7 @@ export default function Finance() {
                 const groupProfit = group.lines.reduce((sum, item) => item.profit != null ? sum + Number(item.profit) : sum, 0)
                 const hasProfit = group.lines.some(item => item.profit != null)
                 const balanceAnchor = group.balanceTx
+                const customerNote = groupCustomerNote(group)
                 return (
                   <button key={group.key} {...tap(()=>setTxDetail({__group:true, ...group}))}
                     className={`finance-tx-card ${txCardTone(tx)} w-full text-left active:opacity-70 transition-opacity touch-manipulation`}>
@@ -1116,6 +1146,9 @@ export default function Finance() {
                             <p className="pt-1 text-xs text-gray-400">+ อีก {group.lines.length - 4} รายการ</p>
                           )}
                         </div>
+                        {group.kind === 'sale' && customerNote && (
+                          <p className="text-xs text-blue-500 truncate mt-1">👤 {customerNote}</p>
+                        )}
                         <p className="text-xs text-gray-300 mt-1">{thDate(tx.date)}</p>
                         {balMap[balanceAnchor.id] && (
                           <div className="flex flex-wrap gap-x-2 gap-y-0.5 mt-1" style={{color:'#555'}}>
@@ -1297,6 +1330,12 @@ export default function Finance() {
                   </div>
                 </div>
               )}
+              {txDetail.__group && txDetail.kind === 'sale' && groupCustomerNote(txDetail) && (
+                <div className="bg-blue-50 rounded-xl px-3 py-2">
+                  <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
+                  <p className="text-sm text-blue-700">{groupCustomerNote(txDetail)}</p>
+                </div>
+              )}
               {!txDetail.__group && txDetail.products?.model && (
                 <div>
                   <p className="text-xs text-gray-500 font-semibold">สินค้า</p>
@@ -1375,6 +1414,13 @@ export default function Finance() {
             <div className="px-5 pb-6 pt-3 border-t border-amber-100 dark:border-white/10 flex gap-3 flex-shrink-0">
               {txDetail.__group ? (
                 <>
+                  {txDetail.kind === 'sale' && (
+                    <button
+                      onClick={()=>{openEditSaleGroup(txDetail);setTxDetail(null)}}
+                      className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:border-brand-dark hover:text-brand-dark transition-colors">
+                      <Edit2 size={15}/>แก้ไข
+                    </button>
+                  )}
                   <button
                     onClick={()=>setTxDetail(null)}
                     className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border border-gray-200 text-sm font-semibold text-gray-600 hover:border-brand-dark hover:text-brand-dark transition-colors">

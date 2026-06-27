@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
+import { createPortal } from 'react-dom'
 
 const ITEM_H   = 44
 const VISIBLE  = 5   // rows shown; center row = selected
@@ -182,8 +183,8 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
         )}
       </div>
 
-      {open && (
-        <div className="thai-date-picker-backdrop fixed inset-0 z-50 flex flex-col justify-end"
+      {open && createPortal((
+        <div className="thai-date-picker-backdrop fixed inset-0 z-[9999] flex flex-col justify-end"
           style={{ background: 'rgba(0,0,0,0.45)' }}
           onPointerDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
 
@@ -263,7 +264,7 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
             <div style={{ height: 'env(safe-area-inset-bottom, 12px)' }} />
           </div>
         </div>
-      )}
+      ), document.body)}
     </>
   )
 }
