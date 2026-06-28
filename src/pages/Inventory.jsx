@@ -84,7 +84,7 @@ export default function Inventory() {
 
   return (
     <div>
-      <div className="sticky top-0 bg-brand-light z-10 px-4 py-3 border-b border-amber-100">
+      <div className="inventory-filter-panel sticky top-0 z-10 px-4 py-3">
         <div className="flex gap-2">
           <div className="relative flex-1">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"/>
@@ -136,11 +136,11 @@ export default function Inventory() {
         <p className="text-sm text-gray-500">{filtered.length} รายการ</p>
         <div className="flex gap-2">
           <button onClick={()=>navigate('/tradein')}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-semibold border border-blue-300 bg-blue-50 text-blue-600 active:scale-95 transition-all">
+            className="inventory-action-btn inventory-action-btn-trade flex items-center gap-1 px-3 py-1.5 text-sm font-semibold active:scale-95 transition-all">
             <ArrowLeftRight size={14}/>แลกเปลี่ยน
           </button>
           <button onClick={()=>navigate('/bulk-sale')}
-            className="flex items-center gap-1 px-3 py-1.5 rounded-xl text-sm font-semibold border border-amber-300 bg-amber-50 text-amber-700 active:scale-95 transition-all">
+            className="inventory-action-btn inventory-action-btn-sale flex items-center gap-1 px-3 py-1.5 text-sm font-semibold active:scale-95 transition-all">
             <ShoppingCart size={14}/>ขายรวม
           </button>
           <button onClick={()=>navigate('/inventory/add')} className="btn-primary px-3 py-1.5 text-sm flex items-center gap-1">

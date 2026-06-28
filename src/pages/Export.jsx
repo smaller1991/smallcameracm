@@ -394,8 +394,8 @@ export default function Export() {
         <label className="flex items-center gap-3 cursor-pointer select-none">
           <div className="relative">
             <input type="checkbox" className="sr-only" checked={withImages} onChange={e=>setWithImages(e.target.checked)}/>
-            <div className={`w-10 h-5 rounded-full transition-colors ${withImages?'bg-brand-dark':'bg-gray-200'}`}/>
-            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${withImages?'translate-x-5':''}`}/>
+            <div className={`export-toggle-track w-10 h-5 rounded-full transition-colors ${withImages?'is-on bg-brand-dark':'bg-gray-200'}`}/>
+            <div className={`export-toggle-thumb absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${withImages?'translate-x-5':''}`}/>
           </div>
           <div>
             <p className="text-sm font-medium text-gray-700">ส่งออกพร้อมรูปภาพ</p>
@@ -447,8 +447,8 @@ export default function Export() {
         <label className="flex items-center gap-3 cursor-pointer select-none">
           <div className="relative">
             <input type="checkbox" className="sr-only" checked={withTxImages} onChange={e=>setWithTxImages(e.target.checked)}/>
-            <div className={`w-10 h-5 rounded-full transition-colors ${withTxImages?'bg-brand-dark':'bg-gray-200'}`}/>
-            <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${withTxImages?'translate-x-5':''}`}/>
+            <div className={`export-toggle-track w-10 h-5 rounded-full transition-colors ${withTxImages?'is-on bg-brand-dark':'bg-gray-200'}`}/>
+            <div className={`export-toggle-thumb absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${withTxImages?'translate-x-5':''}`}/>
           </div>
           <div>
             <p className="text-sm font-medium text-gray-700">ส่งออกพร้อมรูปใบเสร็จ</p>

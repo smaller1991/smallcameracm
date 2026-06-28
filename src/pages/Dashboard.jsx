@@ -272,13 +272,13 @@ export default function Dashboard() {
       </div>
 
       {expiring.length > 0 && (
-        <div className="mx-4 mt-3 bg-red-50 border border-red-200 rounded-2xl p-3 flex gap-2">
-          <AlertCircle size={18} className="text-brand-red flex-shrink-0 mt-0.5"/>
+        <div className="warranty-alert-card mx-4 mt-3 rounded-2xl p-3 flex gap-2">
+          <AlertCircle size={18} className="warranty-alert-icon text-brand-red flex-shrink-0 mt-0.5"/>
           <div>
             <p className="text-sm font-semibold text-brand-red">ประกันใกล้หมด</p>
             {expiring.slice(0, 3).map(p => {
               const d = Math.ceil((new Date(p.warranty_expiry) - new Date()) / 86400000)
-              return <p key={p.id} className="text-xs text-red-600 mt-0.5">{p.model} เหลืออีก {d} วัน</p>
+              return <p key={p.id} className="warranty-alert-item text-xs text-red-600 mt-0.5">{p.model} เหลืออีก {d} วัน</p>
             })}
           </div>
         </div>
@@ -349,7 +349,7 @@ export default function Dashboard() {
       </div>
 
       <div className="px-4 mt-5 space-y-3">
-        <div className="card">
+        <div className="card dashboard-list-card">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2 min-w-0">
               <TrendingUp size={17} className="text-green-600 flex-shrink-0"/>
@@ -362,9 +362,9 @@ export default function Dashboard() {
           {stats.topProfit.length ? (
             <div className="space-y-2">
               {stats.topProfit.map((p, i) => (
-                <button key={p.id} onClick={()=>setSaleDetail('profit')} className="w-full rounded-xl bg-green-50/70 px-3 py-2 text-left active:opacity-70">
+                <button key={p.id} onClick={()=>setSaleDetail('profit')} className="dashboard-list-row w-full rounded-xl bg-green-50/70 px-3 py-2 text-left active:opacity-70">
                   <div className="flex items-center gap-3">
-                    <span className="w-7 h-7 rounded-lg bg-white text-green-700 font-bold text-sm flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                    <span className="dashboard-rank-badge w-7 h-7 rounded-lg bg-white text-green-700 font-bold text-sm flex items-center justify-center flex-shrink-0">{i + 1}</span>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-brand-dark truncate">{p.model}</p>
                       <p className="text-xs text-gray-400">{p.category || 'กล้อง'} · ขาย {thDateShort(p.sold_date)}</p>
@@ -379,7 +379,7 @@ export default function Dashboard() {
           ) : <p className="text-xs text-gray-400 text-center py-4">ยังไม่มีรายการขายในช่วงนี้</p>}
         </div>
 
-        <div className="card">
+        <div className="card dashboard-list-card">
           <div className="flex items-center justify-between gap-2 mb-3">
             <div className="flex items-center gap-2 min-w-0">
               <Gauge size={17} className="text-blue-600 flex-shrink-0"/>
@@ -392,9 +392,9 @@ export default function Dashboard() {
           {stats.fastest.length ? (
             <div className="space-y-2">
               {stats.fastest.map((p, i) => (
-                <button key={p.id} onClick={()=>setSaleDetail('fast')} className="w-full rounded-xl bg-blue-50/80 px-3 py-2 text-left active:opacity-70">
+                <button key={p.id} onClick={()=>setSaleDetail('fast')} className="dashboard-list-row w-full rounded-xl bg-blue-50/80 px-3 py-2 text-left active:opacity-70">
                   <div className="flex items-center gap-3">
-                    <span className="w-7 h-7 rounded-lg bg-white text-blue-700 font-bold text-sm flex items-center justify-center flex-shrink-0">{i + 1}</span>
+                    <span className="dashboard-rank-badge w-7 h-7 rounded-lg bg-white text-blue-700 font-bold text-sm flex items-center justify-center flex-shrink-0">{i + 1}</span>
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-brand-dark truncate">{p.model}</p>
                       <p className="text-xs text-gray-400">อยู่ในสต็อก {p.daysToSell} วัน · ขาย {thDateShort(p.sold_date)}</p>
@@ -415,7 +415,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-2 gap-2">
             {stats.ageBuckets.map(b => (
               <button key={b.label} onClick={()=>setAgeDetail(b.label)}
-                className={`rounded-xl p-3 text-left border active:opacity-70 ${
+                className={`dashboard-age-tile rounded-xl p-3 text-left border active:opacity-70 ${
                   b.label === '90+ วัน' ? 'bg-red-50 border-red-100' :
                   b.label === '61-90 วัน' ? 'bg-orange-50 border-orange-100' :
                   'bg-blue-50 border-blue-100'
