@@ -671,12 +671,19 @@ strong, b, h1, h2, h3, h4, h5, h6 {
   background:
     linear-gradient(180deg, #ffd870 0%, #ffc247 100%) !important;
   width: calc(100% - 1.5rem) !important;
-  margin: .75rem .75rem 0;
+  margin: .75rem .75rem .85rem;
+  height: 76px !important;
+  min-height: 76px;
   border: 1px solid rgba(132, 65, 7, .22);
   border-radius: 28px;
-  box-shadow: 0 5px 0 rgba(174, 89, 8, .14), 0 12px 26px rgba(124, 65, 12, .2), var(--snap-bevel);
+  box-shadow: 0 5px 12px rgba(124, 65, 12, .18), var(--snap-bevel);
+  overflow: hidden !important;
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
+}
+
+.app-header img {
+  height: 76px !important;
 }
 
 .header-pill,
@@ -813,25 +820,25 @@ textarea::placeholder {
 }
 
 .finance-tx-card-income {
-  background: linear-gradient(180deg, #fff6d7, #dff5c2) !important;
+  background: linear-gradient(180deg, #f3ffc5 0%, #bde986 100%) !important;
 }
 
 .finance-tx-card-buy {
-  background: linear-gradient(180deg, #fff4cd, #ffd3bd) !important;
+  background: linear-gradient(180deg, #ffe49a 0%, #ffb36f 100%) !important;
 }
 
 .finance-tx-card-installment {
-  background: linear-gradient(180deg, #fff3d0, #ead6ff) !important;
+  background: linear-gradient(180deg, #f0d3ff 0%, #cda4ff 100%) !important;
 }
 
 .finance-tx-card-trade {
-  background: linear-gradient(180deg, #fff2c7, #cdeeff) !important;
+  background: linear-gradient(180deg, #c9efff 0%, #8ed8ff 100%) !important;
 }
 
 .finance-tx-card-other,
 .finance-detail-sheet,
 .finance-detail-panel {
-  background: linear-gradient(180deg, #fff5d2, #ffdda0) !important;
+  background: linear-gradient(180deg, #ffe08d 0%, #ffc15c 100%) !important;
 }
 
 .bg-brand-dark {
@@ -1099,22 +1106,43 @@ textarea::placeholder {
 }
 
 .inventory-action-btn-sale {
-  background: linear-gradient(180deg, #ff5b45 0%, var(--snap-red) 54%, var(--snap-red-deep) 100%) !important;
+  background: linear-gradient(180deg, #43d977 0%, #13a64e 54%, #087a36 100%) !important;
+  border-color: rgba(8, 122, 54, .34) !important;
   color: #fff7df !important;
-  text-shadow: 0 1px 0 rgba(82, 18, 12, .46);
+  text-shadow: 0 1px 0 rgba(4, 72, 31, .46);
 }
 
 .inventory-filter-panel {
   width: calc(100% - 1.5rem);
-  margin: .25rem .75rem .85rem;
-  border-radius: 0 0 28px 28px;
-  background: linear-gradient(180deg, #ffc955 0%, #f0a018 100%) !important;
+  margin: .35rem .75rem .85rem;
+  top: .35rem !important;
+  border-radius: 28px;
+  background: linear-gradient(180deg, #ffd166 0%, #f5ad25 100%) !important;
   border: 1px solid rgba(132, 65, 7, .22);
-  border-top: 0;
-  box-shadow: 0 8px 0 rgba(174, 89, 8, .12), 0 16px 30px rgba(124, 65, 12, .2), var(--snap-bevel);
+  box-shadow: 0 6px 14px rgba(124, 65, 12, .16), var(--snap-bevel);
   overflow: hidden;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+}
+
+.inventory-filter-panel .input,
+.inventory-filter-panel .liquid-chip {
+  box-shadow: inset 2px 2px 5px rgba(100, 51, 4, .18), inset -1px -1px 3px rgba(255, 224, 139, .36) !important;
+}
+
+.inventory-filter-panel .liquid-filter-track {
+  background: rgba(226, 143, 12, .36) !important;
+  border-color: rgba(119, 55, 5, .18) !important;
+  box-shadow: inset 1px 1px 4px rgba(101, 51, 5, .16) !important;
+}
+
+.inventory-filter-panel .liquid-filter-indicator,
+.inventory-filter-panel .liquid-chip.is-active {
+  box-shadow: 0 2px 5px rgba(117, 43, 7, .18), inset 0 1px 0 rgba(255,255,255,.36), inset 0 -1px 0 rgba(84, 14, 9, .18) !important;
+}
+
+.inventory-filter-panel .liquid-chip:not(.is-active) {
+  box-shadow: 0 2px 5px rgba(104, 57, 8, .12), inset 0 1px 0 rgba(255, 229, 143, .4) !important;
 }
 
 .warranty-alert-card {
