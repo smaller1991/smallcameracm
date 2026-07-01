@@ -1424,3 +1424,88 @@ textarea::placeholder {
   background-color: #3A1612 !important;
   color: #FCA5A5 !important;
 }
+
+.deferred-image-button {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 1px solid rgba(217, 40, 30, .2);
+  background:
+    linear-gradient(145deg, rgba(255, 241, 189, .95), rgba(255, 184, 51, .78));
+  color: var(--snap-red);
+  box-shadow:
+    inset 1px 1px 0 rgba(255, 255, 255, .48),
+    inset -1px -1px 0 rgba(149, 83, 9, .18),
+    0 4px 10px rgba(149, 83, 9, .18);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1;
+  cursor: zoom-in;
+  user-select: none;
+}
+
+.deferred-image-button::before {
+  content: "";
+  position: absolute;
+  inset: 9px 11px;
+  border: 1.5px solid currentColor;
+  border-radius: 5px;
+  opacity: .38;
+}
+
+.deferred-image-button__preview {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.deferred-image-button__preview + .deferred-image-button__icon {
+  align-self: flex-end;
+  margin: 0 0 4px;
+  padding: 3px 6px 4px;
+  border-radius: 999px;
+  background: rgba(42, 21, 7, .72);
+  color: #fff7df;
+  text-shadow: none;
+}
+
+.deferred-image-button__icon {
+  position: relative;
+  z-index: 1;
+  padding-top: 1px;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, .55);
+}
+
+.deferred-image-button__count {
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  z-index: 1;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--snap-red);
+  color: #fff7df;
+  box-shadow: 0 1px 3px rgba(102, 30, 8, .22);
+  font-size: 10px;
+  line-height: 17px;
+}
+
+.cached-image-loading,
+.cached-image-fallback {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(42, 21, 7, .82);
+  color: #fff7df;
+  font-size: 13px;
+  font-weight: 700;
+  text-align: center;
+}

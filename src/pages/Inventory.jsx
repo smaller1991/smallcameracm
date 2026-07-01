@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
 import { Search, Plus, ArrowUpDown, ArrowLeftRight, ShoppingCart, X } from 'lucide-react'
+import DeferredImageButton from '../components/DeferredImageButton'
+import CachedImage from '../components/CachedImage'
 
 const TABS     = [{key:'all',label:'ทั้งหมด'},{key:'Available',label:'พร้อมขาย'},{key:'Reserved',label:'จอง'},{key:'Pending',label:'รอชำระ'},{key:'Sold',label:'ขายแล้ว'}]
 const CAT_TABS = ['ทั้งหมด','กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -173,9 +175,11 @@ export default function Inventory() {
                     className={`card p-2.5 flex items-center gap-2.5 cursor-pointer active:scale-[0.98] transition-transform ${p.is_trade_in?'border-blue-300 border-2':''}`}>
                     <div className="flex-shrink-0">
                       {coverImg
-                        ? <img src={coverImg}
-                            onClick={e=>{e.stopPropagation();setLightboxImg(coverImg)}}
-                            className="w-12 h-12 rounded-xl object-cover cursor-zoom-in"/>
+                        ? <DeferredImageButton
+                            imageUrl={coverImg}
+                            className="w-12 h-12"
+                            onClick={(e,src)=>{e.stopPropagation();setLightboxImg(src || coverImg)}}
+                          />
                         : <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${p.is_trade_in?'bg-blue-100':'bg-amber-100'}`}>📷</div>}
                     </div>
                     <div className="flex-1 min-w-0">
@@ -214,7 +218,7 @@ export default function Inventory() {
           <button className="absolute top-4 right-4 bg-black/50 rounded-full p-2 text-white z-10">
             <X size={20}/>
           </button>
-          <img src={lightboxImg} className="max-w-full max-h-full rounded-xl object-contain"/>
+          <CachedImage src={lightboxImg} className="max-w-full max-h-full rounded-xl object-contain"/>
         </div>
       )}
     </div>

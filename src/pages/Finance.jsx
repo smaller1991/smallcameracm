@@ -5,6 +5,8 @@ import { Banknote, CreditCard, Edit2, ImagePlus, Package, Plus, Scissors, Search
 import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
+import DeferredImageButton from '../components/DeferredImageButton'
+import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
@@ -1045,7 +1047,14 @@ export default function Finance() {
               {/* รูปเดิม (กรณี edit) */}
               {editId && txs.find(t=>t.id===editId)?.images?.filter(u=>!removedImgs.includes(u)).map((url,i)=>(
                 <div key={i} className="relative w-16 h-16 rounded-xl overflow-hidden border border-amber-200 flex-shrink-0">
-                  <img src={url} className="w-full h-full object-cover"/>
+                  <DeferredImageButton
+                    imageUrl={url}
+                    className="w-full h-full rounded-none border-0"
+                    onClick={(e,src)=>{
+                      const imgs = txs.find(t=>t.id===editId)?.images?.filter(u=>!removedImgs.includes(u)) || []
+                      setLightbox({imgs,idx:i,displaySrc:src})
+                    }}
+                  />
                   <button onClick={()=>setRemovedImgs(r=>[...r,url])}
                     className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
                     <X size={10} className="text-white"/>
@@ -1103,10 +1112,10 @@ export default function Finance() {
                     className={`finance-tx-card ${txCardTone(group)} w-full text-left active:opacity-70 transition-opacity touch-manipulation`}>
                     <div className="flex items-start gap-3">
                       {coverImage && (
-                        <img
-                          src={coverImage}
+                        <DeferredImageButton
+                          imageUrl={coverImage}
                           className="finance-tx-thumb"
-                          onClick={e=>{e.stopPropagation();setLightbox({imgs:group.coverTx.images,idx:0})}}
+                          onClick={(e,src)=>{e.stopPropagation();setLightbox({imgs:group.coverTx.images,idx:0,displaySrc:src})}}
                         />
                       )}
                       <div className="flex-1 min-w-0">
@@ -1192,10 +1201,10 @@ export default function Finance() {
                   <button key={tx.id} {...tap(()=>setTxDetail(tx))}
                     className={`finance-tx-card ${txCardTone(tx)} w-full text-left flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation`}>
                     {coverImage && (
-                      <img
-                        src={coverImage}
+                      <DeferredImageButton
+                        imageUrl={coverImage}
                         className="finance-tx-thumb"
-                        onClick={e=>{e.stopPropagation();setLightbox({imgs:tx.images,idx:0})}}
+                        onClick={(e,src)=>{e.stopPropagation();setLightbox({imgs:tx.images,idx:0,displaySrc:src})}}
                       />
                     )}
                     <div className="flex-1 min-w-0">
@@ -1235,10 +1244,10 @@ export default function Finance() {
               <button key={tx.id} {...tap(()=>setTxDetail(tx))}
                 className={`finance-tx-card ${txCardTone(tx)} w-full text-left flex items-start gap-3 active:opacity-70 transition-opacity touch-manipulation`}>
                 {coverImage && (
-                  <img
-                    src={coverImage}
+                  <DeferredImageButton
+                    imageUrl={coverImage}
                     className="finance-tx-thumb"
-                    onClick={e=>{e.stopPropagation();setLightbox({imgs:tx.images,idx:0})}}
+                    onClick={(e,src)=>{e.stopPropagation();setLightbox({imgs:tx.images,idx:0,displaySrc:src})}}
                   />
                 )}
                 <div className="flex-1 min-w-0">
@@ -1459,9 +1468,12 @@ export default function Finance() {
                   <p className="text-xs text-gray-600 font-semibold mb-1.5">รูปใบเสร็จ</p>
                   <div className="flex gap-2 flex-wrap">
                     {(!txDetail.__group ? txDetail.images : txDetail.coverTx.images).map((url,i)=>(
-                      <img key={i} src={url}
-                        className="w-20 h-20 rounded-xl object-cover cursor-zoom-in border border-amber-100"
-                        onClick={()=>setLightbox({imgs:!txDetail.__group ? txDetail.images : txDetail.coverTx.images,idx:i})}/>
+                      <DeferredImageButton
+                        key={i}
+                        imageUrl={url}
+                        className="w-20 h-20"
+                        onClick={(e,src)=>setLightbox({imgs:!txDetail.__group ? txDetail.images : txDetail.coverTx.images,idx:i,displaySrc:src})}
+                      />
                     ))}
                   </div>
                 </div>
@@ -1527,16 +1539,16 @@ export default function Finance() {
           </button>
           {lightbox.imgs.length > 1 && <>
             <button
-              onClick={e=>{e.stopPropagation();setLightbox(l=>({...l,idx:(l.idx-1+l.imgs.length)%l.imgs.length}))}}
+              onClick={e=>{e.stopPropagation();setLightbox(l=>({...l,idx:(l.idx-1+l.imgs.length)%l.imgs.length,displaySrc:null}))}}
               className="absolute left-4 top-1/2 -translate-y-1/2 bg-black/50 rounded-full w-10 h-10 flex items-center justify-center text-white text-2xl z-10">‹</button>
             <button
-              onClick={e=>{e.stopPropagation();setLightbox(l=>({...l,idx:(l.idx+1)%l.imgs.length}))}}
+              onClick={e=>{e.stopPropagation();setLightbox(l=>({...l,idx:(l.idx+1)%l.imgs.length,displaySrc:null}))}}
               className="absolute right-4 top-1/2 -translate-y-1/2 bg-black/50 rounded-full w-10 h-10 flex items-center justify-center text-white text-2xl z-10">›</button>
             <div className="absolute bottom-6 left-1/2 -translate-x-1/2 text-white/60 text-sm">
               {lightbox.idx+1} / {lightbox.imgs.length}
             </div>
           </>}
-          <img src={lightbox.imgs[lightbox.idx]}
+          <CachedImage src={lightbox.displaySrc || lightbox.imgs[lightbox.idx]}
             className="max-w-full max-h-full rounded-xl object-contain"
             onClick={e=>e.stopPropagation()}/>
         </div>

@@ -5,6 +5,8 @@ import { uploadReceiptImages } from '../lib/imageUtils'
 import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
+import DeferredImageButton from '../components/DeferredImageButton'
+import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 
@@ -702,8 +704,11 @@ export default function ProductDetail() {
                 <div className="flex gap-2 overflow-x-auto pb-1">
                   {(t.images||[]).map((url, i) => (
                     <div key={i} className="relative flex-shrink-0">
-                      <img src={url} onClick={()=>setLightboxImg(url)}
-                        className="w-20 h-20 rounded-xl object-cover cursor-zoom-in active:scale-95 transition-transform"/>
+                      <DeferredImageButton
+                        imageUrl={url}
+                        className="w-20 h-20 active:scale-95 transition-transform"
+                        onClick={(e,src)=>setLightboxImg(src || url)}
+                      />
                       <button onClick={()=>deleteReceiptImg(t.id, url)}
                         className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
                         <X size={10} className="text-white"/>
@@ -1107,7 +1112,7 @@ export default function ProductDetail() {
           <button className="absolute top-4 right-4 bg-black/50 rounded-full p-2 text-white z-10">
             <X size={20}/>
           </button>
-          <img src={lightboxImg} className="max-w-full max-h-full rounded-xl object-contain"/>
+          <CachedImage src={lightboxImg} className="max-w-full max-h-full rounded-xl object-contain"/>
         </div>
       )}
     </div>
