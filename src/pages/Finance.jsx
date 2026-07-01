@@ -843,7 +843,7 @@ export default function Finance() {
       </div>
 
       {/* Date filter + Filter button */}
-      <div className="px-4 py-3 border-b border-amber-100 bg-white">
+      <div className="finance-filter-panel sticky top-0 z-10 px-4 py-3">
         <div className="liquid-filter-track grid-cols-3 mb-2">
           <span
             className="liquid-filter-indicator"

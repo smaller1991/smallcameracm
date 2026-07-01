@@ -1145,6 +1145,39 @@ textarea::placeholder {
   box-shadow: 0 2px 5px rgba(104, 57, 8, .12), inset 0 1px 0 rgba(255, 229, 143, .4) !important;
 }
 
+.finance-filter-panel {
+  width: calc(100% - 1.5rem);
+  margin: .35rem .75rem .85rem;
+  top: .35rem !important;
+  border-radius: 28px;
+  background: linear-gradient(180deg, #ffd166 0%, #f5ad25 100%) !important;
+  border: 1px solid rgba(132, 65, 7, .22);
+  box-shadow: 0 6px 14px rgba(124, 65, 12, .16), var(--snap-bevel);
+  overflow: hidden;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+.finance-filter-panel .input,
+.finance-filter-panel .liquid-chip {
+  box-shadow: inset 2px 2px 5px rgba(100, 51, 4, .18), inset -1px -1px 3px rgba(255, 224, 139, .36) !important;
+}
+
+.finance-filter-panel .liquid-filter-track {
+  background: rgba(226, 143, 12, .36) !important;
+  border-color: rgba(119, 55, 5, .18) !important;
+  box-shadow: inset 1px 1px 4px rgba(101, 51, 5, .16) !important;
+}
+
+.finance-filter-panel .liquid-filter-indicator,
+.finance-filter-panel .liquid-chip.is-active {
+  box-shadow: 0 2px 5px rgba(117, 43, 7, .18), inset 0 1px 0 rgba(255,255,255,.36), inset 0 -1px 0 rgba(84, 14, 9, .18) !important;
+}
+
+.finance-filter-panel .liquid-chip:not(.is-active) {
+  box-shadow: 0 2px 5px rgba(104, 57, 8, .12), inset 0 1px 0 rgba(255, 229, 143, .4) !important;
+}
+
 .warranty-alert-card {
   background: linear-gradient(180deg, #ffe09b 0%, #ffc85a 100%) !important;
   border: 1px solid rgba(217, 40, 30, .34) !important;
