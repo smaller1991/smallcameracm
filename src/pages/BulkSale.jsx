@@ -132,7 +132,7 @@ export default function BulkSale() {
           const { data: tx, error: e2 } = await supabase.from('transactions').insert({
             date: now, type: 'Income', category: 'Sale',
             amount: price, product_id: x.product.id,
-            payment_method: payMethod, note: txNote,
+            payment_method: productPayMethod, note: txNote,
             bank_amount: isSplitPay ? pay.bank : null,
             cash_amount: isSplitPay ? pay.cash : null,
           }).select().single()
@@ -186,7 +186,7 @@ export default function BulkSale() {
           const { data: tx, error: e2 } = await supabase.from('transactions').insert({
             date: now, type: 'Income', category: 'Sale',
             amount: productFirstPaid, product_id: x.product.id,
-            payment_method: payMethod, note: txNote,
+            payment_method: productPayMethod, note: txNote,
             bank_amount: isSplitPay ? pay.bank : null,
             cash_amount: isSplitPay ? pay.cash : null,
           }).select().single()

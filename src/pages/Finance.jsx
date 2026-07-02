@@ -35,6 +35,7 @@ const txCardTone = item => {
   if (item.category === 'Buy Stock') return 'finance-tx-card-buy'
   return 'finance-tx-card-other'
 }
+const hasSplitAmounts = tx => Number(tx?.bank_amount || 0) > 0 || Number(tx?.cash_amount || 0) > 0
 const firstTxImage = tx => tx.images?.[0] || null
 
 const monthStart = () => {
@@ -327,7 +328,7 @@ export default function Finance() {
   const openEdit = tx => {
     setEditId(tx.id)
     const displayed = balMap[tx.id]
-    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date),customer_note:tx.products?.customer_note||'',payment_method:tx.payment_method||'โอน',bank_amount:tx.bank_amount??'',cash_amount:tx.cash_amount??'',bank_after:displayed?.bank??tx.bank_after??'',cash_after:displayed?.cash??tx.cash_after??''})
+    setForm({type:tx.type,category:tx.category,amount:tx.amount,note:tx.note||'',date:toLocal(tx.date),customer_note:tx.products?.customer_note||'',payment_method:hasSplitAmounts(tx)?'แบ่งจ่าย':tx.payment_method||'โอน',bank_amount:tx.bank_amount??'',cash_amount:tx.cash_amount??'',bank_after:displayed?.bank??tx.bank_after??'',cash_after:displayed?.cash??tx.cash_after??''})
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
   }
@@ -345,7 +346,7 @@ export default function Finance() {
       note: tx.note || '',
       date: toLocal(tx.date),
       customer_note: groupCustomerNote(group),
-      payment_method: tx.payment_method || 'โอน',
+      payment_method: hasSplitAmounts(tx) ? 'แบ่งจ่าย' : tx.payment_method || 'โอน',
       bank_amount: tx.bank_amount ?? '',
       cash_amount: tx.cash_amount ?? '',
       bank_after: displayed?.bank ?? group.balanceTx?.bank_after ?? tx.bank_after ?? '',
@@ -380,7 +381,7 @@ export default function Finance() {
     const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id', 'main').single()
     if (!bal) return
     let upd = {}
-    if (method === 'แบ่งจ่าย') {
+    if (Number(bAmt || 0) > 0 || Number(cAmt || 0) > 0) {
       const b = Number(bAmt || 0), c = Number(cAmt || 0)
       if (type === 'Income') upd = { bank: Math.max(0, Number(bal.bank) - b), cash: Math.max(0, Number(bal.cash) - c) }
       else upd = { bank: Number(bal.bank) + b, cash: Number(bal.cash) + c }
@@ -400,11 +401,12 @@ export default function Finance() {
     } else if (!form.amount) return toast.error('กรุณาระบุจำนวนเงิน')
     setSaving(true)
     try {
-      const method  = form.payment_method || 'โอน'
-      const isSplit = method === 'แบ่งจ่าย'
+      const selectedMethod = form.payment_method || 'โอน'
+      const isSplit = selectedMethod === 'แบ่งจ่าย'
       const bankAmt = isSplit ? parseFloat(form.bank_amount||0) : 0
       const cashAmt = isSplit ? parseFloat(form.cash_amount||0) : 0
       const amount  = isSplit ? bankAmt + cashAmt : parseFloat(form.amount)
+      const method  = isSplit ? (bankAmt >= cashAmt ? 'โอน' : 'เงินสด') : selectedMethod
       const payload = { type:form.type, category:form.category, amount, note:form.note,
                         date:new Date(form.date).toISOString(), payment_method:method,
                         bank_amount: isSplit ? bankAmt : null,
@@ -594,13 +596,13 @@ export default function Finance() {
         let bank = Number(bal.bank)
         let cash = Number(bal.cash)
         if (tx.type === 'Income') {
-          if (tx.payment_method === 'แบ่งจ่าย') {
+          if (hasSplitAmounts(tx)) {
             bank -= Number(tx.bank_amount || 0)
             cash -= Number(tx.cash_amount || 0)
           } else if (tx.payment_method === 'โอน') bank -= Number(tx.amount)
           else cash -= Number(tx.amount)
         } else {
-          if (tx.payment_method === 'แบ่งจ่าย') {
+          if (hasSplitAmounts(tx)) {
             bank += Number(tx.bank_amount || 0)
             cash += Number(tx.cash_amount || 0)
           } else if (tx.payment_method === 'โอน') bank += Number(tx.amount)
@@ -1260,7 +1262,7 @@ export default function Finance() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-wrap gap-1 flex-1">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${catColor(tx.category)}`}>{tx.category}</span>
-                      {tx.payment_method === 'แบ่งจ่าย' && (
+                      {hasSplitAmounts(tx) && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-purple-100 text-purple-700">
                           ✂️ แบ่งจ่าย {tx.bank_amount?`💳${fmt(tx.bank_amount)}`:''}
                           {tx.bank_amount&&tx.cash_amount?'+':''}
@@ -1425,7 +1427,7 @@ export default function Finance() {
                 {txDetail.payment_method && (
                   <div>
                     <p className="text-xs text-gray-500 font-semibold">ช่องทางชำระ</p>
-                    {txDetail.payment_method === 'แบ่งจ่าย' ? (
+                    {hasSplitAmounts(txDetail) ? (
                       <div className="flex gap-3 mt-0.5">
                         {txDetail.bank_amount ? <span className="text-sm font-medium text-blue-600">💳 ฿{fmt(txDetail.bank_amount)}</span> : null}
                         {txDetail.cash_amount ? <span className="text-sm font-medium text-green-600">💵 ฿{fmt(txDetail.cash_amount)}</span> : null}

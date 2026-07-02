@@ -11,6 +11,7 @@ import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
+const hasSplitAmounts = tx => Number(tx?.bank_amount || 0) > 0 || Number(tx?.cash_amount || 0) > 0
 const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว',Pending:'รอชำระ'}
 const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold',Pending:'badge-pending'}
 const CATEGORIES    = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -276,7 +277,7 @@ export default function ProductDetail() {
 
       const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         date: soldAt, type:'Income', category:'Sale', amount:price,
-        product_id: id, payment_method: payMethod,
+        product_id: id, payment_method: productPaymentMethod(payMethod, sellBankAmount, sellCashAmount),
         bank_amount: pay.bankField,
         cash_amount: pay.cashField,
         note: 'ขายสินค้า: '+product.model+' SN:'+product.serial_number,
@@ -339,7 +340,7 @@ export default function ProductDetail() {
 
         const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
           date: soldAt, type:'Income', category:'Sale', amount: first,
-          product_id: id, payment_method: payMethod,
+          product_id: id, payment_method: productPaymentMethod(payMethod, sellBankAmount, sellCashAmount),
           bank_amount: pay.bankField,
           cash_amount: pay.cashField,
           note: isFullyPaid
@@ -429,7 +430,7 @@ export default function ProductDetail() {
 
           const { data: newTx } = await supabase.from('transactions').insert({
             date: soldAt, type: 'Income', category: 'Sale', amount: bpPayment,
-            product_id: bp.id, payment_method: payMethod2,
+            product_id: bp.id, payment_method: productPaymentMethod(payMethod2, payBankAmount, payCashAmount),
             bank_amount: payMethod2 === 'แบ่งจ่าย' ? bpBank : null,
             cash_amount: payMethod2 === 'แบ่งจ่าย' ? bpCash : null,
             note: isFullyPaid
@@ -473,7 +474,7 @@ export default function ProductDetail() {
 
         const {data:newTx} = await supabase.from('transactions').insert({
           date: soldAt, type:'Income', category:'Sale', amount,
-          product_id: id, payment_method: payMethod2,
+          product_id: id, payment_method: productPaymentMethod(payMethod2, payBankAmount, payCashAmount),
           bank_amount: pay.bankField,
           cash_amount: pay.cashField,
           note: isFullyPaid
@@ -516,7 +517,7 @@ export default function ProductDetail() {
         for (const tx of saleTxs || []) {
           const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
           if (bal) {
-            if (tx.payment_method==='แบ่งจ่าย') await supabase.from('balances').update({
+            if (hasSplitAmounts(tx)) await supabase.from('balances').update({
               bank: Math.max(0, Number(bal.bank) - Number(tx.bank_amount || 0)),
               cash: Math.max(0, Number(bal.cash) - Number(tx.cash_amount || 0)),
               updated_at:new Date().toISOString()
@@ -558,7 +559,7 @@ export default function ProductDetail() {
       for (const tx of saleTxs || []) {
         const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
         if (!bal) continue
-        if (tx.payment_method === 'แบ่งจ่าย') {
+        if (hasSplitAmounts(tx)) {
           await supabase.from('balances').update({
             bank: Math.max(0, Number(bal.bank)-Number(tx.bank_amount || 0)),
             cash: Math.max(0, Number(bal.cash)-Number(tx.cash_amount || 0)),
@@ -616,13 +617,13 @@ export default function ProductDetail() {
         if (bal) {
           let bank = Number(bal.bank), cash = Number(bal.cash)
           if (tradeTx.type === 'Income') {
-            if (tradeTx.payment_method === 'แบ่งจ่าย') {
+            if (hasSplitAmounts(tradeTx)) {
               bank -= Number(tradeTx.bank_amount || 0)
               cash -= Number(tradeTx.cash_amount || 0)
             } else if (tradeTx.payment_method === 'โอน') bank -= Number(tradeTx.amount)
             else cash -= Number(tradeTx.amount)
           } else {
-            if (tradeTx.payment_method === 'แบ่งจ่าย') {
+            if (hasSplitAmounts(tradeTx)) {
               bank += Number(tradeTx.bank_amount || 0)
               cash += Number(tradeTx.cash_amount || 0)
             } else if (tradeTx.payment_method === 'โอน') bank += Number(tradeTx.amount)

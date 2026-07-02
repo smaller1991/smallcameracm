@@ -141,7 +141,7 @@ export default function TradeIn() {
         category: 'Trade',
         amount: Math.abs(diff) || totalSellA,
         product_id: itemsA[0].product.id,
-        payment_method: payMethod,
+        payment_method: productPayMethod,
         bank_amount: isSplitPay && diff !== 0 ? splitBank : null,
         cash_amount: isSplitPay && diff !== 0 ? splitCash : null,
         note: tradeNote,
