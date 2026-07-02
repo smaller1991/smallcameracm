@@ -59,6 +59,7 @@ export default function BulkSale() {
   const splitCash = Number(cashAmount || 0)
   const splitTotal = splitBank + splitCash
   const isSplitPay = payMethod === 'แบ่งจ่าย'
+  const productPayMethod = isSplitPay ? (splitBank >= splitCash ? 'โอน' : 'เงินสด') : payMethod
 
   const paymentForProduct = (price, index, count, paidSoFar, totalPaid, targetPaid) => {
     const amount = index === count - 1
@@ -117,7 +118,7 @@ export default function BulkSale() {
 
           const { error: e1 } = await supabase.from('products').update({
             status: 'Sold', sold_price: price, sold_date: now,
-            warranty_expiry: warranty, payment_method: payMethod,
+            warranty_expiry: warranty, payment_method: productPayMethod,
             customer_note: note, sale_batch_id: batchId,
           }).eq('id', x.product.id)
           if (e1) throw e1
@@ -164,7 +165,7 @@ export default function BulkSale() {
             sold_price:        newStatus === 'Sold' ? price : null,
             sold_date:         newStatus === 'Sold' ? now : null,
             warranty_expiry:   newStatus === 'Sold' ? warranty : null,
-            payment_method:    payMethod,
+            payment_method:    productPayMethod,
             customer_note:     note,
             installment_total: price,
             installment_paid:  productFirstPaid,

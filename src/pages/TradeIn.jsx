@@ -55,6 +55,7 @@ export default function TradeIn() {
   const splitBank    = Number(bankAmount || 0)
   const splitCash    = Number(cashAmount || 0)
   const splitTotal   = splitBank + splitCash
+  const productPayMethod = isSplitPay ? (splitBank >= splitCash ? 'โอน' : 'เงินสด') : payMethod
 
   const addA        = p  => setItemsA(prev => [...prev, { product: p, sellPrice: '' }])
   const removeA     = idx => setItemsA(prev => prev.filter((_,i) => i !== idx))
@@ -111,7 +112,7 @@ export default function TradeIn() {
         const { error: e2 } = await supabase.from('products').update({
           status: 'Sold', sold_price: Number(x.sellPrice),
           sold_date: now, warranty_expiry: warranty,
-          payment_method: payMethod, trade_ref_id: bIds[0]||null,
+          payment_method: productPayMethod, trade_ref_id: bIds[0]||null,
         }).eq('id', x.product.id)
         if (e2) throw e2
       }

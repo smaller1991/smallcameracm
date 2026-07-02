@@ -224,6 +224,12 @@ export default function ProductDetail() {
     return { amount: bank + cash, bank, cash, bankField: bank, cashField: cash }
   }
 
+  const productPaymentMethod = (method, bankValue, cashValue) => (
+    method === 'แบ่งจ่าย'
+      ? (Number(bankValue || 0) >= Number(cashValue || 0) ? 'โอน' : 'เงินสด')
+      : method
+  )
+
   const validateSplitPayment = (method, pay, expected) => {
     if (method !== 'แบ่งจ่าย') return true
     if (pay.amount <= 0) {
@@ -257,7 +263,7 @@ export default function ProductDetail() {
 
       // 1. อัปเดตสินค้า
       const {error} = await supabase.from('products').update({
-        status:'Sold', sold_price:price, payment_method:payMethod,
+        status:'Sold', sold_price:price, payment_method:productPaymentMethod(payMethod, sellBankAmount, sellCashAmount),
         sold_date:soldAt, warranty_expiry:warrantyExp,
         customer_note: customerNote.trim() || null,
       }).eq('id',id)
@@ -317,7 +323,7 @@ export default function ProductDetail() {
       const {error} = await supabase.from('products').update({
         status: isFullyPaid ? 'Sold' : 'Pending',
         sold_price: total,
-        payment_method: payMethod,
+        payment_method: productPaymentMethod(payMethod, sellBankAmount, sellCashAmount),
         sold_date: isFullyPaid ? soldAt : null,
         warranty_expiry: isFullyPaid ? new Date(new Date(soldAt).getTime()+15*86400000).toISOString() : null,
         installment_total: total,
