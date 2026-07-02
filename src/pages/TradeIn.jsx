@@ -26,6 +26,8 @@ export default function TradeIn() {
   // common
   const [tradeDate, setTradeDate] = useState(nowLocal())
   const [payMethod, setPayMethod] = useState('โอน')
+  const [bankAmount, setBankAmount] = useState('')
+  const [cashAmount, setCashAmount] = useState('')
   const [saving,    setSaving]    = useState(false)
   const [imgFiles,  setImgFiles]  = useState([])
   const [imgPrev,   setImgPrev]   = useState([])
@@ -48,6 +50,11 @@ export default function TradeIn() {
   const totalProfitA = totalSellA - totalCostA
   const totalBuyB    = itemsB.reduce((a,x) => a + Number(x.buy_price||0), 0)
   const diff         = totalSellA - totalBuyB
+  const diffAbs      = Math.abs(diff)
+  const isSplitPay   = payMethod === 'แบ่งจ่าย'
+  const splitBank    = Number(bankAmount || 0)
+  const splitCash    = Number(cashAmount || 0)
+  const splitTotal   = splitBank + splitCash
 
   const addA        = p  => setItemsA(prev => [...prev, { product: p, sellPrice: '' }])
   const removeA     = idx => setItemsA(prev => prev.filter((_,i) => i !== idx))
@@ -65,6 +72,10 @@ export default function TradeIn() {
     if (itemsB.some(x => !x.model))          return toast.error('กรุณากรอกชื่อสินค้า B ให้ครบ')
     if (itemsB.some(x => !x.serial_number))  return toast.error('กรุณากรอก Serial สินค้า B ให้ครบ')
     if (itemsB.some(x => !x.buy_price))      return toast.error('กรุณากรอกราคารับซื้อสินค้า B ให้ครบ')
+    if (diff !== 0 && isSplitPay) {
+      if (splitTotal <= 0)                   return toast.error('กรุณาระบุยอดโอนหรือเงินสด')
+      if (splitTotal !== diffAbs)            return toast.error(`ยอดแบ่งจ่ายต้องรวมเท่ากับ ฿${fmt(diffAbs)}`)
+    }
 
     setSaving(true)
     try {
@@ -75,7 +86,7 @@ export default function TradeIn() {
         `🔄 แลกเปลี่ยน`,
         `A: ${itemsA.map(x=>`${x.product.model} ฿${fmt(Number(x.sellPrice))}`).join(', ')}`,
         `B: ${itemsB.map(x=>`${x.model} ฿${fmt(Number(x.buy_price))}`).join(', ')}`,
-        diff>0 ? `ลูกค้าจ่ายเพิ่ม ฿${fmt(diff)} (${payMethod})` : diff<0 ? `ร้านจ่ายคืน ฿${fmt(Math.abs(diff))} (${payMethod})` : `แลกเท่ากันพอดี`,
+        diff>0 ? `ลูกค้าจ่ายเพิ่ม ฿${fmt(diff)} (${isSplitPay ? `โอน ฿${fmt(splitBank)} + สด ฿${fmt(splitCash)}` : payMethod})` : diff<0 ? `ร้านจ่ายคืน ฿${fmt(Math.abs(diff))} (${isSplitPay ? `โอน ฿${fmt(splitBank)} + สด ฿${fmt(splitCash)}` : payMethod})` : `แลกเท่ากันพอดี`,
       ].join(' | ')
 
       // 1. Insert B products into stock
@@ -109,10 +120,17 @@ export default function TradeIn() {
       const { data: balTrade } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
       let bank_afterTrade = Number(balTrade?.bank || 0)
       let cash_afterTrade = Number(balTrade?.cash || 0)
-      if (diff > 0) { if (payMethod==='โอน') bank_afterTrade += diff; else cash_afterTrade += diff }
+      if (diff > 0) {
+        if (isSplitPay) { bank_afterTrade += splitBank; cash_afterTrade += splitCash }
+        else if (payMethod==='โอน') bank_afterTrade += diff
+        else cash_afterTrade += diff
+      }
       else if (diff < 0) {
         const amt = Math.abs(diff)
-        if (payMethod==='โอน') bank_afterTrade = Math.max(0, bank_afterTrade-amt)
+        if (isSplitPay) {
+          bank_afterTrade = Math.max(0, bank_afterTrade - splitBank)
+          cash_afterTrade = Math.max(0, cash_afterTrade - splitCash)
+        } else if (payMethod==='โอน') bank_afterTrade = Math.max(0, bank_afterTrade-amt)
         else cash_afterTrade = Math.max(0, cash_afterTrade-amt)
       }
 
@@ -123,6 +141,8 @@ export default function TradeIn() {
         amount: Math.abs(diff) || totalSellA,
         product_id: itemsA[0].product.id,
         payment_method: payMethod,
+        bank_amount: isSplitPay && diff !== 0 ? splitBank : null,
+        cash_amount: isSplitPay && diff !== 0 ? splitCash : null,
         note: tradeNote,
         trade_sell_a: totalSellA,
         trade_profit_a: totalProfitA,
@@ -361,16 +381,27 @@ export default function TradeIn() {
               <div>
                 <label className="text-xs text-gray-500 mb-1.5 block">ช่องทางชำระส่วนต่าง</label>
                 <div className="flex gap-2">
-                  {['โอน','เงินสด'].map(m=>(
-                    <button key={m} onClick={()=>setPayMethod(m)}
+                  {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
+                    <button key={m} onClick={()=>{setPayMethod(m);setBankAmount('');setCashAmount('')}}
                       className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all
                         ${payMethod===m
-                          ? m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'
+                          ? m==='โอน'?'bg-blue-600 text-white border-blue-600':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'
                           : 'bg-white text-gray-400 border-gray-200'}`}>
-                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                      {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
                     </button>
                   ))}
                 </div>
+                {isSplitPay && (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="ยอดโอน"
+                      value={bankAmount} onChange={e=>setBankAmount(e.target.value)}/>
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="เงินสด"
+                      value={cashAmount} onChange={e=>setCashAmount(e.target.value)}/>
+                    <p className={`col-span-2 text-xs font-medium ${splitTotal === diffAbs ? 'text-green-600' : 'text-orange-600'}`}>
+                      รวมแบ่งจ่าย ฿{fmt(splitTotal)} / ต้องเท่ากับ ฿{fmt(diffAbs)}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

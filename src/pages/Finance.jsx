@@ -594,10 +594,16 @@ export default function Finance() {
         let bank = Number(bal.bank)
         let cash = Number(bal.cash)
         if (tx.type === 'Income') {
-          if (tx.payment_method === 'โอน') bank -= Number(tx.amount)
+          if (tx.payment_method === 'แบ่งจ่าย') {
+            bank -= Number(tx.bank_amount || 0)
+            cash -= Number(tx.cash_amount || 0)
+          } else if (tx.payment_method === 'โอน') bank -= Number(tx.amount)
           else cash -= Number(tx.amount)
         } else {
-          if (tx.payment_method === 'โอน') bank += Number(tx.amount)
+          if (tx.payment_method === 'แบ่งจ่าย') {
+            bank += Number(tx.bank_amount || 0)
+            cash += Number(tx.cash_amount || 0)
+          } else if (tx.payment_method === 'โอน') bank += Number(tx.amount)
           else cash += Number(tx.amount)
         }
         await supabase.from('balances').update({ bank: Math.max(0, bank), cash: Math.max(0, cash), updated_at: new Date().toISOString() }).eq('id','main')

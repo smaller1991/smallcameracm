@@ -22,6 +22,8 @@ export default function BulkSale() {
   const [payType,       setPayType]       = useState('full') // 'full' | 'installment'
   const [installFirst,  setInstallFirst]  = useState('')
   const [payMethod,     setPayMethod]     = useState('โอน')
+  const [bankAmount,    setBankAmount]    = useState('')
+  const [cashAmount,    setCashAmount]    = useState('')
   const [saleDate,      setSaleDate]      = useState(nowLocal())
   const [customerNote,  setCustomerNote]  = useState('')
   const [saving,        setSaving]        = useState(false)
@@ -52,12 +54,36 @@ export default function BulkSale() {
 
   const profitColor = p => p > 0 ? 'text-green-600' : p < 0 ? 'text-red-500' : 'text-gray-500'
 
+  const paymentTarget = payType === 'installment' ? firstNum : totalSell
+  const splitBank = Number(bankAmount || 0)
+  const splitCash = Number(cashAmount || 0)
+  const splitTotal = splitBank + splitCash
+  const isSplitPay = payMethod === 'แบ่งจ่าย'
+
+  const paymentForProduct = (price, index, count, paidSoFar, totalPaid, targetPaid) => {
+    const amount = index === count - 1
+      ? targetPaid - paidSoFar
+      : Math.floor(targetPaid * (price / totalSell))
+    if (!isSplitPay) return { amount, bank: payMethod === 'โอน' ? amount : 0, cash: payMethod === 'เงินสด' ? amount : 0 }
+    const bank = index === count - 1
+      ? splitBank - totalPaid.bank
+      : Math.floor(splitBank * (price / totalSell))
+    const cash = index === count - 1
+      ? splitCash - totalPaid.cash
+      : Math.floor(splitCash * (price / totalSell))
+    return { amount: bank + cash, bank, cash }
+  }
+
   const doSell = async () => {
     if (!items.length)                      return toast.error('กรุณาเลือกสินค้าอย่างน้อย 1 รายการ')
     if (items.some(x => !x.sellPrice))      return toast.error('กรุณากรอกราคาขายให้ครบทุกรายการ')
     if (payType === 'installment') {
       if (!installFirst)                    return toast.error('กรุณากรอกยอดชำระงวดแรก')
       if (firstNum > totalSell)             return toast.error('ยอดชำระงวดแรกมากกว่ายอดรวม')
+    }
+    if (isSplitPay) {
+      if (splitTotal <= 0)                  return toast.error('กรุณาระบุยอดโอนหรือเงินสด')
+      if (splitTotal !== paymentTarget)     return toast.error(`ยอดแบ่งจ่ายต้องรวมเท่ากับ ฿${fmt(paymentTarget)}`)
     }
 
     setSaving(true)
@@ -77,9 +103,17 @@ export default function BulkSale() {
       let runCash = Number(balBulk?.cash || 0)
 
       if (payType === 'full') {
-        for (const x of items) {
+        const splitUsed = { bank: 0, cash: 0 }
+        let paidSoFar = 0
+        for (let i = 0; i < items.length; i++) {
+          const x = items[i]
           const price = Number(x.sellPrice)
-          if (payMethod==='โอน') runBank += price; else runCash += price
+          const pay = paymentForProduct(price, i, items.length, paidSoFar, splitUsed, totalSell)
+          paidSoFar += pay.amount
+          splitUsed.bank += pay.bank
+          splitUsed.cash += pay.cash
+          runBank += pay.bank
+          runCash += pay.cash
 
           const { error: e1 } = await supabase.from('products').update({
             status: 'Sold', sold_price: price, sold_date: now,
@@ -98,6 +132,8 @@ export default function BulkSale() {
             date: now, type: 'Income', category: 'Sale',
             amount: price, product_id: x.product.id,
             payment_method: payMethod, note: txNote,
+            bank_amount: isSplitPay ? pay.bank : null,
+            cash_amount: isSplitPay ? pay.cash : null,
           }).select().single()
           if (e2) throw e2
           txIds.push(tx.id)
@@ -109,16 +145,17 @@ export default function BulkSale() {
       } else {
         // Installment — distribute first payment proportionally across products
         let paidSoFar = 0
+        const splitUsed = { bank: 0, cash: 0 }
         for (let i = 0; i < items.length; i++) {
           const x     = items[i]
           const price = Number(x.sellPrice)
-          const isLast = i === items.length - 1
-          const productFirstPaid = isLast
-            ? firstNum - paidSoFar
-            : Math.floor(firstNum * (price / totalSell))
+          const pay = paymentForProduct(price, i, items.length, paidSoFar, splitUsed, firstNum)
+          const productFirstPaid = pay.amount
           paidSoFar += productFirstPaid
-
-          if (payMethod==='โอน') runBank += productFirstPaid; else runCash += productFirstPaid
+          splitUsed.bank += pay.bank
+          splitUsed.cash += pay.cash
+          runBank += pay.bank
+          runCash += pay.cash
 
           const newStatus = productFirstPaid >= price ? 'Sold' : 'Pending'
 
@@ -149,6 +186,8 @@ export default function BulkSale() {
             date: now, type: 'Income', category: 'Sale',
             amount: productFirstPaid, product_id: x.product.id,
             payment_method: payMethod, note: txNote,
+            bank_amount: isSplitPay ? pay.bank : null,
+            cash_amount: isSplitPay ? pay.cash : null,
           }).select().single()
           if (e2) throw e2
           txIds.push(tx.id)
@@ -303,14 +342,25 @@ export default function BulkSale() {
             <div>
               <p className="text-xs text-gray-500 mb-1.5">ช่องทางชำระ</p>
               <div className="flex gap-2">
-                {['โอน','เงินสด'].map(m=>(
-                  <button key={m} onClick={()=>setPayMethod(m)}
+                {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
+                  <button key={m} onClick={()=>{setPayMethod(m);setBankAmount('');setCashAmount('')}}
                     className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all
-                      ${payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
-                    {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                      ${payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'):'bg-white text-gray-400 border-gray-200'}`}>
+                    {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
                   </button>
                 ))}
               </div>
+              {isSplitPay && (
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <input autoComplete="off" className="input text-sm" type="number" placeholder="ยอดโอน"
+                    value={bankAmount} onChange={e=>setBankAmount(e.target.value)}/>
+                  <input autoComplete="off" className="input text-sm" type="number" placeholder="เงินสด"
+                    value={cashAmount} onChange={e=>setCashAmount(e.target.value)}/>
+                  <p className={`col-span-2 text-xs font-medium ${splitTotal === paymentTarget ? 'text-green-600' : 'text-orange-600'}`}>
+                    รวมแบ่งจ่าย ฿{fmt(splitTotal)} / ต้องเท่ากับ ฿{fmt(paymentTarget)}
+                  </p>
+                </div>
+              )}
             </div>
 
             {/* Customer note */}
@@ -352,6 +402,12 @@ export default function BulkSale() {
               <div className="bg-orange-500/20 rounded-xl p-2.5 flex justify-between items-center mt-1">
                 <span className="text-orange-300 text-xs">รับงวดแรก</span>
                 <span className="text-orange-200 font-bold">฿{fmt(firstNum)}</span>
+              </div>
+            )}
+            {isSplitPay && (
+              <div className="bg-white/10 rounded-xl p-2.5 flex justify-between items-center mt-1 text-xs">
+                <span className="text-white/50">แบ่งจ่าย</span>
+                <span className="text-white/80 font-semibold">โอน ฿{fmt(splitBank)} + สด ฿{fmt(splitCash)}</span>
               </div>
             )}
           </div>

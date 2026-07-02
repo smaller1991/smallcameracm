@@ -14,8 +14,6 @@ export const transactionGroupKey = tx => {
     const paymentEvent = [
       tx.date || '',
       tx.payment_method || '',
-      tx.bank_amount || '',
-      tx.cash_amount || '',
     ].join(':')
     return `sale:${tx.products.sale_batch_id}:${paymentEvent}`
   }

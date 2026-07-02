@@ -59,6 +59,8 @@ export default function ProductDetail() {
   const [installTotal, setInstallTotal] = useState('')
   const [installFirst, setInstallFirst] = useState('')
   const [payMethod,    setPayMethod]    = useState('โอน')
+  const [sellBankAmount, setSellBankAmount] = useState('')
+  const [sellCashAmount, setSellCashAmount] = useState('')
   const [sellDate,     setSellDate]     = useState('')
   const [customerNote, setCustomerNote] = useState('')
   const [sellImgFiles, setSellImgFiles] = useState([])
@@ -68,6 +70,8 @@ export default function ProductDetail() {
   const [payMode,     setPayMode]     = useState(false)
   const [payAmount,   setPayAmount]   = useState('')
   const [payMethod2,  setPayMethod2]  = useState('โอน')
+  const [payBankAmount, setPayBankAmount] = useState('')
+  const [payCashAmount, setPayCashAmount] = useState('')
   const [payDate2,    setPayDate2]    = useState('')
   const [payImgFiles, setPayImgFiles] = useState([])
   const [payImgPrev,  setPayImgPrev]  = useState([])
@@ -204,12 +208,50 @@ export default function ProductDetail() {
     } catch(e) { toast.error(e.message) }
   }
 
+  const splitPayment = (method, total, bankValue, cashValue) => {
+    const amount = Number(total || 0)
+    if (method !== 'แบ่งจ่าย') {
+      return {
+        amount,
+        bank: method === 'โอน' ? amount : 0,
+        cash: method === 'เงินสด' ? amount : 0,
+        bankField: null,
+        cashField: null,
+      }
+    }
+    const bank = Number(bankValue || 0)
+    const cash = Number(cashValue || 0)
+    return { amount: bank + cash, bank, cash, bankField: bank, cashField: cash }
+  }
+
+  const validateSplitPayment = (method, pay, expected) => {
+    if (method !== 'แบ่งจ่าย') return true
+    if (pay.amount <= 0) {
+      toast.error('กรุณาระบุยอดโอนหรือเงินสด')
+      return false
+    }
+    if (pay.amount !== Number(expected || 0)) {
+      toast.error(`ยอดแบ่งจ่ายต้องรวมเท่ากับ ฿${fmt(expected)}`)
+      return false
+    }
+    return true
+  }
+
+  const batchSplitPart = (partTotal, amount, index, count, used) => {
+    if (payMethod2 !== 'แบ่งจ่าย') return 0
+    return index === count - 1
+      ? partTotal - used
+      : Math.floor(partTotal * (amount / Number(payAmount || 0)))
+  }
+
   // ─── sell ──────────────────────────────────────────────────
   const sell = async () => {
     if (!soldPrice) return toast.error('กรุณาระบุราคาขาย')
     setSaving(true)
     try {
       const price  = parseFloat(soldPrice)
+      const pay = splitPayment(payMethod, price, sellBankAmount, sellCashAmount)
+      if (!validateSplitPayment(payMethod, pay, price)) return
       const soldAt = sellDate ? new Date(sellDate).toISOString() : new Date().toISOString()
       const warrantyExp = new Date(new Date(soldAt).getTime()+15*86400000).toISOString()
 
@@ -223,12 +265,14 @@ export default function ProductDetail() {
 
       // 2. คำนวณยอดคงเหลือหลังรายการ + สร้าง transaction Income
       const {data:balSnap} = await supabase.from('balances').select('bank,cash').eq('id','main').single()
-      const bank_after = payMethod==='โอน' ? Number(balSnap?.bank||0)+price : Number(balSnap?.bank||0)
-      const cash_after = payMethod!=='โอน' ? Number(balSnap?.cash||0)+price : Number(balSnap?.cash||0)
+      const bank_after = Number(balSnap?.bank||0) + pay.bank
+      const cash_after = Number(balSnap?.cash||0) + pay.cash
 
       const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         date: soldAt, type:'Income', category:'Sale', amount:price,
         product_id: id, payment_method: payMethod,
+        bank_amount: pay.bankField,
+        cash_amount: pay.cashField,
         note: 'ขายสินค้า: '+product.model+' SN:'+product.serial_number,
       }).select().single()
       if (txErr) throw txErr
@@ -251,6 +295,7 @@ export default function ProductDetail() {
 
       toast.success('ขายสำเร็จ! ช่องทาง: '+payMethod)
       setSellMode(false)
+      setSellBankAmount(''); setSellCashAmount('')
       setSellImgFiles([]); setSellImgPrev([])
       load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
@@ -262,6 +307,8 @@ export default function ProductDetail() {
     const first = parseFloat(installFirst || 0)
     if (!installTotal || isNaN(total) || total <= 0) return toast.error('กรุณาระบุราคาตกลง')
     if (first > total) return toast.error('ยอดชำระงวดแรกเกินราคาตกลง')
+    const pay = splitPayment(payMethod, first, sellBankAmount, sellCashAmount)
+    if (first > 0 && !validateSplitPayment(payMethod, pay, first)) return
     setSaving(true)
     try {
       const soldAt = sellDate ? new Date(sellDate).toISOString() : new Date().toISOString()
@@ -281,12 +328,14 @@ export default function ProductDetail() {
 
       if (first > 0) {
         const {data:balSnap2} = await supabase.from('balances').select('bank,cash').eq('id','main').single()
-        const bank_after2 = payMethod==='โอน' ? Number(balSnap2?.bank||0)+first : Number(balSnap2?.bank||0)
-        const cash_after2 = payMethod!=='โอน' ? Number(balSnap2?.cash||0)+first : Number(balSnap2?.cash||0)
+        const bank_after2 = Number(balSnap2?.bank||0) + pay.bank
+        const cash_after2 = Number(balSnap2?.cash||0) + pay.cash
 
         const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
           date: soldAt, type:'Income', category:'Sale', amount: first,
           product_id: id, payment_method: payMethod,
+          bank_amount: pay.bankField,
+          cash_amount: pay.cashField,
           note: isFullyPaid
             ? `${product.model} SN:${product.serial_number} | ราคา ฿${fmt(total)} | ชำระครบ`
             : `ผ่อนจ่าย | ${product.model} SN:${product.serial_number} | ราคาตกลง ฿${fmt(total)} | งวดแรก ฿${fmt(first)} | คงเหลือ ฿${fmt(total-first)}`,
@@ -305,6 +354,7 @@ export default function ProductDetail() {
       toast.success(isFullyPaid ? 'ขายสำเร็จ!' : `บันทึกผ่อนจ่ายแล้ว — ชำระแรก ฿${fmt(first)}, คงเหลือ ฿${fmt(total-first)}`)
       setSellMode(false); setSellType('full')
       setInstallTotal(''); setInstallFirst(''); setSoldPrice('')
+      setSellBankAmount(''); setSellCashAmount('')
       setSellImgFiles([]); setSellImgPrev([]); setSellDate(''); setCustomerNote('')
       load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
@@ -314,6 +364,12 @@ export default function ProductDetail() {
   const payInstallment = async () => {
     const amount = parseFloat(payAmount)
     if (!payAmount || isNaN(amount) || amount <= 0) return toast.error('กรุณาระบุจำนวนเงิน')
+    const maxPay = product.sale_batch_id && batchProducts.length > 1
+      ? batchTotalRemaining
+      : Number(product.installment_total || 0) - Number(product.installment_paid || 0)
+    if (amount > maxPay) return toast.error(`ยอดชำระเกินยอดคงเหลือ ฿${fmt(maxPay)}`)
+    const pay = splitPayment(payMethod2, amount, payBankAmount, payCashAmount)
+    if (!validateSplitPayment(payMethod2, pay, amount)) return
     setSaving(true)
     try {
       const soldAt  = payDate2 ? new Date(payDate2).toISOString() : new Date().toISOString()
@@ -330,6 +386,8 @@ export default function ProductDetail() {
         let runBank = Number(balPayBatch?.bank || 0)
         let runCash = Number(balPayBatch?.cash || 0)
         let distributed = 0
+        let distributedBank = 0
+        let distributedCash = 0
         let firstTxId = null
         for (let i = 0; i < pendingInBatch.length; i++) {
           const bp = pendingInBatch[i]
@@ -340,7 +398,16 @@ export default function ProductDetail() {
             : Math.min(bpRemaining, Math.floor(amount * (bpRemaining / totalRemaining)))
           distributed += bpPayment
 
-          if (payMethod2==='โอน') runBank += bpPayment; else runCash += bpPayment
+          const bpBank = payMethod2 === 'แบ่งจ่าย'
+            ? batchSplitPart(pay.bank, bpPayment, i, pendingInBatch.length, distributedBank)
+            : payMethod2 === 'โอน' ? bpPayment : 0
+          const bpCash = payMethod2 === 'แบ่งจ่าย'
+            ? batchSplitPart(pay.cash, bpPayment, i, pendingInBatch.length, distributedCash)
+            : payMethod2 === 'เงินสด' ? bpPayment : 0
+          distributedBank += bpBank
+          distributedCash += bpCash
+          runBank += bpBank
+          runCash += bpCash
 
           const newPaid = Number(bp.installment_paid||0) + bpPayment
           const bpTotal = Number(bp.installment_total||0)
@@ -357,6 +424,8 @@ export default function ProductDetail() {
           const { data: newTx } = await supabase.from('transactions').insert({
             date: soldAt, type: 'Income', category: 'Sale', amount: bpPayment,
             product_id: bp.id, payment_method: payMethod2,
+            bank_amount: payMethod2 === 'แบ่งจ่าย' ? bpBank : null,
+            cash_amount: payMethod2 === 'แบ่งจ่าย' ? bpCash : null,
             note: isFullyPaid
               ? `ชำระครบ: ${bp.model} SN:${bp.serial_number}`
               : `ผ่อนจ่าย: ${bp.model} SN:${bp.serial_number} (${fmt(newPaid)}/${fmt(bpTotal)})`,
@@ -385,8 +454,8 @@ export default function ProductDetail() {
         const isFullyPaid = newPaid >= total
 
         const { data: balPay } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
-        const bank_afterPay = payMethod2==='โอน' ? Number(balPay?.bank||0)+amount : Number(balPay?.bank||0)
-        const cash_afterPay = payMethod2!=='โอน' ? Number(balPay?.cash||0)+amount : Number(balPay?.cash||0)
+        const bank_afterPay = Number(balPay?.bank||0) + pay.bank
+        const cash_afterPay = Number(balPay?.cash||0) + pay.cash
 
         await supabase.from('products').update({
           installment_paid: newPaid,
@@ -399,6 +468,8 @@ export default function ProductDetail() {
         const {data:newTx} = await supabase.from('transactions').insert({
           date: soldAt, type:'Income', category:'Sale', amount,
           product_id: id, payment_method: payMethod2,
+          bank_amount: pay.bankField,
+          cash_amount: pay.cashField,
           note: isFullyPaid
             ? `ชำระครบแล้ว: ${product.model} SN:${product.serial_number}`
             : `ผ่อนจ่าย: ${product.model} SN:${product.serial_number} (${fmt(newPaid)}/${fmt(total)})`,
@@ -415,7 +486,7 @@ export default function ProductDetail() {
         toast.success(isFullyPaid ? 'ชำระครบแล้ว! สินค้าเปลี่ยนเป็น "ขายแล้ว"' : `รับชำระ ฿${fmt(amount)} — คงเหลือ ฿${fmt(total-newPaid)}`)
       }
 
-      setPayMode(false); setPayAmount(''); setPayMethod2('โอน'); setPayDate2('')
+      setPayMode(false); setPayAmount(''); setPayMethod2('โอน'); setPayBankAmount(''); setPayCashAmount(''); setPayDate2('')
       setPayImgFiles([]); setPayImgPrev([])
       load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
@@ -439,8 +510,13 @@ export default function ProductDetail() {
         for (const tx of saleTxs || []) {
           const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
           if (bal) {
-            if (tx.payment_method==='โอน') await supabase.from('balances').update({bank:Math.max(0,Number(bal.bank)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
-            else                           await supabase.from('balances').update({cash:Math.max(0,Number(bal.cash)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
+            if (tx.payment_method==='แบ่งจ่าย') await supabase.from('balances').update({
+              bank: Math.max(0, Number(bal.bank) - Number(tx.bank_amount || 0)),
+              cash: Math.max(0, Number(bal.cash) - Number(tx.cash_amount || 0)),
+              updated_at:new Date().toISOString()
+            }).eq('id','main')
+            else if (tx.payment_method==='โอน') await supabase.from('balances').update({bank:Math.max(0,Number(bal.bank)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
+            else                                await supabase.from('balances').update({cash:Math.max(0,Number(bal.cash)-Number(tx.amount)),updated_at:new Date().toISOString()}).eq('id','main')
           }
         }
 
@@ -462,30 +538,36 @@ export default function ProductDetail() {
     if (!confirm('ยกเลิกการขายสินค้านี้?\nยอดเงินและรายการบัญชีจะถูกลบคืนอัตโนมัติ')) return
     setSaving(true)
     try {
-      const price  = Number(product.sold_price||0)
-      const method = product.payment_method
-
       // 1. คืนสถานะสินค้า
       await supabase.from('products').update({
         status:'Available', sold_price:null,
         payment_method:null, sold_date:null, warranty_expiry:null,
       }).eq('id',id)
 
-      // 2. หักยอด balance คืน
-      if (price>0 && method) {
+      // 2. หักยอด balance คืนตาม transaction จริง เพื่อรองรับแบ่งจ่าย
+      const {data: saleTxs} = await supabase.from('transactions')
+        .select('*')
+        .eq('product_id', id)
+        .eq('category', 'Sale')
+      for (const tx of saleTxs || []) {
         const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
-        if (bal) {
-          if (method==='โอน') {
-            await supabase.from('balances').update({
-              bank: Math.max(0, Number(bal.bank)-price),
-              updated_at: new Date().toISOString()
-            }).eq('id','main')
-          } else {
-            await supabase.from('balances').update({
-              cash: Math.max(0, Number(bal.cash)-price),
-              updated_at: new Date().toISOString()
-            }).eq('id','main')
-          }
+        if (!bal) continue
+        if (tx.payment_method === 'แบ่งจ่าย') {
+          await supabase.from('balances').update({
+            bank: Math.max(0, Number(bal.bank)-Number(tx.bank_amount || 0)),
+            cash: Math.max(0, Number(bal.cash)-Number(tx.cash_amount || 0)),
+            updated_at: new Date().toISOString()
+          }).eq('id','main')
+        } else if (tx.payment_method === 'โอน') {
+          await supabase.from('balances').update({
+            bank: Math.max(0, Number(bal.bank)-Number(tx.amount)),
+            updated_at: new Date().toISOString()
+          }).eq('id','main')
+        } else {
+          await supabase.from('balances').update({
+            cash: Math.max(0, Number(bal.cash)-Number(tx.amount)),
+            updated_at: new Date().toISOString()
+          }).eq('id','main')
         }
       }
 
@@ -528,10 +610,16 @@ export default function ProductDetail() {
         if (bal) {
           let bank = Number(bal.bank), cash = Number(bal.cash)
           if (tradeTx.type === 'Income') {
-            if (tradeTx.payment_method === 'โอน') bank -= Number(tradeTx.amount)
+            if (tradeTx.payment_method === 'แบ่งจ่าย') {
+              bank -= Number(tradeTx.bank_amount || 0)
+              cash -= Number(tradeTx.cash_amount || 0)
+            } else if (tradeTx.payment_method === 'โอน') bank -= Number(tradeTx.amount)
             else cash -= Number(tradeTx.amount)
           } else {
-            if (tradeTx.payment_method === 'โอน') bank += Number(tradeTx.amount)
+            if (tradeTx.payment_method === 'แบ่งจ่าย') {
+              bank += Number(tradeTx.bank_amount || 0)
+              cash += Number(tradeTx.cash_amount || 0)
+            } else if (tradeTx.payment_method === 'โอน') bank += Number(tradeTx.amount)
             else cash += Number(tradeTx.amount)
           }
           await supabase.from('balances').update({
@@ -655,7 +743,7 @@ export default function ProductDetail() {
               </div>
               <WarrantyBadge expiry={product.warranty_expiry}/>
               {product.payment_method && (
-                <span className={"inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full "+(product.payment_method==='โอน'?'bg-blue-100 text-blue-700':'bg-green-100 text-green-700')}>
+                <span className={"inline-block text-xs font-semibold px-2.5 py-0.5 rounded-full "+(product.payment_method==='โอน'?'bg-blue-100 text-blue-700':product.payment_method==='เงินสด'?'bg-green-100 text-green-700':'bg-red-100 text-red-700')}>
                   ชำระ: {product.payment_method}
                 </span>
               )}
@@ -897,16 +985,28 @@ export default function ProductDetail() {
               <div>
                 <label className="text-xs text-gray-500 mb-2 block">ช่องทางการชำระเงิน</label>
                 <div className="flex gap-2">
-                  {['โอน','เงินสด'].map(m=>(
-                    <button key={m} onClick={()=>setPayMethod(m)}
-                      className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200')}>
-                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                  {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
+                    <button key={m} onClick={()=>{setPayMethod(m);setSellBankAmount('');setSellCashAmount('')}}
+                      className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'):'bg-white text-gray-400 border-gray-200')}>
+                      {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
                     </button>
                   ))}
                 </div>
-                <p className="text-xs text-gray-400 mt-1.5">
-                  {payMethod==='โอน'?'✅ ยอดจะบวกเพิ่มใน "ยอดโอน" อัตโนมัติ':'✅ ยอดจะบวกเพิ่มใน "เงินสด" อัตโนมัติ'}
-                </p>
+                {payMethod === 'แบ่งจ่าย' ? (
+                  <div className="grid grid-cols-2 gap-2 mt-2">
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="ยอดโอน"
+                      value={sellBankAmount} onChange={e=>setSellBankAmount(e.target.value)}/>
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="เงินสด"
+                      value={sellCashAmount} onChange={e=>setSellCashAmount(e.target.value)}/>
+                    <p className={`col-span-2 text-xs font-medium ${(Number(sellBankAmount||0)+Number(sellCashAmount||0)) === Number(sellType==='full' ? soldPrice || 0 : installFirst || 0) ? 'text-green-600' : 'text-orange-600'}`}>
+                      รวมแบ่งจ่าย ฿{fmt(Number(sellBankAmount||0)+Number(sellCashAmount||0))} / ต้องเท่ากับ ฿{fmt(sellType==='full' ? soldPrice : installFirst)}
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 mt-1.5">
+                    {payMethod==='โอน'?'ยอดจะบวกเพิ่มใน "ยอดโอน" อัตโนมัติ':'ยอดจะบวกเพิ่มใน "เงินสด" อัตโนมัติ'}
+                  </p>
+                )}
               </div>
               <div>
                 <label className="text-xs text-gray-500 mb-1 block">รายละเอียดลูกค้า (ไม่บังคับ)</label>
@@ -919,11 +1019,11 @@ export default function ProductDetail() {
                   className="btn-primary flex-1 py-3 flex items-center justify-center gap-2">
                   <ShoppingBag size={16}/>{saving?'...':(sellType==='full'?'ยืนยันขาย':'บันทึกผ่อนจ่าย')}
                 </button>
-                <button onClick={()=>{setSellMode(false);setSellType('full');setInstallTotal('');setInstallFirst('')}} className="btn-ghost px-4">ยกเลิก</button>
+                <button onClick={()=>{setSellMode(false);setSellType('full');setInstallTotal('');setInstallFirst('');setSellBankAmount('');setSellCashAmount('')}} className="btn-ghost px-4">ยกเลิก</button>
               </div>
             </div>
           ) : (
-            <button onClick={()=>{setSellMode(true);setSellDate('');setCustomerNote('');setSellImgFiles([]);setSellImgPrev([]);setSellType('full');setInstallTotal('');setInstallFirst('')}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
+            <button onClick={()=>{setSellMode(true);setSellDate('');setCustomerNote('');setSellImgFiles([]);setSellImgPrev([]);setSellType('full');setInstallTotal('');setInstallFirst('');setSellBankAmount('');setSellCashAmount('')}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
               <ShoppingBag size={18}/>ขายสินค้า
             </button>
           )
@@ -1000,7 +1100,7 @@ export default function ProductDetail() {
               )}
             </div>
             {!payMode ? (
-              <button onClick={()=>{setPayMode(true);setPayAmount('');setPayMethod2('โอน');setPayDate2('');setPayImgFiles([]);setPayImgPrev([])}}
+              <button onClick={()=>{setPayMode(true);setPayAmount('');setPayMethod2('โอน');setPayBankAmount('');setPayCashAmount('');setPayDate2('');setPayImgFiles([]);setPayImgPrev([])}}
                 className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
                 💰 รับชำระงวด
               </button>
@@ -1010,13 +1110,24 @@ export default function ProductDetail() {
                 <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)"
                   value={payAmount} onChange={e=>setPayAmount(e.target.value)} autoFocus/>
                 <div className="flex gap-2">
-                  {['โอน','เงินสด'].map(m=>(
-                    <button key={m} onClick={()=>setPayMethod2(m)}
-                      className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${payMethod2===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
-                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                  {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
+                    <button key={m} onClick={()=>{setPayMethod2(m);setPayBankAmount('');setPayCashAmount('')}}
+                      className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${payMethod2===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'):'bg-white text-gray-400 border-gray-200'}`}>
+                      {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
                     </button>
                   ))}
                 </div>
+                {payMethod2 === 'แบ่งจ่าย' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="ยอดโอน"
+                      value={payBankAmount} onChange={e=>setPayBankAmount(e.target.value)}/>
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="เงินสด"
+                      value={payCashAmount} onChange={e=>setPayCashAmount(e.target.value)}/>
+                    <p className={`col-span-2 text-xs font-medium ${(Number(payBankAmount||0)+Number(payCashAmount||0)) === Number(payAmount || 0) ? 'text-green-600' : 'text-orange-600'}`}>
+                      รวมแบ่งจ่าย ฿{fmt(Number(payBankAmount||0)+Number(payCashAmount||0))} / ต้องเท่ากับ ฿{fmt(payAmount)}
+                    </p>
+                  </div>
+                )}
                 <ThaiDatePicker value={payDate2} onChange={setPayDate2} showTime className="input text-sm w-full"/>
                 <div>
                   <p className="text-xs text-gray-500 mb-1">รูปใบเสร็จ (ไม่บังคับ)</p>
@@ -1061,7 +1172,7 @@ export default function ProductDetail() {
                   <button onClick={payInstallment} disabled={saving} className="btn-primary flex-1 py-2 text-sm">
                     {saving?'...':'บันทึก'}
                   </button>
-                  <button onClick={()=>{setPayMode(false);setPayAmount('');setPayImgFiles([]);setPayImgPrev([])}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
+                  <button onClick={()=>{setPayMode(false);setPayAmount('');setPayBankAmount('');setPayCashAmount('');setPayImgFiles([]);setPayImgPrev([])}} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
                 </div>
               </div>
             )}
