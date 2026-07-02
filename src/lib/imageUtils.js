@@ -24,8 +24,15 @@ export function compressImage(file, maxW = 1200, q = 0.82) {
 }
 
 // ─── ตั้งชื่อไฟล์ตาม spec: YYYYMMDD_ชื่อสินค้า_Serial ──────────
-function safeStr(s) {
-  return (s || '').replace(/[^a-zA-Z0-9ก-๙]/g, '_').slice(0, 30)
+// Supabase Storage ในโปรเจกต์นี้ reject key ที่มีภาษาไทย/อักขระพิเศษ จึงบังคับเป็น ASCII slug
+function safeStr(s, fallback = 'item') {
+  const slug = String(s || '')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 30)
+  return slug || fallback
 }
 function dateStr(iso) {
   if (!iso) return ''
@@ -40,8 +47,8 @@ function dateStr(iso) {
 function makeProductPath(productId, meta, idx) {
   const buyDate  = dateStr(meta.created_at)
   const sellDate = meta.sold_date ? dateStr(meta.sold_date) : 'notsold'
-  const model    = safeStr(meta.model)
-  const serial   = safeStr(meta.serial_number)
+  const model    = safeStr(meta.model, 'product')
+  const serial   = safeStr(meta.serial_number, 'sn')
   const ts       = Date.now() + idx
   return `${productId}/${buyDate}_${sellDate}_${model}_${serial}_${ts}.jpg`
 }
@@ -75,8 +82,8 @@ export async function uploadReceiptImages(supabase, txId, files, meta = {}) {
     // ตั้งชื่อ: buyDate_sellDate_model_serial
     const buyDate  = dateStr(meta.created_at)
     const sellDate = meta.sold_date ? dateStr(meta.sold_date) : dateStr(new Date().toISOString())
-    const model    = safeStr(meta.model)
-    const serial   = safeStr(meta.serial_number)
+    const model    = safeStr(meta.model, 'receipt')
+    const serial   = safeStr(meta.serial_number, 'sn')
     const baseName = `${buyDate}_${sellDate}_${model}_${serial}`
 
     // ตรวจชื่อซ้ำ ถ้าซ้ำให้ใส่ (1), (2), ...
