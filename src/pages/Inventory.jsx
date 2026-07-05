@@ -17,6 +17,46 @@ const SORT_OPTIONS = [
 const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว',Pending:'รอชำระ'}
 const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold',Pending:'badge-pending'}
 const fmt = n => Number(n||0).toLocaleString('th-TH')
+const isPurchaseInstallmentTx = tx => (
+  tx.category === 'Buy Stock'
+  && (tx.note || '').includes('ซื้อผ่อน')
+)
+const isPurchaseInstallmentPaymentTx = tx => (
+  tx.category === 'Buy Stock'
+  && ((tx.note || '').includes('ซื้อผ่อน') || (tx.note || '').includes('ชำระค่าซื้อ'))
+)
+
+const withPurchasePayable = products => {
+  const batchTotals = {}
+  const batchPaid = {}
+  const batchHasInstallment = {}
+  products.forEach(p => {
+    if (!p.batch_id) return
+    batchTotals[p.batch_id] = (batchTotals[p.batch_id] || 0) + Number(p.base_cost || p.total_cost || 0)
+    batchPaid[p.batch_id] = (batchPaid[p.batch_id] || 0) + (p.transactions || [])
+      .filter(isPurchaseInstallmentPaymentTx)
+      .reduce((sum, t) => sum + Number(t.amount || 0), 0)
+    if ((p.transactions || []).some(isPurchaseInstallmentTx)) batchHasInstallment[p.batch_id] = true
+  })
+
+  return products.map(p => {
+    const hasPurchaseInstallment = p.batch_id
+      ? Boolean(batchHasInstallment[p.batch_id])
+      : (p.transactions || []).some(isPurchaseInstallmentTx)
+    const purchaseTotal = p.batch_id
+      ? Number(batchTotals[p.batch_id] || 0)
+      : Number(p.base_cost || p.total_cost || 0)
+    const purchasePaid = p.batch_id
+      ? Number(batchPaid[p.batch_id] || 0)
+      : (p.transactions || [])
+        .filter(isPurchaseInstallmentPaymentTx)
+        .reduce((sum, t) => sum + Number(t.amount || 0), 0)
+    return {
+      ...p,
+      purchase_remaining: hasPurchaseInstallment ? Math.max(0, purchaseTotal - purchasePaid) : 0,
+    }
+  })
+}
 
 export default function Inventory() {
   const navigate = useNavigate()
@@ -32,7 +72,7 @@ export default function Inventory() {
   const [tradeImageMap, setTradeImageMap] = useState({})
 
   useEffect(() => {
-    supabase.from('products').select('*, transactions(images, category)')
+    supabase.from('products').select('*, transactions(images, category, amount, note)')
       .then(async ({data}) => {
         const prods = data || []
         setProducts(prods)
@@ -45,7 +85,7 @@ export default function Inventory() {
         if (tradeIns.length > 0) {
           const { data: productAs } = await supabase
             .from('products')
-            .select('trade_ref_id, transactions(images, category)')
+            .select('trade_ref_id, transactions(images, category, amount, note)')
             .in('trade_ref_id', tradeIns.map(p => p.id))
           const map = {}
           ;(productAs || []).forEach(pA => {
@@ -64,7 +104,9 @@ export default function Inventory() {
       })
   }, [])
 
-  const filtered = products
+  const productsWithPurchasePayable = withPurchasePayable(products)
+
+  const filtered = productsWithPurchasePayable
     .filter(p => tab==='all' || p.status===tab)
     .filter(p => catTab==='ทั้งหมด' || p.category===catTab)
     .filter(p => !search || p.model.toLowerCase().includes(search.toLowerCase()) || p.serial_number.toLowerCase().includes(search.toLowerCase()))
@@ -203,6 +245,11 @@ export default function Inventory() {
                       {p.status==='Pending' && p.installment_total && (
                         <p className="text-xs text-orange-500 font-medium mt-0.5">
                           รอชำระ ฿{fmt(Number(p.installment_total)-Number(p.installment_paid||0))}
+                        </p>
+                      )}
+                      {p.status==='Pending' && !p.installment_total && p.purchase_remaining > 0 && (
+                        <p className="text-xs text-orange-500 font-medium mt-0.5">
+                          ค้างจ่ายค่าซื้อ ฿{fmt(p.purchase_remaining)}
                         </p>
                       )}
                     </div>

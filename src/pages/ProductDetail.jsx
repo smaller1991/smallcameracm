@@ -12,6 +12,14 @@ import { scheduleDelete } from '../lib/undoDelete'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const hasSplitAmounts = tx => Number(tx?.bank_amount || 0) > 0 || Number(tx?.cash_amount || 0) > 0
+const isPurchaseInstallmentTx = tx => (
+  tx.category === 'Buy Stock'
+  && (tx.note || '').includes('ซื้อผ่อน')
+)
+const isPurchaseInstallmentPaymentTx = tx => (
+  tx.category === 'Buy Stock'
+  && ((tx.note || '').includes('ซื้อผ่อน') || (tx.note || '').includes('ชำระค่าซื้อ'))
+)
 const STATUS_LABEL = {Available:'พร้อมขาย',Reserved:'จอง',Sold:'ขายแล้ว',Pending:'รอชำระ'}
 const STATUS_CLASS  = {Available:'badge-available',Reserved:'badge-reserved',Sold:'badge-sold',Pending:'badge-pending'}
 const CATEGORIES    = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
@@ -561,6 +569,10 @@ export default function ProductDetail() {
       }
 
       await supabase.from('balances').update({ bank: bank_afterPay, cash: cash_afterPay, updated_at: paidAt }).eq('id','main')
+      const targetIds = purchaseGroupItems.map(item => item.id)
+      await supabase.from('products')
+        .update({ status: remainingAfter <= 0 ? 'Available' : 'Pending' })
+        .in('id', targetIds)
 
       toast.success(remainingAfter <= 0
         ? `จ่ายค่าซื้อครบแล้ว ฿${fmt(purchaseTotal)}`
@@ -743,10 +755,11 @@ export default function ProductDetail() {
   const batchTotalPaid        = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_paid||0), 0) : 0
   const batchTotalRemaining   = batchTotalInstallment - batchTotalPaid
   const purchaseGroupItems = product.batch_id ? [product, ...purchaseBatch] : [product]
+  const hasPurchaseInstallment = purchaseTxList.some(isPurchaseInstallmentTx)
   const purchaseTotal = purchaseGroupItems.reduce((sum, item) => sum + Number(item.base_cost || item.total_cost || 0), 0)
-  const purchasePaid = purchaseTxList.reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
-  const purchaseRemaining = Math.max(0, purchaseTotal - purchasePaid)
-  const hasPurchasePayable = purchaseTotal > 0 && purchaseRemaining > 0
+  const purchasePaid = purchaseTxList.filter(isPurchaseInstallmentPaymentTx).reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
+  const purchaseRemaining = hasPurchaseInstallment ? Math.max(0, purchaseTotal - purchasePaid) : 0
+  const hasPurchasePayable = hasPurchaseInstallment && purchaseTotal > 0 && purchaseRemaining > 0
   return (
     <div>
       {/* Header */}
@@ -1243,7 +1256,7 @@ export default function ProductDetail() {
         )}
 
         {/* Pending — ผ่อนจ่าย */}
-        {product.status==='Pending' && (
+        {product.status==='Pending' && product.installment_total && (
           <div className="card space-y-3">
             <div className="flex items-center justify-between">
               <div>

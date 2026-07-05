@@ -88,6 +88,7 @@ export default function AddProduct() {
           base_cost: cost, total_cost: cost,
           notes: it.notes,
           category: it.category,
+          status: purchaseType === 'installment' && remaining > 0 ? 'Pending' : 'Available',
           created_at: txDate,
           ...(batchId ? { batch_id: batchId } : {}),
         }).select().single()
