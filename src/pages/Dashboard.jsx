@@ -95,7 +95,7 @@ export default function Dashboard() {
     const sold = raw.products.filter(p => p.status === 'Sold' && inRange(p.sold_date))
     const available = raw.products.filter(p => p.status === 'Available')
     const reserved = raw.products.filter(p => p.status === 'Reserved')
-    const stockProducts = raw.products.filter(p => p.status === 'Available' || p.status === 'Reserved')
+    const stockProducts = raw.products.filter(p => p.status !== 'Sold')
 
     const income = txs.filter(t => t.type === 'Income').reduce((a,t)=>a+Number(t.amount),0)
     const expense = txs.filter(t => t.type === 'Expense').reduce((a,t)=>a+Number(t.amount),0)

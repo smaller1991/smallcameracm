@@ -1,5 +1,6 @@
 ﻿import { useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { Banknote, CreditCard, Edit2, ImagePlus, Package, Plus, Scissors, Search, SlidersHorizontal, X, Check } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
@@ -60,6 +61,7 @@ const yearRange = () => {
 }
 
 export default function Finance() {
+  const navigate = useNavigate()
   const [txs,      setTxs]      = useState([])
   const [loading,  setLoading]  = useState(true)
   const [showForm, setShowForm] = useState(false)
@@ -192,6 +194,7 @@ export default function Finance() {
       const productCost = Number(tx.products?.total_cost || 0)
       const batchCost = Number(tx.products?.batch_total_cost || 0)
       if (tx.category === 'Buy Stock' && tx.product_id && productCost) {
+        if ((tx.note || '').includes('ชำระค่าซื้อ')) return 0
         return batchCost || productCost
       }
       if (tx.category === 'Add-on' && tx.product_id) {
@@ -253,6 +256,10 @@ export default function Finance() {
       )
     : filtered
   const groupedSearched = buildTransactionGroups(searched, txs)
+  const payableProductId = detail => {
+    if (!detail?.installment || detail.installment.kind !== 'purchase' || detail.installment.remainingAfter <= 0) return null
+    return detail.representative?.product_id || detail.representative?.products?.id || detail.lines?.[0]?.id || null
+  }
 
   const activeFilters = selCats.length + selTypes.length + selProdCats.length
   const clearFilters = () => { setSelCats([]); setSelTypes([]); setSelProdCats([]) }
@@ -1172,6 +1179,11 @@ export default function Finance() {
                         </div>
                         {group.installment?.hasInstallments && (
                           <>
+                            {group.installment.kind === 'purchase' && group.installment.purchasedAt && (
+                              <p className="text-xs text-red-500 mt-1">
+                                ซื้อเมื่อ {thDate(group.installment.purchasedAt)}
+                              </p>
+                            )}
                             <p className={`text-xs font-semibold mt-1 ${group.installment.isFinalInstallment ? 'text-green-600' : 'text-amber-600'}`}>
                               {group.installment.isFinalInstallment
                                 ? `จ่ายครบแล้ว (ยอดรวมทั้งหมด ฿${fmt(group.installment.totalDue)})`
@@ -1179,7 +1191,7 @@ export default function Finance() {
                             </p>
                             {group.installment.installmentNumber > 1 && group.installment.firstPaymentDate && (
                               <p className="text-xs text-red-500 mt-0.5">
-                                หมายเหตุ: งวดแรกวันที่ {thDate(group.installment.firstPaymentDate)}
+                                {group.installment.kind === 'purchase' ? 'งวดแรกวันที่' : 'หมายเหตุ: งวดแรกวันที่'} {thDate(group.installment.firstPaymentDate)}
                               </p>
                             )}
                           </>
@@ -1384,6 +1396,9 @@ export default function Finance() {
               {txDetail.__group && txDetail.installment?.hasInstallments && (
                 <div className="finance-detail-panel rounded-xl px-3 py-2.5">
                   <p className="text-xs text-gray-600 font-semibold mb-1.5">สถานะการชำระ</p>
+                  {txDetail.installment.kind === 'purchase' && txDetail.installment.purchasedAt && (
+                    <p className="text-xs text-red-500 mb-2">ซื้อเมื่อ {thDate(txDetail.installment.purchasedAt)}</p>
+                  )}
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <p className="text-xs text-green-500">จ่ายงวดนี้</p>
@@ -1406,8 +1421,20 @@ export default function Finance() {
                   </div>
                   {txDetail.installment.installmentNumber > 1 && txDetail.installment.firstPaymentDate && (
                     <p className="text-xs text-red-500 mt-2">
-                      หมายเหตุ: งวดแรกวันที่ {thDate(txDetail.installment.firstPaymentDate)}
+                      {txDetail.installment.kind === 'purchase' ? 'งวดแรกวันที่' : 'หมายเหตุ: งวดแรกวันที่'} {thDate(txDetail.installment.firstPaymentDate)}
                     </p>
+                  )}
+                  {payableProductId(txDetail) && (
+                    <button
+                      onClick={() => {
+                        const targetId = payableProductId(txDetail)
+                        setTxDetail(null)
+                        navigate(`/inventory/${targetId}`)
+                      }}
+                      className="btn-primary w-full py-2 mt-3 text-sm flex items-center justify-center gap-2"
+                    >
+                      💰 ชำระงวดที่เหลือ ฿{fmt(txDetail.installment.remainingAfter)}
+                    </button>
                   )}
                 </div>
               )}

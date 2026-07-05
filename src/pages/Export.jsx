@@ -122,7 +122,10 @@ const buildStockMap = (txs, currentStockValue) => {
   const stockDelta = tx => {
     const productCost = Number(tx.products?.total_cost || 0)
     const batchCost = Number(tx.products?.batch_total_cost || 0)
-    if (tx.category === 'Buy Stock' && tx.product_id && productCost) return batchCost || productCost
+    if (tx.category === 'Buy Stock' && tx.product_id && productCost) {
+      if ((tx.note || '').includes('ชำระค่าซื้อ')) return 0
+      return batchCost || productCost
+    }
     if (tx.category === 'Add-on' && tx.product_id) return Number(tx.amount || 0)
     if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
       soldProductSeen.add(tx.product_id)

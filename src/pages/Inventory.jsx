@@ -96,9 +96,9 @@ export default function Inventory() {
         }
       })
 
-    // มูลค่าสินค้าคงคลัง = Available + Reserved เท่านั้น
+    // มูลค่าสินค้าคงคลัง = สินค้าที่ยังไม่ขาย รวมรายการรอชำระค่าซื้อ/ผ่อนขาย
     supabase.from('products').select('total_cost, status')
-      .in('status', ['Available', 'Reserved'])
+      .neq('status', 'Sold')
       .then(({data: p}) => {
         setInventoryValue((p||[]).reduce((a,x) => a + Number(x.total_cost), 0))
       })
