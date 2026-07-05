@@ -1,5 +1,5 @@
 ﻿import { useEffect, useState } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
 import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
@@ -36,6 +36,7 @@ function WarrantyBadge({expiry}) {
 export default function ProductDetail() {
   const {id} = useParams()
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [product,  setProduct]  = useState(null)
   const [accs,     setAccs]     = useState([])
   const [loading,  setLoading]  = useState(true)
@@ -138,6 +139,32 @@ export default function ProductDetail() {
     setLoading(false)
   }
   useEffect(()=>{load()},[id])
+  useEffect(() => {
+    if (loading || !product) return
+    const payAction = searchParams.get('pay')
+    if (payAction === 'sale-installment') {
+      setPayMode(true)
+      setPayAmount('')
+      setPayMethod2('โอน')
+      setPayBankAmount('')
+      setPayCashAmount('')
+      setPayDate2('')
+      setPayImgFiles([])
+      setPayImgPrev([])
+      setSearchParams({}, { replace: true })
+    }
+    if (payAction === 'purchase-installment') {
+      setPurchasePayMode(true)
+      setPurchasePayAmount('')
+      setPurchasePayMethod('โอน')
+      setPurchaseBankAmount('')
+      setPurchaseCashAmount('')
+      setPurchasePayDate('')
+      setPurchaseImgFiles([])
+      setPurchaseImgPrev([])
+      setSearchParams({}, { replace: true })
+    }
+  }, [loading, product, searchParams, setSearchParams])
 
   // ─── save edit ─────────────────────────────────────────────
   const saveEdit = async () => {

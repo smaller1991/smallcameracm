@@ -256,8 +256,8 @@ export default function Finance() {
       )
     : filtered
   const groupedSearched = buildTransactionGroups(searched, txs)
-  const payableProductId = detail => {
-    if (!detail?.installment || detail.installment.kind !== 'purchase' || detail.installment.remainingAfter <= 0) return null
+  const installmentPaymentProductId = detail => {
+    if (!detail?.installment || detail.installment.remainingAfter <= 0) return null
     return detail.representative?.product_id || detail.representative?.products?.id || detail.lines?.[0]?.id || null
   }
 
@@ -1424,16 +1424,17 @@ export default function Finance() {
                       {txDetail.installment.kind === 'purchase' ? 'งวดแรกวันที่' : 'หมายเหตุ: งวดแรกวันที่'} {thDate(txDetail.installment.firstPaymentDate)}
                     </p>
                   )}
-                  {payableProductId(txDetail) && (
+                  {installmentPaymentProductId(txDetail) && (
                     <button
                       onClick={() => {
-                        const targetId = payableProductId(txDetail)
+                        const targetId = installmentPaymentProductId(txDetail)
+                        const payAction = txDetail.installment.kind === 'purchase' ? 'purchase-installment' : 'sale-installment'
                         setTxDetail(null)
-                        navigate(`/inventory/${targetId}`)
+                        navigate(`/inventory/${targetId}?pay=${payAction}`)
                       }}
                       className="btn-primary w-full py-2 mt-3 text-sm flex items-center justify-center gap-2"
                     >
-                      💰 ชำระงวดที่เหลือ ฿{fmt(txDetail.installment.remainingAfter)}
+                      💰 {txDetail.installment.kind === 'purchase' ? 'ชำระงวดที่เหลือ' : 'รับชำระงวด'} ฿{fmt(txDetail.installment.remainingAfter)}
                     </button>
                   )}
                 </div>
