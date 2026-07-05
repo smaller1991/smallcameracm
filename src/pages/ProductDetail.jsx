@@ -103,11 +103,53 @@ export default function ProductDetail() {
       supabase.from('accessories').select('*').eq('product_id',id).order('created_at'),
       supabase.from('transactions').select('id,category,type,amount,payment_method,bank_amount,cash_amount,images,date,note').eq('product_id',id).order('date'),
     ])
-    setProduct(p); setAccs(a||[])
+    let displayProduct = p
+    setAccs(a||[])
     setTxList(txs||[])
     if (p?.sale_batch_id) {
       const { data: bd } = await supabase.from('products').select('*').eq('sale_batch_id', p.sale_batch_id)
-      setBatchProducts(bd || [])
+      const batchIds = (bd || []).map(item => item.id)
+      const { data: batchSaleTxs } = batchIds.length
+        ? await supabase.from('transactions')
+            .select('product_id,amount')
+            .eq('category', 'Sale')
+            .in('product_id', batchIds)
+        : { data: [] }
+      const paidByProduct = (batchSaleTxs || []).reduce((map, tx) => {
+        map[tx.product_id] = (map[tx.product_id] || 0) + Number(tx.amount || 0)
+        return map
+      }, {})
+      const reconciledBatch = (bd || []).map(item => {
+        if (!item.installment_total) return item
+        const paid = paidByProduct[item.id] || 0
+        const total = Number(item.installment_total || 0)
+        const isFullyPaid = total > 0 && paid >= total
+        return {
+          ...item,
+          installment_paid: paid,
+          status: isFullyPaid ? 'Sold' : 'Pending',
+          sold_price: isFullyPaid ? total : null,
+        }
+      })
+      const updates = reconciledBatch.filter((item, index) => {
+        const original = (bd || [])[index]
+        return original?.installment_total && (
+          Number(original.installment_paid || 0) !== Number(item.installment_paid || 0) ||
+          original.status !== item.status ||
+          Number(original.sold_price || 0) !== Number(item.sold_price || 0)
+        )
+      })
+      for (const item of updates) {
+        await supabase.from('products').update({
+          installment_paid: item.installment_paid,
+          status: item.status,
+          sold_price: item.sold_price,
+          sold_date: item.status === 'Sold' ? item.sold_date : null,
+          warranty_expiry: item.status === 'Sold' ? item.warranty_expiry : null,
+        }).eq('id', item.id)
+      }
+      setBatchProducts(reconciledBatch)
+      displayProduct = reconciledBatch.find(item => item.id === p.id) || p
     } else {
       setBatchProducts([])
     }
@@ -130,10 +172,11 @@ export default function ProductDetail() {
       setPurchaseBatch([])
       setPurchaseTxList((txs || []).filter(t => t.category === 'Buy Stock'))
     }
-    setEf({model:p.model, serial_number:p.serial_number, condition:p.condition,
-           base_cost:p.base_cost, status:p.status, notes:p.notes||'',
-           category:p.category||'กล้อง', created_at:toLocal(p.created_at),
-           customer_note:p.customer_note||''})
+    setProduct(displayProduct)
+    setEf({model:displayProduct.model, serial_number:displayProduct.serial_number, condition:displayProduct.condition,
+           base_cost:displayProduct.base_cost, status:displayProduct.status, notes:displayProduct.notes||'',
+           category:displayProduct.category||'กล้อง', created_at:toLocal(displayProduct.created_at),
+           customer_note:displayProduct.customer_note||''})
     setEditNewFiles([]); setEditNewPreviews([]); setRemovedUrls([])
     setPurchasePayMode(false)
     setLoading(false)
@@ -300,12 +343,14 @@ export default function ProductDetail() {
     return true
   }
 
+  const floorCurrencyShare = value => Math.floor(value + 0.000001)
   const batchSplitPart = (partTotal, amount, index, count, used) => {
     if (payMethod2 !== 'แบ่งจ่าย') return 0
     return index === count - 1
       ? partTotal - used
-      : Math.floor(partTotal * (amount / Number(payAmount || 0)))
+      : floorCurrencyShare(partTotal * (amount / Number(payAmount || 0)))
   }
+  const installmentRemaining = p => Math.max(0, Number(p.installment_total || 0) - Number(p.installment_paid || 0))
 
   // ─── sell ──────────────────────────────────────────────────
   const sell = async () => {
@@ -440,10 +485,9 @@ export default function ProductDetail() {
       const isBatch = product.sale_batch_id && batchProducts.length > 1
 
       if (isBatch) {
-        // ── Batch payment: กระจายชำระให้ทุก Pending ในกลุ่ม ──
-        const pendingInBatch = batchProducts.filter(bp => bp.status === 'Pending')
-        const totalRemaining = pendingInBatch.reduce((a, bp) =>
-          a + Number(bp.installment_total||0) - Number(bp.installment_paid||0), 0)
+        // กระจายตามยอดค้างจริง เพื่อเก็บเศษ 1 บาทจากรายการที่สถานะอาจไม่ตรงกับยอดผ่อน
+        const payableInBatch = batchProducts.filter(bp => installmentRemaining(bp) > 0)
+        const totalRemaining = payableInBatch.reduce((a, bp) => a + installmentRemaining(bp), 0)
 
         const { data: balPayBatch } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
         let runBank = Number(balPayBatch?.bank || 0)
@@ -452,20 +496,20 @@ export default function ProductDetail() {
         let distributedBank = 0
         let distributedCash = 0
         let firstTxId = null
-        for (let i = 0; i < pendingInBatch.length; i++) {
-          const bp = pendingInBatch[i]
-          const bpRemaining = Number(bp.installment_total||0) - Number(bp.installment_paid||0)
-          const isLast = i === pendingInBatch.length - 1
+        for (let i = 0; i < payableInBatch.length; i++) {
+          const bp = payableInBatch[i]
+          const bpRemaining = installmentRemaining(bp)
+          const isLast = i === payableInBatch.length - 1
           const bpPayment = isLast
             ? Math.min(bpRemaining, amount - distributed)
-            : Math.min(bpRemaining, Math.floor(amount * (bpRemaining / totalRemaining)))
+            : Math.min(bpRemaining, floorCurrencyShare(amount * (bpRemaining / totalRemaining)))
           distributed += bpPayment
 
           const bpBank = payMethod2 === 'แบ่งจ่าย'
-            ? batchSplitPart(pay.bank, bpPayment, i, pendingInBatch.length, distributedBank)
+            ? batchSplitPart(pay.bank, bpPayment, i, payableInBatch.length, distributedBank)
             : payMethod2 === 'โอน' ? bpPayment : 0
           const bpCash = payMethod2 === 'แบ่งจ่าย'
-            ? batchSplitPart(pay.cash, bpPayment, i, pendingInBatch.length, distributedCash)
+            ? batchSplitPart(pay.cash, bpPayment, i, payableInBatch.length, distributedCash)
             : payMethod2 === 'เงินสด' ? bpPayment : 0
           distributedBank += bpBank
           distributedCash += bpCash
@@ -503,7 +547,7 @@ export default function ProductDetail() {
           await supabase.from('transactions').update({ images: urls }).eq('id', firstTxId)
         }
 
-        const actual = Math.min(amount, totalRemaining)
+        const actual = distributed
         await supabase.from('balances').update({ bank: runBank, cash: runCash, updated_at: soldAt }).eq('id','main')
 
         toast.success(actual >= totalRemaining

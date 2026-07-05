@@ -60,18 +60,19 @@ export default function BulkSale() {
   const splitTotal = splitBank + splitCash
   const isSplitPay = payMethod === 'แบ่งจ่าย'
   const productPayMethod = isSplitPay ? (splitBank >= splitCash ? 'โอน' : 'เงินสด') : payMethod
+  const floorCurrencyShare = value => Math.floor(value + 0.000001)
 
   const paymentForProduct = (price, index, count, paidSoFar, totalPaid, targetPaid) => {
     const amount = index === count - 1
       ? targetPaid - paidSoFar
-      : Math.floor(targetPaid * (price / totalSell))
+      : floorCurrencyShare(targetPaid * (price / totalSell))
     if (!isSplitPay) return { amount, bank: payMethod === 'โอน' ? amount : 0, cash: payMethod === 'เงินสด' ? amount : 0 }
     const bank = index === count - 1
       ? splitBank - totalPaid.bank
-      : Math.floor(splitBank * (price / totalSell))
+      : floorCurrencyShare(splitBank * (price / totalSell))
     const cash = index === count - 1
       ? splitCash - totalPaid.cash
-      : Math.floor(splitCash * (price / totalSell))
+      : floorCurrencyShare(splitCash * (price / totalSell))
     return { amount: bank + cash, bank, cash }
   }
 

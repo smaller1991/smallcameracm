@@ -546,6 +546,45 @@ export default function Finance() {
         }
 
         if (isSale) {
+          const isLaterInstallment = group.installment?.hasInstallments && group.installment.installmentNumber > 1
+          if (isLaterInstallment) {
+            const txIds = group.txs.map(tx => tx.id)
+            const productIds = [...new Set(group.txs.map(tx => tx.product_id).filter(Boolean))]
+            for (const tx of group.txs) {
+              await revertBalance(tx.type, tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
+            }
+            await supabase.from('transactions').delete().in('id', txIds)
+
+            if (productIds.length) {
+              const [{ data: productsAfter }, { data: remainingSaleTxs }] = await Promise.all([
+                supabase.from('products')
+                  .select('id,installment_total,sold_date,warranty_expiry')
+                  .in('id', productIds),
+                supabase.from('transactions')
+                  .select('product_id,amount')
+                  .eq('category', 'Sale')
+                  .in('product_id', productIds),
+              ])
+              const paidByProduct = (remainingSaleTxs || []).reduce((map, tx) => {
+                map[tx.product_id] = (map[tx.product_id] || 0) + Number(tx.amount || 0)
+                return map
+              }, {})
+              for (const productAfter of productsAfter || []) {
+                const total = Number(productAfter.installment_total || 0)
+                const paidAfterUndo = Math.max(0, paidByProduct[productAfter.id] || 0)
+                const isFullyPaid = total > 0 && paidAfterUndo >= total
+                await supabase.from('products').update({
+                  installment_paid: paidAfterUndo,
+                  status: isFullyPaid ? 'Sold' : 'Pending',
+                  sold_price: isFullyPaid ? total : null,
+                  sold_date: isFullyPaid ? productAfter.sold_date || null : null,
+                  warranty_expiry: isFullyPaid ? productAfter.warranty_expiry || null : null,
+                }).eq('id', productAfter.id)
+              }
+            }
+            load(); return
+          }
+
           for (const tx of group.txs) {
             if (tx.product_id) {
               await supabase.from('products').update({
