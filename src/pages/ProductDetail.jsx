@@ -52,6 +52,7 @@ export default function ProductDetail() {
   const [lightboxImg,          setLightboxImg]          = useState(null)
   const [batchProducts,        setBatchProducts]        = useState([])
   const [purchaseBatch,        setPurchaseBatch]        = useState([])
+  const [purchaseTxList,       setPurchaseTxList]       = useState([])
 
   // sell
   const [sellMode,     setSellMode]     = useState(false)
@@ -77,11 +78,21 @@ export default function ProductDetail() {
   const [payImgFiles, setPayImgFiles] = useState([])
   const [payImgPrev,  setPayImgPrev]  = useState([])
 
+  // pay purchase installment
+  const [purchasePayMode, setPurchasePayMode] = useState(false)
+  const [purchasePayAmount, setPurchasePayAmount] = useState('')
+  const [purchasePayMethod, setPurchasePayMethod] = useState('โอน')
+  const [purchaseBankAmount, setPurchaseBankAmount] = useState('')
+  const [purchaseCashAmount, setPurchaseCashAmount] = useState('')
+  const [purchasePayDate, setPurchasePayDate] = useState('')
+  const [purchaseImgFiles, setPurchaseImgFiles] = useState([])
+  const [purchaseImgPrev, setPurchaseImgPrev] = useState([])
+
   const load = async () => {
     const [{data:p},{data:a},{data:txs}] = await Promise.all([
       supabase.from('products').select('*').eq('id',id).single(),
       supabase.from('accessories').select('*').eq('product_id',id).order('created_at'),
-      supabase.from('transactions').select('id,category,images,date').eq('product_id',id).order('date'),
+      supabase.from('transactions').select('id,category,type,amount,payment_method,bank_amount,cash_amount,images,date,note').eq('product_id',id).order('date'),
     ])
     setProduct(p); setAccs(a||[])
     setTxList(txs||[])
@@ -94,18 +105,28 @@ export default function ProductDetail() {
     if (p?.batch_id) {
       const { data: pb } = await supabase
         .from('products')
-        .select('id,model,serial_number,category,status')
+        .select('id,model,serial_number,category,status,base_cost,total_cost,batch_id')
         .eq('batch_id', p.batch_id)
         .neq('id', id)
       setPurchaseBatch(pb || [])
+      const purchaseIds = [id, ...(pb || []).map(x => x.id)]
+      const { data: purchaseTxs } = await supabase
+        .from('transactions')
+        .select('id,category,type,amount,payment_method,bank_amount,cash_amount,images,date,note,product_id')
+        .eq('category', 'Buy Stock')
+        .in('product_id', purchaseIds)
+        .order('date')
+      setPurchaseTxList(purchaseTxs || [])
     } else {
       setPurchaseBatch([])
+      setPurchaseTxList((txs || []).filter(t => t.category === 'Buy Stock'))
     }
     setEf({model:p.model, serial_number:p.serial_number, condition:p.condition,
            base_cost:p.base_cost, status:p.status, notes:p.notes||'',
            category:p.category||'กล้อง', created_at:toLocal(p.created_at),
            customer_note:p.customer_note||''})
     setEditNewFiles([]); setEditNewPreviews([]); setRemovedUrls([])
+    setPurchasePayMode(false)
     setLoading(false)
   }
   useEffect(()=>{load()},[id])
@@ -499,6 +520,63 @@ export default function ProductDetail() {
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
 
+  // ─── pay purchase installment (stock buy payable) ──────────
+  const payPurchaseInstallment = async () => {
+    const amount = parseFloat(purchasePayAmount)
+    if (!purchasePayAmount || isNaN(amount) || amount <= 0) return toast.error('กรุณาระบุจำนวนเงิน')
+    if (amount > purchaseRemaining) return toast.error(`ยอดชำระเกินยอดค้างค่าซื้อ ฿${fmt(purchaseRemaining)}`)
+    const pay = splitPayment(purchasePayMethod, amount, purchaseBankAmount, purchaseCashAmount)
+    if (!validateSplitPayment(purchasePayMethod, pay, amount)) return
+
+    setSaving(true)
+    try {
+      const paidAt = purchasePayDate ? new Date(purchasePayDate).toISOString() : new Date().toISOString()
+      const { data: balPay } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+      const bank_afterPay = Math.max(0, Number(balPay?.bank || 0) - pay.bank)
+      const cash_afterPay = Math.max(0, Number(balPay?.cash || 0) - pay.cash)
+      const remainingAfter = Math.max(0, purchaseRemaining - amount)
+      const note = product.batch_id
+        ? `ชำระค่าซื้อสินค้าในชุด ${purchaseGroupItems.length} รายการ | งวดนี้ ฿${fmt(amount)} | คงเหลือ ฿${fmt(remainingAfter)}`
+        : `ชำระค่าซื้อ: ${product.model} SN:${product.serial_number} | งวดนี้ ฿${fmt(amount)} | คงเหลือ ฿${fmt(remainingAfter)}`
+
+      const { data: newTx, error: txErr } = await supabase.from('transactions').insert({
+        date: paidAt,
+        type: 'Expense',
+        category: 'Buy Stock',
+        amount,
+        product_id: id,
+        payment_method: productPaymentMethod(purchasePayMethod, purchaseBankAmount, purchaseCashAmount),
+        bank_amount: pay.bankField,
+        cash_amount: pay.cashField,
+        note,
+      }).select().single()
+      if (txErr) throw txErr
+      if (newTx) {
+        try { await supabase.from('transactions').update({ bank_after: bank_afterPay, cash_after: cash_afterPay }).eq('id', newTx.id) } catch(_) {}
+      }
+
+      if (purchaseImgFiles.length && newTx) {
+        const urls = await uploadReceiptImages(supabase, newTx.id, purchaseImgFiles)
+        await supabase.from('transactions').update({ images: urls }).eq('id', newTx.id)
+      }
+
+      await supabase.from('balances').update({ bank: bank_afterPay, cash: cash_afterPay, updated_at: paidAt }).eq('id','main')
+
+      toast.success(remainingAfter <= 0
+        ? `จ่ายค่าซื้อครบแล้ว ฿${fmt(purchaseTotal)}`
+        : `บันทึกจ่ายค่าซื้อ ฿${fmt(amount)} — คงเหลือ ฿${fmt(remainingAfter)}`)
+      setPurchasePayMode(false)
+      setPurchasePayAmount('')
+      setPurchasePayMethod('โอน')
+      setPurchaseBankAmount('')
+      setPurchaseCashAmount('')
+      setPurchasePayDate('')
+      setPurchaseImgFiles([])
+      setPurchaseImgPrev([])
+      load()
+    } catch(e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
   // ─── cancel installment ────────────────────────────────────
   const cancelInstallment = async () => {
     const isBatchCancel = product.sale_batch_id && batchProducts.length > 1
@@ -664,6 +742,11 @@ export default function ProductDetail() {
   const batchTotalInstallment = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_total||0), 0) : 0
   const batchTotalPaid        = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_paid||0), 0) : 0
   const batchTotalRemaining   = batchTotalInstallment - batchTotalPaid
+  const purchaseGroupItems = product.batch_id ? [product, ...purchaseBatch] : [product]
+  const purchaseTotal = purchaseGroupItems.reduce((sum, item) => sum + Number(item.base_cost || item.total_cost || 0), 0)
+  const purchasePaid = purchaseTxList.reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
+  const purchaseRemaining = Math.max(0, purchaseTotal - purchasePaid)
+  const hasPurchasePayable = purchaseTotal > 0 && purchaseRemaining > 0
   return (
     <div>
       {/* Header */}
@@ -898,6 +981,129 @@ export default function ProductDetail() {
               ))
           }
         </div>
+
+        {/* Purchase payable */}
+        {hasPurchasePayable && (
+          <div className="card space-y-3 border-red-200 bg-red-50/50">
+            <div className="flex items-center justify-between">
+              <div>
+                <h3 className="font-semibold text-sm text-red-700">ค้างจ่ายค่าซื้อ</h3>
+                {product.batch_id && (
+                  <span className="text-xs text-red-500 font-medium">ซื้อรวม {purchaseGroupItems.length} รายการ</span>
+                )}
+              </div>
+              <span className="text-xs font-bold px-2.5 py-1 rounded-full bg-red-100 text-red-700">ซื้อผ่อน</span>
+            </div>
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">ราคาซื้อรวม</span>
+                <span className="font-semibold">฿{fmt(purchaseTotal)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">จ่ายแล้ว</span>
+                <span className="font-semibold text-green-600">฿{fmt(purchasePaid)}</span>
+              </div>
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-500">คงเหลือค่าซื้อ</span>
+                <span className="font-bold text-red-600">฿{fmt(purchaseRemaining)}</span>
+              </div>
+              <div className="w-full bg-red-100 rounded-full h-2.5 mt-1">
+                <div className="bg-red-500 h-2.5 rounded-full transition-all"
+                  style={{width:`${Math.min(100,(purchasePaid/Math.max(1,purchaseTotal))*100)}%`}}/>
+              </div>
+              <p className="text-xs text-gray-500 text-right">
+                {Math.round((purchasePaid/Math.max(1,purchaseTotal))*100)}% จ่ายค่าซื้อแล้ว
+              </p>
+            </div>
+
+            {!purchasePayMode ? (
+              <button onClick={()=>{
+                setPurchasePayMode(true)
+                setPurchasePayAmount('')
+                setPurchasePayMethod('โอน')
+                setPurchaseBankAmount('')
+                setPurchaseCashAmount('')
+                setPurchasePayDate('')
+                setPurchaseImgFiles([])
+                setPurchaseImgPrev([])
+              }} className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
+                💰 จ่ายงวดค่าซื้อ
+              </button>
+            ) : (
+              <div className="bg-white/70 rounded-xl p-3 space-y-2 border border-red-100">
+                <h4 className="text-sm font-semibold text-red-700">บันทึกจ่ายค่าซื้อ</h4>
+                <input autoComplete="off" className="input text-sm" type="number" placeholder="จำนวนเงิน (บาท)"
+                  value={purchasePayAmount} onChange={e=>setPurchasePayAmount(e.target.value)} autoFocus/>
+                <div className="flex gap-2">
+                  {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
+                    <button key={m} onClick={()=>{setPurchasePayMethod(m);setPurchaseBankAmount('');setPurchaseCashAmount('')}}
+                      className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${purchasePayMethod===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'):'bg-white text-gray-400 border-gray-200'}`}>
+                      {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
+                    </button>
+                  ))}
+                </div>
+                {purchasePayMethod === 'แบ่งจ่าย' && (
+                  <div className="grid grid-cols-2 gap-2">
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="ยอดโอน"
+                      value={purchaseBankAmount} onChange={e=>setPurchaseBankAmount(e.target.value)}/>
+                    <input autoComplete="off" className="input text-sm" type="number" placeholder="เงินสด"
+                      value={purchaseCashAmount} onChange={e=>setPurchaseCashAmount(e.target.value)}/>
+                    <p className={`col-span-2 text-xs font-medium ${(Number(purchaseBankAmount||0)+Number(purchaseCashAmount||0)) === Number(purchasePayAmount || 0) ? 'text-green-600' : 'text-orange-600'}`}>
+                      รวมแบ่งจ่าย ฿{fmt(Number(purchaseBankAmount||0)+Number(purchaseCashAmount||0))} / ต้องเท่ากับ ฿{fmt(purchasePayAmount)}
+                    </p>
+                  </div>
+                )}
+                <ThaiDatePicker value={purchasePayDate} onChange={setPurchasePayDate} showTime className="input text-sm w-full"/>
+                <div>
+                  <p className="text-xs text-gray-500 mb-1">รูปใบเสร็จ / หลักฐาน (ไม่บังคับ)</p>
+                  <div className="flex gap-2 flex-wrap">
+                    {purchaseImgPrev.map((src,i)=>(
+                      <div key={i} className="relative w-14 h-14 rounded-xl overflow-hidden border flex-shrink-0">
+                        <img src={src} className="w-full h-full object-cover"/>
+                        <button onClick={()=>{
+                          URL.revokeObjectURL(purchaseImgPrev[i])
+                          setPurchaseImgFiles(f=>f.filter((_,j)=>j!==i))
+                          setPurchaseImgPrev(p=>p.filter((_,j)=>j!==i))
+                        }} className="absolute top-0.5 right-0.5 bg-black/60 rounded-full p-0.5">
+                          <X size={9} className="text-white"/>
+                        </button>
+                      </div>
+                    ))}
+                    <label className="w-14 h-14 rounded-xl border-2 border-dashed border-red-300 flex flex-col items-center justify-center cursor-pointer flex-shrink-0">
+                      <ImagePlus size={14} className="text-red-400"/>
+                      <span className="text-xs text-red-400 mt-0.5">เพิ่ม</span>
+                      <input type="file" multiple accept="image/*" className="hidden" onChange={e=>{
+                        const files = Array.from(e.target.files)
+                        setPurchaseImgFiles(p=>[...p,...files])
+                        setPurchaseImgPrev(p=>[...p,...files.map(f=>URL.createObjectURL(f))])
+                      }}/>
+                    </label>
+                  </div>
+                </div>
+                {purchasePayAmount && (
+                  <p className={`text-xs font-medium ${Number(purchasePayAmount)>=purchaseRemaining?'text-green-600':'text-red-600'}`}>
+                    {Number(purchasePayAmount)>=purchaseRemaining
+                      ? `จ่ายครบแล้ว (ยอดรวมทั้งหมด ฿${fmt(purchaseTotal)})`
+                      : `คงเหลือหลังจ่ายงวดนี้ ฿${fmt(purchaseRemaining-Number(purchasePayAmount))}`}
+                  </p>
+                )}
+                <div className="flex gap-2">
+                  <button onClick={payPurchaseInstallment} disabled={saving} className="btn-primary flex-1 py-2 text-sm">
+                    {saving?'...':'บันทึก'}
+                  </button>
+                  <button onClick={()=>{
+                    setPurchasePayMode(false)
+                    setPurchasePayAmount('')
+                    setPurchaseBankAmount('')
+                    setPurchaseCashAmount('')
+                    setPurchaseImgFiles([])
+                    setPurchaseImgPrev([])
+                  }} className="btn-ghost flex-1 py-2 text-sm">ยกเลิก</button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Sell */}
         {product.status==='Available' && (

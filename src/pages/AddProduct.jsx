@@ -14,6 +14,7 @@ const newPayment = () => ({ _id: Math.random(), amount: '', method: 'โอน' 
 export default function AddProduct() {
   const navigate = useNavigate()
   const [date, setDate]           = useState('')
+  const [purchaseType, setPurchaseType] = useState('full') // 'full' | 'installment'
   const [payments, setPayments]   = useState([newPayment()])
   const [imgFiles,    setImgFiles]    = useState([])
   const [imgPreviews, setImgPreviews] = useState([])
@@ -53,7 +54,15 @@ export default function AddProduct() {
       }
     }
     const validPayments = payments.filter(p => parseFloat(p.amount) > 0)
-    if (validPayments.length === 0) {
+    const requestedPaid = validPayments.reduce((s, p) => s + (parseFloat(p.amount) || 0), 0)
+    const requestedTotal = items.reduce((s, it) => s + (parseFloat(it.base_cost) || 0), 0)
+    if (purchaseType === 'full' && requestedPaid !== requestedTotal) {
+      return toast.error('จ่ายครบต้องมียอดชำระเท่ากับราคาซื้อรวม')
+    }
+    if (purchaseType === 'installment' && requestedPaid > requestedTotal) {
+      return toast.error('ยอดชำระงวดแรกมากกว่าราคาซื้อรวม')
+    }
+    if (purchaseType === 'full' && validPayments.length === 0) {
       return toast.error('กรุณากรอกจำนวนเงินที่ชำระอย่างน้อย 1 รายการ')
     }
 
@@ -101,16 +110,16 @@ export default function AddProduct() {
 
       const payBreakdown = validPayments.map(p =>
         `  • ${p.method === 'โอน' ? '💳 โอน' : '💵 เงินสด'} ฿${parseFloat(p.amount).toLocaleString('th-TH')}`
-      ).join('\n')
+      ).join('\n') || '  • ยังไม่ชำระ'
 
-      const remainNote = remaining > 0 ? `\n⚠️ ค้างจ่าย ฿${remaining.toLocaleString('th-TH')}` : ''
+      const remainNote = remaining > 0 ? `\n⚠️ ค้างจ่ายค่าซื้อ ฿${remaining.toLocaleString('th-TH')}` : ''
 
       // สร้าง transaction
       if (isMulti) {
         const noteLines = created.map((p, i) =>
           `${i + 1}. ${p.model}  SN:${p.serial_number}  ฿${Number(p._cost).toLocaleString('th-TH')}`
         ).join('\n')
-        const note = `ซื้อสินค้า ${items.length} รายการ:\n${noteLines}\n\nการชำระ:\n${payBreakdown}${remainNote}`
+        const note = `ซื้อสินค้า ${items.length} รายการ${purchaseType === 'installment' ? ' (ซื้อผ่อน)' : ''}:\n${noteLines}\n\nการชำระ:\n${payBreakdown}${remainNote}`
         const { data: tx, error: txErr } = await supabase.from('transactions').insert({
           type: 'Expense', category: 'Buy Stock',
           amount: totalPaid,
@@ -126,7 +135,7 @@ export default function AddProduct() {
         if (tx) { try { await supabase.from('transactions').update({ bank_after, cash_after }).eq('id', tx.id) } catch(_) {} }
       } else {
         const p = created[0]
-        const note = `ซื้อสินค้า: ${p.model} SN:${p.serial_number}\n\nการชำระ:\n${payBreakdown}${remainNote}`
+        const note = `ซื้อสินค้า${purchaseType === 'installment' ? ' (ซื้อผ่อน)' : ''}: ${p.model} SN:${p.serial_number}\n\nการชำระ:\n${payBreakdown}${remainNote}`
         const { data: tx, error: txErr } = await supabase.from('transactions').insert({
           type: 'Expense', category: 'Buy Stock',
           amount: totalPaid,
@@ -157,7 +166,7 @@ export default function AddProduct() {
       } catch(_) {}
 
       const label = isMulti ? `${items.length} รายการ` : created[0].model
-      const paidLabel = remaining > 0 ? `ชำระ ฿${totalPaid.toLocaleString('th-TH')} (ค้าง ฿${remaining.toLocaleString('th-TH')})` : `฿${totalPaid.toLocaleString('th-TH')}`
+      const paidLabel = remaining > 0 ? `ชำระ ฿${totalPaid.toLocaleString('th-TH')} (ค้างค่าซื้อ ฿${remaining.toLocaleString('th-TH')})` : `฿${totalPaid.toLocaleString('th-TH')}`
       toast.success(`เพิ่มสินค้าสำเร็จ — ${label} ${paidLabel}`)
       navigate('/inventory')
     } catch(e) { toast.error(e.message) }
@@ -183,11 +192,31 @@ export default function AddProduct() {
 
           {/* ── payment splits ── */}
           <div>
+            <div className="mb-3">
+              <label className="block text-sm font-medium text-gray-600 mb-2">รูปแบบการซื้อ</label>
+              <div className="flex gap-2">
+                {[
+                  ['full', 'จ่ายครบ'],
+                  ['installment', 'ซื้อผ่อน'],
+                ].map(([value, label]) => (
+                  <button key={value} onClick={() => setPurchaseType(value)}
+                    className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
+                      purchaseType === value
+                        ? value === 'full'
+                          ? 'bg-brand-dark text-brand-yellow border-brand-dark'
+                          : 'bg-brand-red text-white border-brand-red'
+                        : 'bg-white text-gray-400 border-gray-200'
+                    }`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-600">การชำระเงิน</label>
+              <label className="block text-sm font-medium text-gray-600">{purchaseType === 'installment' ? 'ชำระงวดแรก' : 'การชำระเงิน'}</label>
               <button onClick={addPayment}
                 className="flex items-center gap-1 text-xs text-blue-500 font-semibold py-1 px-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors">
-                <Plus size={12}/>แบ่งชำระ
+                <Plus size={12}/>เพิ่มช่องทาง
               </button>
             </div>
 
@@ -231,12 +260,12 @@ export default function AddProduct() {
                   <span className="font-semibold">฿{totalCost.toLocaleString('th-TH')}</span>
                 </div>
                 <div className="flex justify-between text-gray-600">
-                  <span>ชำระแล้ว</span>
+                  <span>{purchaseType === 'installment' ? 'ชำระงวดแรก' : 'ชำระแล้ว'}</span>
                   <span className="font-semibold text-blue-600">฿{totalPaid.toLocaleString('th-TH')}</span>
                 </div>
                 {remaining > 0 && (
                   <div className="flex justify-between text-red-500 font-semibold border-t border-gray-200 pt-1 mt-1">
-                    <span>ค้างจ่าย</span>
+                    <span>ค้างจ่ายค่าซื้อ</span>
                     <span>฿{remaining.toLocaleString('th-TH')}</span>
                   </div>
                 )}
