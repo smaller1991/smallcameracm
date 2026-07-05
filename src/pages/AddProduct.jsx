@@ -89,6 +89,7 @@ export default function AddProduct() {
       // คำนวณยอดหักตามช่องทางชำระ
       const bankDeduct = validPayments.filter(p => p.method === 'โอน').reduce((s,p) => s + parseFloat(p.amount), 0)
       const cashDeduct = validPayments.filter(p => p.method === 'เงินสด').reduce((s,p) => s + parseFloat(p.amount), 0)
+      const isSplitTender = bankDeduct > 0 && cashDeduct > 0
 
       const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
       const bank_after = Math.max(0, Number(bal?.bank||0) - bankDeduct)
@@ -115,8 +116,8 @@ export default function AddProduct() {
           amount: totalPaid,
           product_id: created[0].id,
           payment_method: paymentMethod,
-          bank_amount: bankDeduct || null,
-          cash_amount: cashDeduct || null,
+          bank_amount: isSplitTender ? bankDeduct : null,
+          cash_amount: isSplitTender ? cashDeduct : null,
           date: txDate,
           note,
           images: receiptUrls.length ? receiptUrls : null,
@@ -131,8 +132,8 @@ export default function AddProduct() {
           amount: totalPaid,
           product_id: p.id,
           payment_method: paymentMethod,
-          bank_amount: bankDeduct || null,
-          cash_amount: cashDeduct || null,
+          bank_amount: isSplitTender ? bankDeduct : null,
+          cash_amount: isSplitTender ? cashDeduct : null,
           date: txDate,
           note,
           images: receiptUrls.length ? receiptUrls : null,
