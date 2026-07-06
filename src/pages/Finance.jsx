@@ -11,7 +11,6 @@ import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
-import { repairSaleInstallmentRounding } from '../lib/installmentRepair'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
@@ -110,18 +109,7 @@ export default function Finance() {
   const [detailFrom,   setDetailFrom]   = useState('')
   const [detailTo,     setDetailTo]     = useState('')
 
-  const load = async (skipRepair = false) => {
-    if (!skipRepair) {
-      try {
-        const { repaired } = await repairSaleInstallmentRounding(supabase)
-        if (repaired > 0) {
-          toast.success(`ซ่อมยอดผ่อนขายที่คลาดเคลื่อน ${repaired} กลุ่ม`)
-          return load(true)
-        }
-      } catch (error) {
-        console.error(error)
-      }
-    }
+  const load = async () => {
     const [{data:txData},{data:bal},{data:products},{data:allProducts}] = await Promise.all([
       supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,sold_price,status,warranty_expiry,payment_method,customer_note,installment_total,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
@@ -577,20 +565,19 @@ export default function Finance() {
                   .eq('category', 'Sale')
                   .in('product_id', productIds),
               ])
-              const paidByProduct = (remainingSaleTxs || []).reduce((map, tx) => {
-                map[tx.product_id] = (map[tx.product_id] || 0) + Number(tx.amount || 0)
-                return map
-              }, {})
+              const paidAfterUndo = (remainingSaleTxs || []).reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
+              const totalAfterUndo = (productsAfter || []).reduce((sum, productAfter) => (
+                sum + Number(productAfter.installment_total || 0)
+              ), 0)
+              const isBatchFullyPaid = totalAfterUndo > 0 && paidAfterUndo >= totalAfterUndo
               for (const productAfter of productsAfter || []) {
                 const total = Number(productAfter.installment_total || 0)
-                const paidAfterUndo = Math.max(0, paidByProduct[productAfter.id] || 0)
-                const isFullyPaid = total > 0 && paidAfterUndo >= total
                 await supabase.from('products').update({
-                  installment_paid: paidAfterUndo,
-                  status: isFullyPaid ? 'Sold' : 'Pending',
-                  sold_price: isFullyPaid ? total : null,
-                  sold_date: isFullyPaid ? productAfter.sold_date || null : null,
-                  warranty_expiry: isFullyPaid ? productAfter.warranty_expiry || null : null,
+                  installment_paid: isBatchFullyPaid ? total : 0,
+                  status: isBatchFullyPaid ? 'Sold' : 'Pending',
+                  sold_price: isBatchFullyPaid ? total : null,
+                  sold_date: isBatchFullyPaid ? productAfter.sold_date || null : null,
+                  warranty_expiry: isBatchFullyPaid ? productAfter.warranty_expiry || null : null,
                 }).eq('id', productAfter.id)
               }
             }

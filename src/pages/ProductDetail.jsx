@@ -9,7 +9,6 @@ import DeferredImageButton from '../components/DeferredImageButton'
 import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
-import { repairSaleInstallmentRounding } from '../lib/installmentRepair'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const hasSplitAmounts = tx => Number(tx?.bank_amount || 0) > 0 || Number(tx?.cash_amount || 0) > 0
@@ -61,6 +60,7 @@ export default function ProductDetail() {
   const [txList,               setTxList]               = useState([])
   const [lightboxImg,          setLightboxImg]          = useState(null)
   const [batchProducts,        setBatchProducts]        = useState([])
+  const [batchSalePaid,        setBatchSalePaid]        = useState(0)
   const [purchaseBatch,        setPurchaseBatch]        = useState([])
   const [purchaseTxList,       setPurchaseTxList]       = useState([])
 
@@ -98,15 +98,7 @@ export default function ProductDetail() {
   const [purchaseImgFiles, setPurchaseImgFiles] = useState([])
   const [purchaseImgPrev, setPurchaseImgPrev] = useState([])
 
-  const load = async (skipRepair = false) => {
-    if (!skipRepair) {
-      try {
-        const { repaired } = await repairSaleInstallmentRounding(supabase)
-        if (repaired > 0) return load(true)
-      } catch (error) {
-        console.error(error)
-      }
-    }
+  const load = async () => {
     const [{data:p},{data:a},{data:txs}] = await Promise.all([
       supabase.from('products').select('*').eq('id',id).single(),
       supabase.from('accessories').select('*').eq('product_id',id).order('created_at'),
@@ -124,18 +116,16 @@ export default function ProductDetail() {
             .eq('category', 'Sale')
             .in('product_id', batchIds)
         : { data: [] }
-      const paidByProduct = (batchSaleTxs || []).reduce((map, tx) => {
-        map[tx.product_id] = (map[tx.product_id] || 0) + Number(tx.amount || 0)
-        return map
-      }, {})
+      const totalPaidByBatch = (batchSaleTxs || []).reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
+      const totalDueByBatch = (bd || []).reduce((sum, item) => sum + Number(item.installment_total || 0), 0)
+      setBatchSalePaid(totalPaidByBatch)
       const reconciledBatch = (bd || []).map(item => {
         if (!item.installment_total) return item
-        const paid = paidByProduct[item.id] || 0
         const total = Number(item.installment_total || 0)
-        const isFullyPaid = total > 0 && paid >= total
+        const isFullyPaid = totalDueByBatch > 0 && totalPaidByBatch >= totalDueByBatch
         return {
           ...item,
-          installment_paid: paid,
+          installment_paid: isFullyPaid ? total : 0,
           status: isFullyPaid ? 'Sold' : 'Pending',
           sold_price: isFullyPaid ? total : null,
         }
@@ -161,6 +151,7 @@ export default function ProductDetail() {
       displayProduct = reconciledBatch.find(item => item.id === p.id) || p
     } else {
       setBatchProducts([])
+      setBatchSalePaid(0)
     }
     if (p?.batch_id) {
       const { data: pb } = await supabase
@@ -352,15 +343,6 @@ export default function ProductDetail() {
     return true
   }
 
-  const floorCurrencyShare = value => Math.floor(value + 0.000001)
-  const batchSplitPart = (partTotal, amount, index, count, used) => {
-    if (payMethod2 !== 'แบ่งจ่าย') return 0
-    return index === count - 1
-      ? partTotal - used
-      : floorCurrencyShare(partTotal * (amount / Number(payAmount || 0)))
-  }
-  const installmentRemaining = p => Math.max(0, Number(p.installment_total || 0) - Number(p.installment_paid || 0))
-
   // ─── sell ──────────────────────────────────────────────────
   const sell = async () => {
     if (!soldPrice) return toast.error('กรุณาระบุราคาขาย')
@@ -494,57 +476,40 @@ export default function ProductDetail() {
       const isBatch = product.sale_batch_id && batchProducts.length > 1
 
       if (isBatch) {
-        // กระจายตามยอดค้างจริง เพื่อเก็บเศษ 1 บาทจากรายการที่สถานะอาจไม่ตรงกับยอดผ่อน
-        const payableInBatch = batchProducts.filter(bp => installmentRemaining(bp) > 0)
-        const totalRemaining = payableInBatch.reduce((a, bp) => a + installmentRemaining(bp), 0)
+        const totalRemaining = batchTotalRemaining
+        const paidAfterBatch = batchTotalPaid + amount
+        const isFullyPaidBatch = paidAfterBatch >= batchTotalInstallment
 
         const { data: balPayBatch } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
         let runBank = Number(balPayBatch?.bank || 0)
         let runCash = Number(balPayBatch?.cash || 0)
-        let distributed = 0
-        let distributedBank = 0
-        let distributedCash = 0
         let firstTxId = null
-        for (let i = 0; i < payableInBatch.length; i++) {
-          const bp = payableInBatch[i]
-          const bpRemaining = installmentRemaining(bp)
-          const isLast = i === payableInBatch.length - 1
-          const bpPayment = isLast
-            ? Math.min(bpRemaining, amount - distributed)
-            : Math.min(bpRemaining, floorCurrencyShare(amount * (bpRemaining / totalRemaining)))
-          distributed += bpPayment
-
-          const bpBank = payMethod2 === 'แบ่งจ่าย'
-            ? batchSplitPart(pay.bank, bpPayment, i, payableInBatch.length, distributedBank)
-            : payMethod2 === 'โอน' ? bpPayment : 0
-          const bpCash = payMethod2 === 'แบ่งจ่าย'
-            ? batchSplitPart(pay.cash, bpPayment, i, payableInBatch.length, distributedCash)
-            : payMethod2 === 'เงินสด' ? bpPayment : 0
-          distributedBank += bpBank
-          distributedCash += bpCash
+        for (let i = 0; i < batchProducts.length; i++) {
+          const bp = batchProducts[i]
+          const bpPayment = i === 0 ? amount : 0
+          const bpBank = i === 0 ? pay.bank : 0
+          const bpCash = i === 0 ? pay.cash : 0
           runBank += bpBank
           runCash += bpCash
 
-          const newPaid = Number(bp.installment_paid||0) + bpPayment
           const bpTotal = Number(bp.installment_total||0)
-          const isFullyPaid = newPaid >= bpTotal
 
           await supabase.from('products').update({
-            installment_paid: newPaid,
-            status:          isFullyPaid ? 'Sold' : 'Pending',
-            sold_price:      isFullyPaid ? bpTotal : null,
-            sold_date:       isFullyPaid ? soldAt : null,
-            warranty_expiry: isFullyPaid ? warranty : null,
+            installment_paid: isFullyPaidBatch ? bpTotal : 0,
+            status:          isFullyPaidBatch ? 'Sold' : 'Pending',
+            sold_price:      isFullyPaidBatch ? bpTotal : null,
+            sold_date:       isFullyPaidBatch ? soldAt : null,
+            warranty_expiry: isFullyPaidBatch ? warranty : null,
           }).eq('id', bp.id)
 
           const { data: newTx } = await supabase.from('transactions').insert({
             date: soldAt, type: 'Income', category: 'Sale', amount: bpPayment,
             product_id: bp.id, payment_method: productPaymentMethod(payMethod2, payBankAmount, payCashAmount),
-            bank_amount: payMethod2 === 'แบ่งจ่าย' ? bpBank : null,
-            cash_amount: payMethod2 === 'แบ่งจ่าย' ? bpCash : null,
-            note: isFullyPaid
-              ? `ชำระครบ: ${bp.model} SN:${bp.serial_number}`
-              : `ผ่อนจ่าย: ${bp.model} SN:${bp.serial_number} (${fmt(newPaid)}/${fmt(bpTotal)})`,
+            bank_amount: payMethod2 === 'แบ่งจ่าย' && bpBank > 0 ? bpBank : null,
+            cash_amount: payMethod2 === 'แบ่งจ่าย' && bpCash > 0 ? bpCash : null,
+            note: isFullyPaidBatch
+              ? `ชำระครบขายรวม: ${bp.model} SN:${bp.serial_number} | ชำระงวดนี้ ฿${fmt(bpPayment)} | ยอดรวม ฿${fmt(batchTotalInstallment)}`
+              : `ผ่อนจ่ายขายรวม: ${bp.model} SN:${bp.serial_number} | ชำระงวดนี้ ฿${fmt(bpPayment)} | คงเหลือรวม ฿${fmt(Math.max(0, batchTotalInstallment - paidAfterBatch))}`,
           }).select().single()
           if (newTx) { try { await supabase.from('transactions').update({ bank_after: runBank, cash_after: runCash }).eq('id', newTx.id) } catch(_) {} }
 
@@ -556,12 +521,11 @@ export default function ProductDetail() {
           await supabase.from('transactions').update({ images: urls }).eq('id', firstTxId)
         }
 
-        const actual = distributed
         await supabase.from('balances').update({ bank: runBank, cash: runCash, updated_at: soldAt }).eq('id','main')
 
-        toast.success(actual >= totalRemaining
+        toast.success(amount >= totalRemaining
           ? `ชำระครบทั้งกลุ่ม! สินค้าทั้งหมดเปลี่ยนเป็น "ขายแล้ว"`
-          : `รับชำระ ฿${fmt(actual)} — คงเหลือทั้งกลุ่ม ฿${fmt(Math.max(0, totalRemaining-actual))}`)
+          : `รับชำระ ฿${fmt(amount)} — คงเหลือทั้งกลุ่ม ฿${fmt(Math.max(0, totalRemaining-amount))}`)
 
       } else {
         // ── Single product payment ──
@@ -832,8 +796,8 @@ export default function ProductDetail() {
   const profit = product.sold_price ? Number(product.sold_price)-Number(product.total_cost) : null
   const isBatch = product.sale_batch_id && batchProducts.length > 1
   const batchTotalInstallment = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_total||0), 0) : 0
-  const batchTotalPaid        = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_paid||0), 0) : 0
-  const batchTotalRemaining   = batchTotalInstallment - batchTotalPaid
+  const batchTotalPaid        = isBatch ? batchSalePaid : 0
+  const batchTotalRemaining   = Math.max(0, batchTotalInstallment - batchTotalPaid)
   const purchaseGroupItems = product.batch_id ? [product, ...purchaseBatch] : [product]
   const hasPurchaseInstallment = purchaseTxList.some(isPurchaseInstallmentTx)
   const purchaseTotal = purchaseGroupItems.reduce((sum, item) => sum + Number(item.base_cost || item.total_cost || 0), 0)
@@ -1368,17 +1332,14 @@ export default function ProductDetail() {
                     {Math.round((batchTotalPaid/Math.max(1,batchTotalInstallment))*100)}% ชำระแล้ว
                   </p>
                   <div className="mt-1 space-y-1 border-t border-amber-100 pt-2">
-                    {batchProducts.map(bp => {
-                      const bpRemaining = Number(bp.installment_total||0) - Number(bp.installment_paid||0)
-                      return (
-                        <div key={bp.id} className="flex items-center justify-between text-xs py-0.5">
-                          <span className="text-gray-600 truncate flex-1 mr-2">{bp.model}</span>
-                          {bp.status==='Sold'
-                            ? <span className="text-green-500 font-medium">✅ ครบ</span>
-                            : <span className="text-orange-500 font-medium">฿{fmt(bpRemaining)}</span>}
-                        </div>
-                      )
-                    })}
+                    {batchProducts.map(bp => (
+                      <div key={bp.id} className="flex items-center justify-between text-xs py-0.5">
+                        <span className="text-gray-600 truncate flex-1 mr-2">{bp.model}</span>
+                        {bp.status==='Sold'
+                          ? <span className="text-green-500 font-medium">✅ ครบ</span>
+                          : <span className="text-orange-500 font-medium">รอปิดยอด</span>}
+                      </div>
+                    ))}
                   </div>
                 </>
               ) : (

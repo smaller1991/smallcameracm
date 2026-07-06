@@ -145,20 +145,28 @@ export default function BulkSale() {
         await supabase.from('balances').update({ bank: runBank, cash: runCash, updated_at: now }).eq('id','main')
 
       } else {
-        // Installment — distribute first payment proportionally across products
-        let paidSoFar = 0
-        const splitUsed = { bank: 0, cash: 0 }
+        // Installment batches record the real cash movement once, then keep
+        // product rows linked with zero-amount transactions for grouping/undo.
+        const isGroupedInstallment = Boolean(batchId)
+        const isFullyPaidBatch = firstNum >= totalSell
         for (let i = 0; i < items.length; i++) {
           const x     = items[i]
           const price = Number(x.sellPrice)
-          const pay = paymentForProduct(price, i, items.length, paidSoFar, splitUsed, firstNum)
-          const productFirstPaid = pay.amount
-          paidSoFar += productFirstPaid
-          splitUsed.bank += pay.bank
-          splitUsed.cash += pay.cash
+          const pay = isGroupedInstallment
+            ? (i === 0
+            ? (isSplitPay
+                ? { amount: firstNum, bank: splitBank, cash: splitCash }
+                : { amount: firstNum, bank: payMethod === 'โอน' ? firstNum : 0, cash: payMethod === 'เงินสด' ? firstNum : 0 })
+            : { amount: 0, bank: 0, cash: 0 })
+            : (isSplitPay
+                ? { amount: firstNum, bank: splitBank, cash: splitCash }
+                : { amount: firstNum, bank: payMethod === 'โอน' ? firstNum : 0, cash: payMethod === 'เงินสด' ? firstNum : 0 })
           runBank += pay.bank
           runCash += pay.cash
 
+          const productFirstPaid = isGroupedInstallment
+            ? (isFullyPaidBatch ? price : 0)
+            : firstNum
           const newStatus = productFirstPaid >= price ? 'Sold' : 'Pending'
 
           const { error: e1 } = await supabase.from('products').update({
@@ -180,16 +188,20 @@ export default function BulkSale() {
                 batchPrefix ? `${batchPrefix} ผ่อนจ่าย` : 'ผ่อนจ่าย',
                 `${x.product.model} SN:${x.product.serial_number}`,
                 `ราคาตกลง ฿${fmt(price)}`,
-                `งวดแรก ฿${fmt(productFirstPaid)}`,
-                `คงเหลือ ฿${fmt(price - productFirstPaid)}`,
+                isGroupedInstallment
+                  ? (i === 0 ? `งวดแรก ฿${fmt(firstNum)}` : null)
+                  : `งวดแรก ฿${fmt(firstNum)}`,
+                isGroupedInstallment
+                  ? (i === 0 ? `คงเหลือรวม ฿${fmt(totalSell - firstNum)}` : null)
+                  : `คงเหลือ ฿${fmt(price - firstNum)}`,
               ].filter(Boolean).join(' | ')
 
           const { data: tx, error: e2 } = await supabase.from('transactions').insert({
             date: now, type: 'Income', category: 'Sale',
-            amount: productFirstPaid, product_id: x.product.id,
+            amount: pay.amount, product_id: x.product.id,
             payment_method: productPayMethod, note: txNote,
-            bank_amount: isSplitPay ? pay.bank : null,
-            cash_amount: isSplitPay ? pay.cash : null,
+            bank_amount: isSplitPay && pay.bank > 0 ? pay.bank : null,
+            cash_amount: isSplitPay && pay.cash > 0 ? pay.cash : null,
           }).select().single()
           if (e2) throw e2
           txIds.push(tx.id)

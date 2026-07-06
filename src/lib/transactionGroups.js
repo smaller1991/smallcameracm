@@ -235,7 +235,9 @@ export const groupLineItems = group => {
     model: tx.products?.model || '',
     serial: tx.products?.serial_number || '',
     category: tx.products?.category || '',
-    amount: num(tx.amount),
+    amount: group.kind === 'sale' && group.installment?.hasInstallments && tx.products?.sale_batch_id
+      ? saleProductTotal(tx)
+      : num(tx.amount),
     cost: txProductCost(tx),
     profit: tx.category === 'Sale' && tx.products?.total_cost != null && (!group.installment || group.installment.isFinalInstallment)
       ? saleProductTotal(tx) - num(tx.products.total_cost)
