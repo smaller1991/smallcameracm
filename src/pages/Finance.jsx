@@ -188,21 +188,30 @@ export default function Finance() {
   const stockMap = useMemo(() => {
     const map = {}
     let runStock = Number(stockValue || 0)
-    const soldProductSeen = new Set()
 
-    const stockDelta = tx => {
-      const productCost = Number(tx.products?.total_cost || 0)
-      const batchCost = Number(tx.products?.batch_total_cost || 0)
-      if (tx.category === 'Buy Stock' && tx.product_id && productCost) {
-        if ((tx.note || '').includes('ชำระค่าซื้อ')) return 0
-        return batchCost || productCost
+    const productCostTotal = txsInGroup => {
+      const seen = new Set()
+      return txsInGroup.reduce((sum, tx) => {
+        const key = tx.product_id || tx.products?.id || tx.id
+        if (seen.has(key)) return sum
+        seen.add(key)
+        return sum + Number(tx.products?.total_cost || 0)
+      }, 0)
+    }
+
+    const stockDelta = group => {
+      const tx = group.representative
+      if (group.kind === 'purchase' || tx.category === 'Buy Stock') {
+        if (group.txs.some(item => (item.note || '').includes('ชำระค่าซื้อ'))) return 0
+        const batchCost = Number(tx.products?.batch_total_cost || 0)
+        return batchCost || productCostTotal(group.txs)
       }
       if (tx.category === 'Add-on' && tx.product_id) {
         return Number(tx.amount || 0)
       }
-      if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
-        soldProductSeen.add(tx.product_id)
-        return -productCost
+      if (group.kind === 'sale' || tx.category === 'Sale') {
+        if (group.installment?.hasInstallments && !group.installment.isFinalInstallment) return 0
+        return -productCostTotal(group.txs)
       }
       if (tx.category === 'Trade') {
         const sellA = Number(tx.trade_sell_a || 0)
@@ -218,9 +227,9 @@ export default function Finance() {
       return 0
     }
 
-    for (const tx of txs) {
-      map[tx.id] = runStock
-      runStock -= stockDelta(tx)
+    for (const group of buildTransactionGroups(txs, txs)) {
+      for (const tx of group.txs) map[tx.id] = runStock
+      runStock -= stockDelta(group)
     }
     return map
   }, [txs, stockValue])
