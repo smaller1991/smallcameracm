@@ -9,6 +9,7 @@ import DeferredImageButton from '../components/DeferredImageButton'
 import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
+import { repairSaleInstallmentRounding } from '../lib/installmentRepair'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const hasSplitAmounts = tx => Number(tx?.bank_amount || 0) > 0 || Number(tx?.cash_amount || 0) > 0
@@ -97,7 +98,15 @@ export default function ProductDetail() {
   const [purchaseImgFiles, setPurchaseImgFiles] = useState([])
   const [purchaseImgPrev, setPurchaseImgPrev] = useState([])
 
-  const load = async () => {
+  const load = async (skipRepair = false) => {
+    if (!skipRepair) {
+      try {
+        const { repaired } = await repairSaleInstallmentRounding(supabase)
+        if (repaired > 0) return load(true)
+      } catch (error) {
+        console.error(error)
+      }
+    }
     const [{data:p},{data:a},{data:txs}] = await Promise.all([
       supabase.from('products').select('*').eq('id',id).single(),
       supabase.from('accessories').select('*').eq('product_id',id).order('created_at'),

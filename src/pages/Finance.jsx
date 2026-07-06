@@ -11,6 +11,7 @@ import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
+import { repairSaleInstallmentRounding } from '../lib/installmentRepair'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
@@ -109,7 +110,18 @@ export default function Finance() {
   const [detailFrom,   setDetailFrom]   = useState('')
   const [detailTo,     setDetailTo]     = useState('')
 
-  const load = async () => {
+  const load = async (skipRepair = false) => {
+    if (!skipRepair) {
+      try {
+        const { repaired } = await repairSaleInstallmentRounding(supabase)
+        if (repaired > 0) {
+          toast.success(`ซ่อมยอดผ่อนขายที่คลาดเคลื่อน ${repaired} กลุ่ม`)
+          return load(true)
+        }
+      } catch (error) {
+        console.error(error)
+      }
+    }
     const [{data:txData},{data:bal},{data:products},{data:allProducts}] = await Promise.all([
       supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,sold_price,status,warranty_expiry,payment_method,customer_note,installment_total,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
