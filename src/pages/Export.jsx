@@ -190,6 +190,10 @@ export default function Export() {
   const [preview,    setPreview]    = useState(null)
   const [importing,  setImporting]  = useState(false)
   const [result,     setResult]     = useState(null)
+  const [backupFile, setBackupFile] = useState(null)
+  const [backupPreview, setBackupPreview] = useState(null)
+  const [restoring, setRestoring] = useState(false)
+  const [clearBeforeRestore, setClearBeforeRestore] = useState(false)
 
   // ── Export logic ──
   const setTxRange = range => { setFrom(range.from); setTo(range.to) }
@@ -257,7 +261,145 @@ export default function Export() {
     finally{ setBusy(false); setTxImgProgress(null) }
   }
 
+  const downloadJson = (data, filename) => {
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  const doExportFullBackup = async () => {
+    setBusy(true)
+    try {
+      const [{ data: products, error: pErr }, { data: accessories, error: aErr }, { data: transactions, error: tErr }, { data: balances, error: bErr }] = await Promise.all([
+        supabase.from('products').select('*').order('created_at', { ascending: true }),
+        supabase.from('accessories').select('*').order('created_at', { ascending: true }),
+        supabase.from('transactions').select('*').order('date', { ascending: true }),
+        supabase.from('balances').select('*'),
+      ])
+      if (pErr) throw pErr
+      if (aErr) throw aErr
+      if (tErr) throw tErr
+      if (bErr) throw bErr
+      const backup = {
+        format: 'camshop-full-backup',
+        version: 1,
+        exported_at: new Date().toISOString(),
+        tables: {
+          products: products || [],
+          accessories: accessories || [],
+          transactions: transactions || [],
+          balances: balances || [],
+        },
+        notes: [
+          'This backup preserves table ids and relationships.',
+          'Image fields are restored as stored URLs. Binary storage objects are not embedded in this JSON.',
+        ],
+      }
+      downloadJson(backup, `camshop_full_backup_${new Date().toISOString().slice(0, 10).replace(/-/g, '')}.json`)
+      toast.success('ดาวน์โหลด Full Backup แล้ว')
+    } catch (e) {
+      toast.error(e.message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   // ── Import logic ──
+  const normalizeBackup = raw => {
+    const backup = raw?.tables ? raw : { tables: raw || {} }
+    const tables = backup.tables || {}
+    return {
+      format: backup.format || 'unknown',
+      version: backup.version || 0,
+      exported_at: backup.exported_at || null,
+      products: Array.isArray(tables.products) ? tables.products : [],
+      accessories: Array.isArray(tables.accessories) ? tables.accessories : [],
+      transactions: Array.isArray(tables.transactions) ? tables.transactions : [],
+      balances: Array.isArray(tables.balances) ? tables.balances : [],
+    }
+  }
+
+  const handleBackupFile = e => {
+    const f = e.target.files[0]
+    if (!f) return
+    setBackupFile(f)
+    setBackupPreview(null)
+    setResult(null)
+    const reader = new FileReader()
+    reader.onload = ev => {
+      try {
+        const parsed = JSON.parse(ev.target.result)
+        const normalized = normalizeBackup(parsed)
+        if (!normalized.products.length && !normalized.transactions.length && !normalized.accessories.length && !normalized.balances.length) {
+          throw new Error('ไม่พบข้อมูล backup ที่รองรับ')
+        }
+        setBackupPreview(normalized)
+      } catch (err) {
+        toast.error('อ่านไฟล์ backup ไม่ได้: ' + err.message)
+      }
+    }
+    reader.readAsText(f)
+  }
+
+  const upsertRows = async (table, rows, chunkSize = 300) => {
+    let count = 0
+    for (let i = 0; i < rows.length; i += chunkSize) {
+      const chunk = rows.slice(i, i + chunkSize)
+      if (!chunk.length) continue
+      const { error } = await supabase.from(table).upsert(chunk, { onConflict: 'id' })
+      if (error) throw error
+      count += chunk.length
+    }
+    return count
+  }
+
+  const deleteAllRows = async table => {
+    const { error } = await supabase.from(table).delete().not('id', 'is', null)
+    if (error) throw error
+  }
+
+  const restoreFullBackup = async () => {
+    if (!backupPreview) return
+    const total = backupPreview.products.length + backupPreview.accessories.length + backupPreview.transactions.length + backupPreview.balances.length
+    const msg = clearBeforeRestore
+      ? `Restore แบบล้างข้อมูลเดิมก่อน?\nระบบจะลบ products/accessories/transactions เดิม แล้วนำเข้า ${total} rows จาก backup`
+      : `Restore แบบ merge/update?\nระบบจะ upsert ${total} rows โดยไม่ลบข้อมูลที่ไม่มีใน backup`
+    if (!confirm(msg)) return
+    setRestoring(true)
+    const errors = []
+    const counts = { products: 0, accessories: 0, transactions: 0, balances: 0 }
+    try {
+      if (clearBeforeRestore) {
+        await deleteAllRows('transactions')
+        await deleteAllRows('accessories')
+        await deleteAllRows('products')
+      }
+      counts.products = await upsertRows('products', backupPreview.products)
+      counts.accessories = await upsertRows('accessories', backupPreview.accessories)
+      counts.transactions = await upsertRows('transactions', backupPreview.transactions)
+      counts.balances = await upsertRows('balances', backupPreview.balances)
+      setResult({
+        successP: counts.products,
+        successT: counts.transactions,
+        errors,
+        backupCounts: counts,
+      })
+      toast.success(`Restore สำเร็จ: สินค้า ${counts.products}, บัญชี ${counts.transactions}`)
+    } catch (e) {
+      errors.push(e.message)
+      setResult({ successP: counts.products, successT: counts.transactions, errors, backupCounts: counts })
+      toast.error('Restore ไม่สำเร็จ: ' + e.message)
+    } finally {
+      setRestoring(false)
+    }
+  }
+
   const parseProducts = (wb) => {
     const ws = wb.Sheets['สต็อกสินค้า']
     if (!ws) return []
@@ -475,9 +617,58 @@ export default function Export() {
         </button>
       </div>
 
+      {/* ── Full Backup / Restore ── */}
+      <div className="card space-y-3 border-2 border-red-100">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-red-100 rounded-xl flex items-center justify-center"><Download size={20} className="text-red-600"/></div>
+          <div>
+            <p className="font-semibold">Full Backup / Restore</p>
+            <p className="text-xs text-gray-400">สำรองข้อมูลเต็มระบบแบบ JSON พร้อม id และความสัมพันธ์</p>
+          </div>
+        </div>
+        <div className="bg-red-50 rounded-xl p-3 text-xs text-red-700 space-y-1">
+          <p>• เก็บข้อมูลตาราง products, accessories, transactions, balances</p>
+          <p>• ใช้สำหรับกู้คืนระบบหรือย้ายฐานข้อมูล โดยรักษา id / batch / ผ่อน / แบ่งจ่าย</p>
+          <p>• รูปภาพจะ restore เป็น URL เดิม ไม่ได้ฝังไฟล์รูปจริงใน JSON</p>
+        </div>
+        <button onClick={doExportFullBackup} disabled={busy} className="btn-primary w-full flex items-center justify-center gap-2">
+          <Download size={16}/>ดาวน์โหลด Full Backup (.json)
+        </button>
+        <label className="flex flex-col items-center justify-center border-2 border-dashed border-red-200 rounded-xl py-6 cursor-pointer hover:border-brand-red hover:bg-red-50 transition-all">
+          <Upload size={24} className="text-red-400 mb-2"/>
+          <p className="text-sm font-medium text-gray-600">{backupFile ? backupFile.name : 'เลือกไฟล์ Full Backup .json เพื่อ Restore'}</p>
+          <p className="text-xs text-gray-400 mt-1">รองรับไฟล์ที่ดาวน์โหลดจาก Full Backup เท่านั้น</p>
+          <input autoComplete="off" type="file" accept=".json,application/json" className="hidden" onChange={handleBackupFile}/>
+        </label>
+        {backupPreview && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-4 gap-2">
+              <div className="bg-amber-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-amber-700">{backupPreview.products.length}</p><p className="text-[10px] text-amber-600">สินค้า</p></div>
+              <div className="bg-blue-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-blue-700">{backupPreview.accessories.length}</p><p className="text-[10px] text-blue-600">อุปกรณ์เสริม</p></div>
+              <div className="bg-green-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-green-700">{backupPreview.transactions.length}</p><p className="text-[10px] text-green-600">บัญชี</p></div>
+              <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-gray-700">{backupPreview.balances.length}</p><p className="text-[10px] text-gray-600">ยอดเงิน</p></div>
+            </div>
+            <p className="text-xs text-gray-400">
+              Exported: {backupPreview.exported_at ? thDate(backupPreview.exported_at) : '-'} | Format: {backupPreview.format}
+            </p>
+            <label className="flex items-start gap-2 bg-white/70 rounded-xl p-3 border border-red-100">
+              <input type="checkbox" checked={clearBeforeRestore} onChange={e=>setClearBeforeRestore(e.target.checked)} className="mt-1"/>
+              <div>
+                <p className="text-sm font-semibold text-red-700">ล้างข้อมูลเดิมก่อน Restore</p>
+                <p className="text-xs text-red-500">ใช้เมื่ออยากให้ฐานข้อมูลหลัง restore ตรงกับ backup มากที่สุด ถ้าไม่เลือกจะเป็นการ merge/update</p>
+              </div>
+            </label>
+            <button onClick={restoreFullBackup} disabled={restoring} className="btn-primary w-full flex items-center justify-center gap-2">
+              <Upload size={16}/>{restoring ? 'กำลัง Restore...' : 'Restore Full Backup'}
+            </button>
+          </div>
+        )}
+      </div>
+
       {/* ── นำเข้าข้อมูล ── */}
       <div className="border-t border-amber-100 pt-2">
         <h2 className="font-bold text-lg text-brand-dark mb-3">นำเข้าข้อมูล</h2>
+        <p className="text-xs text-gray-400">ส่วนนี้เป็นการนำเข้าจาก Template เท่านั้น ไม่ใช่ Full Restore</p>
       </div>
 
       {/* Step 1 */}
@@ -567,7 +758,13 @@ export default function Export() {
         <div className={`card space-y-3 border-2 ${result.errors.length===0?'border-green-200':'border-amber-200'}`}>
           <div className="flex items-center gap-3">
             {result.errors.length===0?<CheckCircle size={24} className="text-green-500"/>:<AlertCircle size={24} className="text-amber-500"/>}
-            <div><p className="font-semibold">ผลการนำเข้า</p><p className="text-xs text-gray-400">สินค้า {result.successP} รายการ | บัญชี {result.successT} รายการ</p></div>
+            <div>
+              <p className="font-semibold">ผลการนำเข้า</p>
+              <p className="text-xs text-gray-400">
+                สินค้า {result.successP} รายการ | บัญชี {result.successT} รายการ
+                {result.backupCounts ? ` | อุปกรณ์เสริม ${result.backupCounts.accessories} | ยอดเงิน ${result.backupCounts.balances}` : ''}
+              </p>
+            </div>
           </div>
           {result.errors.length>0&&(
             <div className="bg-red-50 rounded-xl p-3 space-y-1">
