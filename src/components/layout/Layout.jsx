@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
-import { LayoutDashboard, Package, DollarSign, Download, LogOut, Sun, Moon } from 'lucide-react'
+import { LayoutDashboard, Package, DollarSign, Download, LogOut } from 'lucide-react'
 
 const nav = [
   { to: '/',         icon: LayoutDashboard, label: 'หน้าหลัก' },
@@ -19,7 +19,6 @@ export default function Layout() {
   const location = useLocation()
 
   const [fontIdx, setFontIdx] = useState(() => Number(localStorage.getItem('cs_fontsize') || 1))
-  const [dark,    setDark]    = useState(() => localStorage.getItem('cs_dark') === '1')
   const activeIndex = Math.max(0, nav.findIndex(item => item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to)))
 
   useEffect(() => {
@@ -27,31 +26,14 @@ export default function Layout() {
     localStorage.setItem('cs_fontsize', fontIdx)
   }, [fontIdx])
 
-  useEffect(() => {
-    if (dark) {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
-    localStorage.setItem('cs_dark', dark ? '1' : '0')
-  }, [dark])
-
   const decrease = () => setFontIdx(i => Math.max(0, i - 1))
   const increase = () => setFontIdx(i => Math.min(FONT_SIZES.length - 1, i + 1))
 
   return (
     <div className="app-shell flex flex-col min-h-screen max-w-[430px] mx-auto bg-brand-light">
       <header className="app-header w-full h-16 flex items-center justify-between px-4 z-40 overflow-visible">
+        <div className="brand-wordmark" aria-label="SMALL CAMERA">SMALL CAMERA</div>
         <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="Snapman CM" className="h-24 w-auto object-contain drop-shadow-lg"/>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* Dark mode toggle */}
-          <button onClick={() => setDark(d => !d)}
-            className="header-icon-btn text-brand-dark/70 hover:text-brand-dark transition-colors p-1.5 rounded-2xl">
-            {dark ? <Sun size={17}/> : <Moon size={17}/>}
-          </button>
-
           {/* Font size controls */}
           <div className="header-pill flex items-center gap-0.5 rounded-2xl px-1 py-0.5">
             <button onClick={decrease} disabled={fontIdx===0}

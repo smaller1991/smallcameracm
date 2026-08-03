@@ -247,7 +247,7 @@ function drawReportHeader(doc, title, subtitle = '') {
   doc.roundedRect(253, 11, 30, 9, 3, 3, 'F')
   doc.setTextColor(255, 255, 255)
   doc.setFontSize(9)
-  doc.text('Snapman CM', 258, 17.2)
+  doc.text('SMALL CAMERA', 258, 17.2)
   doc.setTextColor(123, 90, 86)
   doc.setFontSize(7.5)
   if (subtitle) doc.text(subtitle, 12, 32)

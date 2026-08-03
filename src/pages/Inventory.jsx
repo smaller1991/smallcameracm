@@ -2,7 +2,7 @@
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
-import { Search, Plus, ArrowUpDown, ArrowLeftRight, ShoppingCart, X } from 'lucide-react'
+import { Search, Plus, ArrowUpDown, ArrowLeftRight, ShoppingCart, X, Check, Package, Camera, LogIn, LogOut } from 'lucide-react'
 import DeferredImageButton from '../components/DeferredImageButton'
 import CachedImage from '../components/CachedImage'
 
@@ -144,7 +144,9 @@ export default function Inventory() {
             {SORT_OPTIONS.map(o=>(
               <button key={o.key} onClick={()=>{setSortKey(o.key);setShowSort(false)}}
                 className={`w-full text-left px-4 py-2.5 text-sm border-b border-amber-50 last:border-0 transition-colors ${sortKey===o.key?'bg-amber-50 text-brand-dark font-semibold':'text-gray-600'}`}>
-                {sortKey===o.key?'✓ ':''}{o.label}
+                <span className="inline-flex items-center gap-2">
+                  {sortKey===o.key && <Check size={14}/>} {o.label}
+                </span>
               </button>
             ))}
           </div>
@@ -172,7 +174,7 @@ export default function Inventory() {
       </div>
 
       <div className="mx-4 mt-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 flex justify-between items-center">
-        <span className="text-sm text-amber-700 font-medium">📦 มูลค่าสินค้าคงคลัง</span>
+        <span className="text-sm text-amber-700 font-medium inline-flex items-center gap-2"><Package size={16}/>มูลค่าสินค้าคงคลัง</span>
         <span className="font-bold text-brand-dark text-lg">฿{fmt(inventoryValue)}</span>
       </div>
 
@@ -196,7 +198,7 @@ export default function Inventory() {
       {loading
         ? <div className="flex justify-center pt-20"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
         : filtered.length===0
-          ? <div className="flex flex-col items-center pt-24 text-gray-400"><span className="text-5xl mb-3">📷</span><p>ไม่พบสินค้า</p></div>
+          ? <div className="flex flex-col items-center pt-24 text-gray-400"><Camera size={44} strokeWidth={1.6} className="mb-3"/><p>ไม่พบสินค้า</p></div>
           : <div className="px-4 pb-4 space-y-1.5 mt-1">
               {(() => {
                 // batch image map: batch_id → รูปแรกจากชิ้นที่มี Buy Stock transaction
@@ -214,7 +216,7 @@ export default function Inventory() {
                   || (p.is_trade_in && tradeImageMap[p.id])                             // แลกเปลี่ยน
                 return (
                   <div key={p.id} onClick={()=>navigate(`/inventory/${p.id}`)}
-                    className={`card p-2.5 flex items-center gap-2.5 cursor-pointer active:scale-[0.98] transition-transform ${p.is_trade_in?'border-blue-300 border-2':''}`}>
+                    className="card p-2.5 flex items-center gap-2.5 cursor-pointer active:scale-[0.98] transition-transform">
                     <div className="flex-shrink-0">
                       {coverImg
                         ? <DeferredImageButton
@@ -222,13 +224,13 @@ export default function Inventory() {
                             className="w-12 h-12"
                             onClick={(e,src)=>{e.stopPropagation();setLightboxImg(src || coverImg)}}
                           />
-                        : <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl ${p.is_trade_in?'bg-blue-100':'bg-amber-100'}`}>📷</div>}
+                        : <div className="w-12 h-12 rounded-xl flex items-center justify-center bg-amber-100 text-amber-700"><Camera size={22} strokeWidth={1.8}/></div>}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
                         <p className="font-semibold text-sm truncate flex-1">{p.model}</p>
                         <div className="flex gap-1 flex-shrink-0">
-                          {p.is_trade_in && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-700">🔄</span>}
+                          {p.is_trade_in && <span className="inventory-trade-icon inline-flex items-center justify-center p-1 rounded-full" title="สินค้าแลกเปลี่ยน"><ArrowLeftRight size={13}/></span>}
                           <span className={`${STATUS_CLASS[p.status]} text-xs font-semibold px-2 py-0.5 rounded-full`}>{STATUS_LABEL[p.status]}</span>
                         </div>
                       </div>
@@ -239,8 +241,8 @@ export default function Inventory() {
                       <div className="flex justify-between mt-0.5">
                         <p className="text-xs text-gray-500">฿{fmt(p.total_cost)} · เกรด {p.condition}</p>
                         {p.sold_date
-                          ? <p className="text-xs text-gray-300">📤 {thDateShort(p.sold_date)}</p>
-                          : p.created_at && <p className="text-xs text-gray-300">📥 {thDateShort(p.created_at)}</p>}
+                          ? <p className="text-xs text-gray-300 inline-flex items-center gap-1"><LogOut size={12}/>{thDateShort(p.sold_date)}</p>
+                          : p.created_at && <p className="text-xs text-gray-300 inline-flex items-center gap-1"><LogIn size={12}/>{thDateShort(p.created_at)}</p>}
                       </div>
                       {p.status==='Pending' && p.installment_total && (
                         <p className="text-xs text-orange-500 font-medium mt-0.5">

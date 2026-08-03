@@ -207,7 +207,9 @@ export default function Export() {
       {['xlsx','pdf'].map(f=>(
         <button key={f} onClick={()=>set(f)}
           className={`liquid-filter-btn py-2 text-sm ${val===f?'is-active':''}`}>
-          {f==='xlsx'?'📊 Excel (.xlsx)':'📄 PDF'}
+          <span className="inline-flex items-center justify-center gap-2">
+            {f==='xlsx'?<FileSpreadsheet size={15}/>:<FileText size={15}/>} {f==='xlsx'?'Excel (.xlsx)':'PDF'}
+          </span>
         </button>
       ))}
     </div>
@@ -674,7 +676,7 @@ export default function Export() {
       {/* Step 1 */}
       <div className="card space-y-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-xl">1️⃣</div>
+          <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-sm font-bold text-amber-800">01</div>
           <div><p className="font-semibold">ดาวน์โหลด Template</p><p className="text-xs text-gray-400">กรอกข้อมูลลงใน Excel แล้วอัปโหลดกลับ</p></div>
         </div>
         <button onClick={downloadImportTemplate} className="btn-primary w-full flex items-center justify-center gap-2 py-2.5 text-sm">
@@ -692,7 +694,7 @@ export default function Export() {
       {/* Step 2 */}
       <div className="card space-y-3">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-xl">2️⃣</div>
+          <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-sm font-bold text-amber-800">02</div>
           <div><p className="font-semibold">อัปโหลดไฟล์ที่กรอกแล้ว</p><p className="text-xs text-gray-400">รองรับ .xlsx และ .xls</p></div>
         </div>
         <label className="flex flex-col items-center justify-center border-2 border-dashed border-amber-300 rounded-xl py-8 cursor-pointer hover:border-brand-yellow hover:bg-amber-50 transition-all">
@@ -707,7 +709,7 @@ export default function Export() {
       {preview && (
         <div className="card space-y-3">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-xl">3️⃣</div>
+            <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center text-sm font-bold text-amber-800">03</div>
             <div><p className="font-semibold">ตรวจสอบข้อมูลก่อนนำเข้า</p><p className="text-xs text-gray-400">ตรวจสอบให้ถูกต้องก่อนกด "นำเข้า"</p></div>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -796,7 +798,7 @@ function openPDFPreviewWindow(message = 'กำลังเตรียม PDF..
   }
   w.document.open()
   w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>PDF Preview</title>
-  <style>body{font-family:sans-serif;margin:24px;color:#1F1412;background:linear-gradient(145deg,#fff7f6,#fff,#fff1ef)}.box{max-width:520px;margin:12vh auto;background:rgba(255,255,255,.88);border:1px solid rgba(211,47,35,.14);border-radius:28px;padding:24px;box-shadow:0 18px 48px rgba(150,34,28,.12),inset 0 1px 0 rgba(255,255,255,.9)}h2{margin:0 0 8px;font-size:20px;color:#D32F23}p{margin:0;color:#6f5753;font-size:13px}</style>
+  <style>body{font-family:sans-serif;margin:24px;color:#f7f7f8;background:#09090a}.box{max-width:520px;margin:12vh auto;background:#151517;border:1px solid #343438;border-radius:18px;padding:24px}h2{margin:0 0 8px;font-size:20px;color:#ef2b32}p{margin:0;color:#a4a4aa;font-size:13px}</style>
   </head><body><div class="box"><h2>${message}</h2><p>หน้าต่างนี้ถูกเปิดจากการกดปุ่มโดยตรง จึงไม่โดนบล็อก popup</p></div></body></html>`)
   w.document.close()
   return w
@@ -849,21 +851,21 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
   <style>
     @page{size:A4 landscape;margin:8mm}
     *{box-sizing:border-box}
-    body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:linear-gradient(145deg,#fff7f6,#fff,#fff1ef);color:#1F1412}
-    .toolbar{position:sticky;top:0;z-index:10;background:rgba(255,255,255,.92);color:#1F1412;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;box-shadow:0 12px 34px rgba(150,34,28,.12);border-bottom:1px solid rgba(211,47,35,.12);backdrop-filter:blur(18px)}
+    body{font-family:Arial,sans-serif;font-size:11px;margin:0;background:#09090a;color:#1F1412}
+    .toolbar{position:sticky;top:0;z-index:10;background:#151517;color:#f7f7f8;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:12px;border-bottom:1px solid #343438}
     .toolbar-title{font-weight:800;font-size:15px;color:#D32F23}
     .toolbar-actions{display:flex;gap:8px}
     button,a{border:0;border-radius:10px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none}
-    .back{background:rgba(211,47,35,.08);color:#1F1412;border:1px solid rgba(211,47,35,.18)}
-    .print{background:#D32F23;color:white}
-    .page{background:rgba(255,255,255,.9);margin:12px auto;padding:16px;max-width:1180px;border:1px solid rgba(211,47,35,.12);border-radius:24px;box-shadow:0 18px 48px rgba(150,34,28,.12),inset 0 1px 0 rgba(255,255,255,.9)}
+    .back{background:#1d1d20;color:#f7f7f8;border:1px solid #343438}
+    .print{background:#EF2B32;color:white}
+    .page{background:#fff;margin:12px auto;padding:16px;max-width:1180px;border:1px solid #343438;border-radius:18px}
     .report-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;border-bottom:2px solid rgba(211,47,35,.2);padding-bottom:10px;margin-bottom:11px}
     h1{font-size:21px;line-height:1.1;margin:0;color:#1F1412}
     .meta{font-size:10px;color:#7b5a56;margin-top:4px}
-    .brand{font-weight:800;color:white;background:#D32F23;border-radius:16px;padding:8px 12px;white-space:nowrap;box-shadow:0 10px 24px rgba(211,47,35,.18)}
+    .brand{font-weight:800;color:white;background:#D32F23;border-radius:12px;padding:8px 12px;white-space:nowrap}
     .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(132px,1fr));gap:6px;margin:8px 0 10px}
     .stats.cols-4{grid-template-columns:repeat(4,1fr)}
-    .stat{border:1px solid rgba(211,47,35,.12);border-radius:16px;padding:7px 9px;background:linear-gradient(145deg,rgba(255,255,255,.96),rgba(255,241,239,.76));min-height:45px;box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}
+    .stat{border:1px solid rgba(211,47,35,.18);border-radius:12px;padding:7px 9px;background:#fff7f7;min-height:45px}
     .stat-label{font-size:8.4px;color:#7b5a56;margin-bottom:3px;white-space:nowrap}
     .stat-value{font-size:12.5px;font-weight:800;color:#1F1412;line-height:1.12;overflow-wrap:anywhere}
     .stat.in .stat-value{color:#16a34a}.stat.out .stat-value{color:#dc2626}.stat.warn .stat-value{color:#d97706}.stat.bank .stat-value{color:#2563eb}.stat.cash .stat-value{color:#16a34a}
@@ -902,7 +904,7 @@ function makePDF(title, headers, rows, previewWindow = null, options = {}) {
         <div class="meta">${escapeHtml(options.subtitle || '')}</div>
         <div class="meta">สร้างเมื่อ ${new Date().toLocaleString('th-TH')}</div>
       </div>
-      <div class="brand">Snapman CM</div>
+      <div class="brand">SMALL CAMERA</div>
     </section>
     ${statsHtml}
     <section class="table-wrap">

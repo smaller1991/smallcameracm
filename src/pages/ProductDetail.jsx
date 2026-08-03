@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
 import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
-import { ChevronLeft, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus } from 'lucide-react'
+import { Banknote, ChevronLeft, CircleDollarSign, CreditCard, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus, Package, Scissors, Undo2, UserRound } from 'lucide-react'
 import DeferredImageButton from '../components/DeferredImageButton'
 import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
@@ -921,7 +921,7 @@ export default function ProductDetail() {
               )}
               {product.customer_note && (
                 <div className="bg-blue-50 rounded-xl px-3 py-2">
-                  <p className="text-xs text-blue-400 mb-0.5">👤 รายละเอียดลูกค้า</p>
+                  <p className="text-xs text-blue-400 mb-0.5 inline-flex items-center gap-1.5"><UserRound size={13}/>รายละเอียดลูกค้า</p>
                   <p className="text-sm text-blue-700 whitespace-pre-wrap">{product.customer_note}</p>
                 </div>
               )}
@@ -982,7 +982,7 @@ export default function ProductDetail() {
                     <button key={m} onClick={()=>setAccPayMethod(m)}
                       className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all
                         ${accPayMethod===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':'bg-green-600 text-white border-green-600'):'bg-white text-gray-400 border-gray-200'}`}>
-                      {m==='โอน'?'💳 โอน':'💵 เงินสด'}
+                      <span className="inline-flex items-center justify-center gap-1.5">{m==='โอน'?<CreditCard size={14}/>:<Banknote size={14}/>} {m}</span>
                     </button>
                   ))}
                 </div>
@@ -1084,7 +1084,7 @@ export default function ProductDetail() {
                 setPurchaseImgFiles([])
                 setPurchaseImgPrev([])
               }} className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
-                💰 จ่ายงวดค่าซื้อ
+                <CircleDollarSign size={17}/>จ่ายงวดค่าซื้อ
               </button>
             ) : (
               <div className="bg-white/70 rounded-xl p-3 space-y-2 border border-red-100">
@@ -1095,7 +1095,7 @@ export default function ProductDetail() {
                   {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
                     <button key={m} onClick={()=>{setPurchasePayMethod(m);setPurchaseBankAmount('');setPurchaseCashAmount('')}}
                       className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${purchasePayMethod===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'):'bg-white text-gray-400 border-gray-200'}`}>
-                      {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
+                      <span className="inline-flex items-center justify-center gap-1.5">{m==='โอน'?<CreditCard size={14}/>:m==='เงินสด'?<Banknote size={14}/>:<Scissors size={14}/>} {m}</span>
                     </button>
                   ))}
                 </div>
@@ -1176,7 +1176,7 @@ export default function ProductDetail() {
                 </button>
                 <button onClick={()=>setSellType('installment')}
                   className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${sellType==='installment'?'bg-orange-500 text-white border-orange-500':'bg-white text-gray-400 border-gray-200'}`}>
-                  💳 ผ่อนจ่าย
+                  <span className="inline-flex items-center justify-center gap-1.5"><CreditCard size={14}/>ผ่อนจ่าย</span>
                 </button>
               </div>
 
@@ -1210,9 +1210,9 @@ export default function ProductDetail() {
                     {installTotal && installFirst !== '' && (
                       <p className={`text-xs mt-1 font-medium ${Number(installFirst)>Number(installTotal)?'text-red-500':Number(installFirst)>=Number(installTotal)?'text-green-600':'text-orange-500'}`}>
                         {Number(installFirst)>Number(installTotal)
-                          ? '⚠️ เกินราคาตกลง'
+                          ? 'เกินราคาตกลง'
                           : Number(installFirst)>=Number(installTotal)
-                            ? '✅ ชำระเต็มจำนวน → สินค้าจะเปลี่ยนเป็น "ขายแล้ว"'
+                            ? 'ชำระเต็มจำนวน → สินค้าจะเปลี่ยนเป็น "ขายแล้ว"'
                             : `คงเหลือ: ฿${fmt(Number(installTotal)-Number(installFirst))} → สินค้าจะเปลี่ยนเป็น "รอชำระ"`}
                       </p>
                     )}
@@ -1258,7 +1258,7 @@ export default function ProductDetail() {
                   {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
                     <button key={m} onClick={()=>{setPayMethod(m);setSellBankAmount('');setSellCashAmount('')}}
                       className={"flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all "+(payMethod===m?(m==='โอน'?'bg-blue-600 text-white border-blue-600':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'):'bg-white text-gray-400 border-gray-200')}>
-                      {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
+                      <span className="inline-flex items-center justify-center gap-1.5">{m==='โอน'?<CreditCard size={14}/>:m==='เงินสด'?<Banknote size={14}/>:<Scissors size={14}/>} {m}</span>
                     </button>
                   ))}
                 </div>
@@ -1305,7 +1305,7 @@ export default function ProductDetail() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="font-semibold text-sm">ผ่อนจ่าย</h3>
-                {isBatch && <span className="text-xs text-blue-600 font-medium">📦 ขายรวม {batchProducts.length} ชิ้น</span>}
+                {isBatch && <span className="text-xs text-blue-600 font-medium inline-flex items-center gap-1"><Package size={13}/>ขายรวม {batchProducts.length} ชิ้น</span>}
               </div>
               <span className="badge-pending">รอชำระ</span>
             </div>
@@ -1336,7 +1336,7 @@ export default function ProductDetail() {
                       <div key={bp.id} className="flex items-center justify-between text-xs py-0.5">
                         <span className="text-gray-600 truncate flex-1 mr-2">{bp.model}</span>
                         {bp.status==='Sold'
-                          ? <span className="text-green-500 font-medium">✅ ครบ</span>
+                          ? <span className="text-green-500 font-medium inline-flex items-center gap-1"><Check size={13}/>ครบ</span>
                           : <span className="text-orange-500 font-medium">รอปิดยอด</span>}
                       </div>
                     ))}
@@ -1369,7 +1369,7 @@ export default function ProductDetail() {
             {!payMode ? (
               <button onClick={()=>{setPayMode(true);setPayAmount('');setPayMethod2('โอน');setPayBankAmount('');setPayCashAmount('');setPayDate2('');setPayImgFiles([]);setPayImgPrev([])}}
                 className="btn-primary w-full py-2.5 flex items-center justify-center gap-2">
-                💰 รับชำระงวด
+                <CircleDollarSign size={17}/>รับชำระงวด
               </button>
             ) : (
               <div className="bg-orange-50 rounded-xl p-3 space-y-2">
@@ -1380,7 +1380,7 @@ export default function ProductDetail() {
                   {['โอน','เงินสด','แบ่งจ่าย'].map(m=>(
                     <button key={m} onClick={()=>{setPayMethod2(m);setPayBankAmount('');setPayCashAmount('')}}
                       className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${payMethod2===m?(m==='โอน'?'bg-blue-500 text-white border-blue-500':m==='เงินสด'?'bg-green-600 text-white border-green-600':'bg-brand-red text-white border-brand-red'):'bg-white text-gray-400 border-gray-200'}`}>
-                      {m==='โอน'?'💳 โอน':m==='เงินสด'?'💵 เงินสด':'แบ่ง'}
+                      <span className="inline-flex items-center justify-center gap-1.5">{m==='โอน'?<CreditCard size={14}/>:m==='เงินสด'?<Banknote size={14}/>:<Scissors size={14}/>} {m}</span>
                     </button>
                   ))}
                 </div>
@@ -1428,10 +1428,10 @@ export default function ProductDetail() {
                     : (Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)?'text-green-600':'text-orange-500')}`}>
                     {isBatch
                       ? (Number(payAmount)>=batchTotalRemaining
-                          ? '✅ ชำระครบทั้งกลุ่ม — สินค้าทั้งหมดจะเปลี่ยนเป็น "ขายแล้ว"'
+                          ? 'ชำระครบทั้งกลุ่ม — สินค้าทั้งหมดจะเปลี่ยนเป็น "ขายแล้ว"'
                           : `คงเหลือทั้งกลุ่มหลังชำระ: ฿${fmt(Math.max(0,batchTotalRemaining-Number(payAmount)))}`)
                       : (Number(product.installment_paid||0)+Number(payAmount)>=Number(product.installment_total||0)
-                          ? '✅ ชำระครบ — สินค้าจะเปลี่ยนเป็น "ขายแล้ว" อัตโนมัติ'
+                          ? 'ชำระครบ — สินค้าจะเปลี่ยนเป็น "ขายแล้ว" อัตโนมัติ'
                           : `คงเหลือหลังชำระ: ฿${fmt(Number(product.installment_total||0)-Number(product.installment_paid||0)-Number(payAmount))}`)}
                   </p>
                 )}
@@ -1446,7 +1446,7 @@ export default function ProductDetail() {
             {!payMode && (
               <button onClick={cancelInstallment} disabled={saving}
                 className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
-                ↩️ ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
+                <Undo2 size={15}/>ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
               </button>
             )}
           </div>
@@ -1460,21 +1460,21 @@ export default function ProductDetail() {
         {product.status==='Sold' && !product.trade_ref_id && !product.installment_total && (
           <button onClick={cancelSale} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
-            ↩️ ยกเลิกการขาย (คืนสถานะ + หักยอดเงิน)
+            <Undo2 size={15}/>ยกเลิกการขาย (คืนสถานะ + หักยอดเงิน)
           </button>
         )}
 
         {product.status==='Sold' && !product.trade_ref_id && product.installment_total && (
           <button onClick={cancelInstallment} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-orange-500 border border-orange-200 rounded-xl py-2.5 hover:bg-orange-50 transition-colors">
-            ↩️ ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
+            <Undo2 size={15}/>ยกเลิกผ่อนจ่าย (คืนสถานะ + หักยอดเงิน)
           </button>
         )}
 
         {((product.status==='Sold' && product.trade_ref_id) || product.is_trade_in) && (
           <button onClick={cancelTrade} disabled={saving}
             className="w-full flex items-center justify-center gap-2 text-sm text-blue-500 border border-blue-200 rounded-xl py-2.5 hover:bg-blue-50 transition-colors">
-            ↩️ ยกเลิกการแลกเปลี่ยน (คืนสถานะ + ลบสินค้า B)
+            <Undo2 size={15}/>ยกเลิกการแลกเปลี่ยน (คืนสถานะ + ลบสินค้า B)
           </button>
         )}
 

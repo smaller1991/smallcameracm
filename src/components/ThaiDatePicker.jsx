@@ -46,13 +46,6 @@ function DrumCol({ items, idx, onSelect, width = 'flex-1' }) {
       {/* selection highlight */}
       <div className="absolute inset-x-0 pointer-events-none z-0 border-y border-amber-400/50 bg-amber-400/10"
         style={{ top: PAD * ITEM_H, height: ITEM_H }} />
-      {/* fade top */}
-      <div className="absolute inset-x-0 top-0 pointer-events-none z-10 bg-gradient-to-b from-white dark:from-[#1A1208] to-transparent"
-        style={{ height: PAD * ITEM_H }} />
-      {/* fade bottom */}
-      <div className="absolute inset-x-0 bottom-0 pointer-events-none z-10 bg-gradient-to-t from-white dark:from-[#1A1208] to-transparent"
-        style={{ height: PAD * ITEM_H }} />
-
       <div ref={ref} onScroll={onScroll}
         className="h-full overflow-y-scroll"
         style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', scrollSnapType: 'y mandatory' }}>
@@ -62,7 +55,7 @@ function DrumCol({ items, idx, onSelect, width = 'flex-1' }) {
             style={{ height: ITEM_H, scrollSnapAlign: 'center' }}
             className={`relative z-20 flex items-center justify-center select-none transition-colors ${
               i === idx
-                ? 'text-amber-500 dark:text-brand-yellow font-bold text-base'
+                ? 'text-amber-500 font-bold text-base'
                 : 'text-gray-400 text-sm'
             }`}>
             {label}
@@ -177,7 +170,7 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
         />
         {value && (
           <button onClick={clear}
-            className="absolute right-2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 text-xl leading-none">
+            className="absolute right-2 text-gray-400 hover:text-gray-200 text-xl leading-none">
             ×
           </button>
         )}
@@ -188,11 +181,11 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
           style={{ background: 'rgba(0,0,0,0.45)' }}
           onPointerDown={e => { if (e.target === e.currentTarget) setOpen(false) }}>
 
-          <div className="thai-date-picker-sheet bg-white dark:bg-[#1A1208] rounded-t-2xl w-full max-w-[430px] mx-auto">
+          <div className="thai-date-picker-sheet bg-white rounded-t-2xl w-full max-w-[430px] mx-auto">
             {/* toolbar */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100 dark:border-white/10">
+            <div className="flex items-center justify-between px-5 py-3 border-b border-gray-100">
               <button className="text-gray-400 text-sm py-1 px-2" onClick={() => setOpen(false)}>ยกเลิก</button>
-              <span className="font-semibold text-sm dark:text-white">
+              <span className="font-semibold text-sm">
                 {showTime ? 'เลือกวันที่และเวลา' : 'เลือกวันที่'}
               </span>
               <button className="text-amber-500 font-bold text-sm py-1 px-2" onClick={commit}>ตกลง</button>
@@ -208,7 +201,7 @@ export default function ThaiDatePicker({ value, onChange, showTime = false, clas
                     ‹
                   </button>
                   <div className="text-center">
-                    <p className="font-bold text-brand-dark dark:text-white">{MONTHS_TH[calMonth]} {calYear}</p>
+                    <p className="font-bold text-brand-dark">{MONTHS_TH[calMonth]} {calYear}</p>
                   </div>
                   <button
                     onClick={() => moveMonth(1)}

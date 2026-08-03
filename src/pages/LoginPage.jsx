@@ -1,7 +1,6 @@
 ﻿import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
-import { Camera } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 export default function LoginPage() {
@@ -21,7 +20,7 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen bg-brand-dark flex flex-col items-center justify-center p-6">
       <div className="flex flex-col items-center gap-3 mb-10">
-        <img src="/logo.png" alt="Snapman CM" className="h-28 w-auto object-contain drop-shadow-xl"/>
+        <h1 className="brand-wordmark brand-wordmark-login">SMALL CAMERA</h1>
         <p className="text-white/50 text-sm">ระบบจัดการร้านกล้องมือสอง</p>
       </div>
       <form onSubmit={submit} className="w-full max-w-sm space-y-4">

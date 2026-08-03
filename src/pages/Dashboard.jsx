@@ -449,10 +449,9 @@ export default function Dashboard() {
                           key={c.cat}
                           d={donutSlicePath(c.start, c.end)}
                           fill={c.color}
-                          className="cursor-pointer transition-all duration-200 outline-none"
+                          className="cursor-pointer transition-[opacity,transform] duration-200 outline-none"
                           style={{
                             opacity: activeStock ? (isActive ? 1 : 0.42) : 1,
-                            filter: isActive ? 'drop-shadow(0 10px 14px rgba(0,0,0,.18))' : 'none',
                             transform: `translate(${dx}px, ${dy}px)`,
                           }}
                           tabIndex="0"
