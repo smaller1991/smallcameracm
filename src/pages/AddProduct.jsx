@@ -201,13 +201,8 @@ export default function AddProduct() {
                   ['installment', 'ซื้อผ่อน'],
                 ].map(([value, label]) => (
                   <button key={value} onClick={() => setPurchaseType(value)}
-                    className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${
-                      purchaseType === value
-                        ? value === 'full'
-                          ? 'bg-brand-dark text-brand-yellow border-brand-dark'
-                          : 'bg-brand-red text-white border-brand-red'
-                        : 'bg-white text-gray-400 border-gray-200'
-                    }`}>
+                    className={`purchase-type-option flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${purchaseType === value ? 'is-active' : ''}`}
+                    aria-pressed={purchaseType === value}>
                     {label}
                   </button>
                 ))}
@@ -337,7 +332,8 @@ export default function AddProduct() {
                 <div className="flex gap-2">
                   {[5,4,3,2,1].map(c=>(
                     <button key={c} onClick={()=>setField(it._id,'condition',c)}
-                      className={`flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${it.condition===c?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-500 border-gray-200'}`}>
+                      className={`selectable-option flex-1 py-1.5 rounded-xl text-sm font-semibold border transition-all ${it.condition===c?'is-active':''}`}
+                      aria-pressed={it.condition===c}>
                       {c}
                     </button>
                   ))}

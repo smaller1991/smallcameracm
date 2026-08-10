@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { thDateShort } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
+import { profitAfterVat, vatDocumentOf } from '../lib/vat'
 import {
   AlertCircle,
   Banknote,
@@ -71,7 +72,7 @@ export default function Dashboard() {
     setLoading(true)
     Promise.all([
       supabase.from('products').select('*').order('created_at', { ascending: false }),
-      supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,created_at,sold_date,installment_total,status)').order('date', { ascending: false }),
+      supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,created_at,sold_date,installment_total,status),vat_documents!transactions_vat_document_id_fkey(id,status,subtotal,vat_amount,total_amount)').order('date', { ascending: false }),
       supabase.from('balances').select('*').eq('id', 'main').single(),
     ]).then(([{ data: products }, { data: txs }, { data: bal }]) => {
       setRaw({
@@ -92,14 +93,21 @@ export default function Dashboard() {
       return true
     }
     const txs = raw.txs.filter(t => inRange(t.date))
-    const sold = raw.products.filter(p => p.status === 'Sold' && inRange(p.sold_date))
+    const vatByProductId = raw.txs.reduce((map, tx) => {
+      const doc = vatDocumentOf(tx)
+      if (tx.category === 'Sale' && tx.product_id && doc && !map.has(tx.product_id)) map.set(tx.product_id, doc)
+      return map
+    }, new Map())
+    const sold = raw.products
+      .filter(p => p.status === 'Sold' && inRange(p.sold_date))
+      .map(p => ({ ...p, _vatDocument: vatByProductId.get(p.id) || null }))
     const available = raw.products.filter(p => p.status === 'Available')
     const reserved = raw.products.filter(p => p.status === 'Reserved')
     const stockProducts = raw.products.filter(p => p.status !== 'Sold')
 
     const income = txs.filter(t => t.type === 'Income').reduce((a,t)=>a+Number(t.amount),0)
     const expense = txs.filter(t => t.type === 'Expense').reduce((a,t)=>a+Number(t.amount),0)
-    const salesGross = sold.reduce((a,p)=>a+(Number(p.sold_price || 0)-Number(p.total_cost || 0)),0)
+    const salesGross = sold.reduce((a,p)=>a+profitAfterVat(p.sold_price, p.total_cost, p._vatDocument),0)
     const deductions = txs
       .filter(t => t.type === 'Expense' && PROFIT_DEDUCT_CATS.has(t.category))
       .reduce((a,t)=>a+Number(t.amount),0)
@@ -140,7 +148,7 @@ export default function Dashboard() {
 
     const soldItems = sold.map(p => ({
       ...p,
-      profit: Number(p.sold_price || 0) - Number(p.total_cost || 0),
+      profit: profitAfterVat(p.sold_price, p.total_cost, p._vatDocument),
       daysToSell: Math.max(0, Math.ceil((new Date(p.sold_date) - new Date(p.created_at)) / 86400000)),
     }))
     const topProfit = [...soldItems].sort((a,b)=>b.profit-a.profit).slice(0,5)
@@ -207,7 +215,7 @@ export default function Dashboard() {
   ]
   const moneyCards = [
     {
-      label: 'กำไรขายสุทธิ',
+      label: 'กำไรขายหลัง VAT',
       value: `${stats.profit >= 0 ? '+' : ''}฿${fmt(stats.profit)}`,
       icon: PiggyBank,
       accent: stats.profit >= 0 ? 'text-brand-yellow' : 'text-brand-red',

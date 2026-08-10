@@ -117,6 +117,30 @@ CREATE TRIGGER trg_transactions_updated_at
   BEFORE UPDATE ON public.transactions
   FOR EACH ROW EXECUTE FUNCTION public.set_updated_at();
 
+-- Keep total cost equal to the edited purchase price plus all add-ons.
+CREATE OR REPLACE FUNCTION public.sync_product_total_cost()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  accessory_total NUMERIC(12,2);
+BEGIN
+  IF NEW.base_cost IS DISTINCT FROM OLD.base_cost THEN
+    SELECT COALESCE(SUM(cost), 0)
+      INTO accessory_total
+      FROM public.accessories
+     WHERE product_id = NEW.id;
+    NEW.total_cost := NEW.base_cost + accessory_total;
+  END IF;
+  RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_sync_product_total_cost ON public.products;
+CREATE TRIGGER trg_sync_product_total_cost
+  BEFORE UPDATE OF base_cost ON public.products
+  FOR EACH ROW EXECUTE FUNCTION public.sync_product_total_cost();
+
 -- =========================
 -- Row Level Security
 -- =========================
@@ -178,3 +202,6 @@ CREATE POLICY receipt_images_auth_upload ON storage.objects
 DROP POLICY IF EXISTS receipt_images_auth_delete ON storage.objects;
 CREATE POLICY receipt_images_auth_delete ON storage.objects
   FOR DELETE TO authenticated USING (bucket_id = 'receipt-images');
+
+-- VAT management is installed for new projects by running the same statements
+-- in supabase_vat_migration.sql after this base setup.

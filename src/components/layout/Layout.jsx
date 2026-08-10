@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react'
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
-import { LayoutDashboard, Package, DollarSign, Download, LogOut } from 'lucide-react'
+import { LayoutDashboard, Package, DollarSign, Download, LogOut, ReceiptText } from 'lucide-react'
 
 const nav = [
   { to: '/',         icon: LayoutDashboard, label: 'หน้าหลัก' },
   { to: '/inventory',icon: Package,         label: 'สต็อก'    },
   { to: '/finance',  icon: DollarSign,      label: 'บัญชี'    },
+  { to: '/vat',      icon: ReceiptText,     label: 'VAT'      },
   { to: '/export',   icon: Download,        label: 'ข้อมูล'   },
 ]
 
@@ -55,7 +56,7 @@ export default function Layout() {
       </header>
       <main className="flex-1 overflow-y-auto pb-24"><Outlet/></main>
       <nav className="app-bottom-nav fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] pb-safe z-40">
-        <div className="liquid-nav-track relative grid grid-cols-4 items-center mx-3 mt-2 mb-1 px-1 py-1.5">
+        <div className="liquid-nav-track relative grid grid-cols-5 items-center mx-3 mt-2 mb-1 px-1 py-1.5">
           <span
             className="liquid-nav-indicator"
             style={{ transform: `translateX(${activeIndex * 100}%)` }}

@@ -1,3 +1,5 @@
+import { profitAfterVat, vatDocumentOf } from './vat'
+
 const SALE_GROUP_CATEGORIES = new Set(['Sale'])
 const PURCHASE_GROUP_CATEGORIES = new Set(['Buy Stock'])
 
@@ -240,9 +242,13 @@ export const groupLineItems = group => {
       : num(tx.amount),
     cost: txProductCost(tx),
     profit: tx.category === 'Sale' && tx.products?.total_cost != null && (!group.installment || group.installment.isFinalInstallment)
-      ? saleProductTotal(tx) - num(tx.products.total_cost)
+      ? profitAfterVat(saleProductTotal(tx), tx.products.total_cost, vatDocumentOf(tx))
       : tx.category === 'Trade' && tx.trade_profit_a != null
-      ? num(tx.trade_profit_a)
+      ? profitAfterVat(
+          num(tx.trade_sell_a),
+          num(tx.trade_sell_a) - num(tx.trade_profit_a),
+          vatDocumentOf(tx),
+        )
       : null,
     note: tx.note || tx.products?.customer_note || '',
   }))

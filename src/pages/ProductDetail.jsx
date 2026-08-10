@@ -2,6 +2,7 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
+import { createVatDraft, profitAfterVat, vatDocumentOf, vatSourceKey, voidVatDraftsForTransactions } from '../lib/vat'
 import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Banknote, ChevronLeft, CircleDollarSign, CreditCard, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus, Package, Scissors, Undo2, UserRound } from 'lucide-react'
@@ -78,6 +79,52 @@ export default function ProductDetail() {
   const [sellImgFiles, setSellImgFiles] = useState([])
   const [sellImgPrev,  setSellImgPrev]  = useState([])
 
+  const closeSellModal = () => {
+    if (saving) return
+    sellImgPrev.forEach(src => URL.revokeObjectURL(src))
+    setSellMode(false)
+    setSellType('full')
+    setSoldPrice('')
+    setInstallTotal('')
+    setInstallFirst('')
+    setPayMethod('โอน')
+    setSellBankAmount('')
+    setSellCashAmount('')
+    setSellDate('')
+    setCustomerNote('')
+    setSellImgFiles([])
+    setSellImgPrev([])
+  }
+
+  const openSellModal = () => {
+    setSellMode(true)
+    setSellDate('')
+    setCustomerNote('')
+    setSellImgFiles([])
+    setSellImgPrev([])
+    setSellType('full')
+    setSoldPrice('')
+    setInstallTotal('')
+    setInstallFirst('')
+    setPayMethod('โอน')
+    setSellBankAmount('')
+    setSellCashAmount('')
+  }
+
+  useEffect(() => {
+    if (!sellMode) return undefined
+    const previousOverflow = document.body.style.overflow
+    const handleEscape = event => {
+      if (event.key === 'Escape') closeSellModal()
+    }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', handleEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', handleEscape)
+    }
+  }, [sellMode, saving])
+
   // pay installment (for Pending products)
   const [payMode,     setPayMode]     = useState(false)
   const [payAmount,   setPayAmount]   = useState('')
@@ -102,7 +149,7 @@ export default function ProductDetail() {
     const [{data:p},{data:a},{data:txs}] = await Promise.all([
       supabase.from('products').select('*').eq('id',id).single(),
       supabase.from('accessories').select('*').eq('product_id',id).order('created_at'),
-      supabase.from('transactions').select('id,category,type,amount,payment_method,bank_amount,cash_amount,images,date,note').eq('product_id',id).order('date'),
+      supabase.from('transactions').select('id,category,type,amount,payment_method,bank_amount,cash_amount,images,date,note,vat_documents!transactions_vat_document_id_fkey(id,status,subtotal,vat_amount,total_amount)').eq('product_id',id).order('date'),
     ])
     let displayProduct = p
     setAccs(a||[])
@@ -213,16 +260,20 @@ export default function ProductDetail() {
   const saveEdit = async () => {
     setSaving(true)
     try {
+      const baseCost = Number(ef.base_cost)
+      if (!Number.isFinite(baseCost) || baseCost < 0) throw new Error('กรุณาระบุราคาซื้อให้ถูกต้อง')
+      const accessoryCost = accs.reduce((sum, accessory) => sum + Number(accessory.cost || 0), 0)
+      const totalCost = baseCost + accessoryCost
       const updateData = {
         model: ef.model, serial_number: ef.serial_number,
-        condition: Number(ef.condition), base_cost: parseFloat(ef.base_cost),
+        condition: Number(ef.condition), base_cost: baseCost, total_cost: totalCost,
         status: ef.status, notes: ef.notes, category: ef.category,
         customer_note: ef.customer_note?.trim() || null,
       }
       if (ef.created_at) updateData.created_at = new Date(ef.created_at).toISOString()
       const {error} = await supabase.from('products').update(updateData).eq('id',id)
       if (error) throw error
-      toast.success('บันทึกแล้ว'); setEditing(false); load()
+      toast.success(`บันทึกแล้ว · ต้นทุนรวม ฿${fmt(totalCost)}`); setEditing(false); load()
     } catch(e){toast.error(e.message)} finally{setSaving(false)}
   }
 
@@ -392,6 +443,22 @@ export default function ProductDetail() {
       // 4. อัปเดต balance
       await supabase.from('balances').update({ bank: bank_after, cash: cash_after, updated_at: new Date().toISOString() }).eq('id','main')
 
+      try {
+        await createVatDraft({
+          sourceKey: vatSourceKey('sale', newTx.id),
+          sourceType: 'sale',
+          transactionIds: [newTx.id],
+          documentDate: soldAt,
+          items: [{ description: product.model, serial_number: product.serial_number, quantity: 1, unit_price: price, total_amount: price }],
+          grossTotal: price,
+          paymentMethod: productPaymentMethod(payMethod, sellBankAmount, sellCashAmount),
+          customerName: customerNote.trim(),
+          note: 'สร้างอัตโนมัติจากการขายสินค้า',
+        })
+      } catch (vatError) {
+        toast.error(`ขายสำเร็จ แต่สร้างร่าง VAT ไม่สำเร็จ: ${vatError.message}`)
+      }
+
       toast.success('ขายสำเร็จ! ช่องทาง: '+payMethod)
       setSellMode(false)
       setSellBankAmount(''); setSellCashAmount('')
@@ -412,6 +479,7 @@ export default function ProductDetail() {
     try {
       const soldAt = sellDate ? new Date(sellDate).toISOString() : new Date().toISOString()
       const isFullyPaid = first >= total
+      const vatTransactionIds = []
 
       const {error} = await supabase.from('products').update({
         status: isFullyPaid ? 'Sold' : 'Pending',
@@ -440,6 +508,7 @@ export default function ProductDetail() {
             : `ผ่อนจ่าย | ${product.model} SN:${product.serial_number} | ราคาตกลง ฿${fmt(total)} | งวดแรก ฿${fmt(first)} | คงเหลือ ฿${fmt(total-first)}`,
         }).select().single()
         if (txErr) throw txErr
+        vatTransactionIds.push(newTx.id)
         try { await supabase.from('transactions').update({ bank_after: bank_after2, cash_after: cash_after2 }).eq('id', newTx.id) } catch(_) {}
 
         if (sellImgFiles.length && newTx) {
@@ -448,6 +517,22 @@ export default function ProductDetail() {
         }
 
         await supabase.from('balances').update({ bank: bank_after2, cash: cash_after2, updated_at: new Date().toISOString() }).eq('id','main')
+      }
+
+      try {
+        await createVatDraft({
+          sourceKey: vatSourceKey('installment', `${id}:${soldAt}`),
+          sourceType: 'installment',
+          transactionIds: vatTransactionIds,
+          documentDate: soldAt,
+          items: [{ description: product.model, serial_number: product.serial_number, quantity: 1, unit_price: total, total_amount: total }],
+          grossTotal: total,
+          paymentMethod: productPaymentMethod(payMethod, sellBankAmount, sellCashAmount),
+          customerName: customerNote.trim(),
+          note: `ขายผ่อน ราคาตกลง ฿${fmt(total)} — VAT คำนวณครั้งเดียวจากยอดเต็ม`,
+        })
+      } catch (vatError) {
+        toast.error(`บันทึกขายแล้ว แต่สร้างร่าง VAT ไม่สำเร็จ: ${vatError.message}`)
       }
 
       toast.success(isFullyPaid ? 'ขายสำเร็จ!' : `บันทึกผ่อนจ่ายแล้ว — ชำระแรก ฿${fmt(first)}, คงเหลือ ฿${fmt(total-first)}`)
@@ -648,6 +733,8 @@ export default function ProductDetail() {
         const {data: saleTxs} = await supabase.from('transactions')
           .select('*').eq('product_id', pid).eq('category', 'Sale')
 
+        await voidVatDraftsForTransactions((saleTxs || []).map(tx => tx.id), 'ยกเลิกตามการย้อนกลับการขายแบบผ่อน')
+
         for (const tx of saleTxs || []) {
           const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
           if (bal) {
@@ -679,17 +766,20 @@ export default function ProductDetail() {
     if (!confirm('ยกเลิกการขายสินค้านี้?\nยอดเงินและรายการบัญชีจะถูกลบคืนอัตโนมัติ')) return
     setSaving(true)
     try {
-      // 1. คืนสถานะสินค้า
+      // 1. หารายการขายและยกเลิกร่าง VAT ก่อนลบต้นทาง
+      const {data: saleTxs} = await supabase.from('transactions')
+        .select('*')
+        .eq('product_id', id)
+        .eq('category', 'Sale')
+      await voidVatDraftsForTransactions((saleTxs || []).map(tx => tx.id), 'ยกเลิกตามการย้อนกลับการขายสินค้า')
+
+      // 2. คืนสถานะสินค้า
       await supabase.from('products').update({
         status:'Available', sold_price:null,
         payment_method:null, sold_date:null, warranty_expiry:null,
       }).eq('id',id)
 
-      // 2. หักยอด balance คืนตาม transaction จริง เพื่อรองรับแบ่งจ่าย
-      const {data: saleTxs} = await supabase.from('transactions')
-        .select('*')
-        .eq('product_id', id)
-        .eq('category', 'Sale')
+      // 3. หักยอด balance คืนตาม transaction จริง เพื่อรองรับแบ่งจ่าย
       for (const tx of saleTxs || []) {
         const {data:bal} = await supabase.from('balances').select('*').eq('id','main').single()
         if (!bal) continue
@@ -712,7 +802,7 @@ export default function ProductDetail() {
         }
       }
 
-      // 3. ลบ transaction Sale ทั้งหมดของสินค้านี้
+      // 4. ลบ transaction Sale ทั้งหมดของสินค้านี้
       await supabase.from('transactions')
         .delete()
         .eq('product_id', id)
@@ -734,6 +824,8 @@ export default function ProductDetail() {
       const { data: tradeTx } = await supabase
         .from('transactions').select('*')
         .eq('product_id', productAId).eq('category', 'Trade').single()
+
+      if (tradeTx) await voidVatDraftsForTransactions([tradeTx.id], 'ยกเลิกตามการย้อนกลับรายการแลกเปลี่ยน')
 
       await supabase.from('products').update({
         status: 'Available', sold_price: null, sold_date: null,
@@ -793,7 +885,10 @@ export default function ProductDetail() {
 
   if (loading) return <div className="flex justify-center items-center h-64"><div className="w-8 h-8 border-4 border-brand-yellow border-t-transparent rounded-full animate-spin"/></div>
   if (!product) return <div className="p-8 text-center text-gray-400">ไม่พบสินค้า</div>
-  const profit = product.sold_price ? Number(product.sold_price)-Number(product.total_cost) : null
+  const saleTransaction = txList.find(tx => tx.category === 'Sale')
+  const profit = product.sold_price
+    ? profitAfterVat(product.sold_price, product.total_cost, vatDocumentOf(saleTransaction))
+    : null
   const isBatch = product.sale_batch_id && batchProducts.length > 1
   const batchTotalInstallment = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_total||0), 0) : 0
   const batchTotalPaid        = isBatch ? batchSalePaid : 0
@@ -844,7 +939,8 @@ export default function ProductDetail() {
                 <div className="flex gap-2">
                   {[5,4,3,2,1].map(c=>(
                     <button key={c} onClick={()=>setEf({...ef,condition:c})}
-                      className={"flex-1 py-1.5 rounded-lg text-sm font-semibold border transition-all "+(ef.condition===c?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-400 border-gray-200')}>
+                      className={`selectable-option flex-1 py-1.5 rounded-lg text-sm font-semibold border transition-all ${ef.condition===c?'is-active':''}`}
+                      aria-pressed={ef.condition===c}>
                       {c}
                     </button>
                   ))}
@@ -900,7 +996,7 @@ export default function ProductDetail() {
                 {product.sold_price && (
                   <>
                     <div><p className="text-xs text-gray-400">ราคาขาย</p><p className="font-semibold text-green-600">฿{fmt(product.sold_price)}</p></div>
-                    <div><p className="text-xs text-gray-400">กำไร</p><p className={"font-semibold "+(profit>=0?'text-green-600':'text-red-500')}>{profit>=0?'+':''}฿{fmt(profit)}</p></div>
+                    <div><p className="text-xs text-gray-400">กำไรหลัง VAT</p><p className={"font-semibold "+(profit>=0?'text-green-600':'text-red-500')}>{profit>=0?'+':''}฿{fmt(profit)}</p></div>
                   </>
                 )}
               </div>
@@ -1165,8 +1261,36 @@ export default function ProductDetail() {
         {/* Sell */}
         {product.status==='Available' && (
           sellMode ? (
-            <div className="card space-y-3">
-              <h3 className="font-semibold text-sm">ยืนยันการขาย</h3>
+            <div
+              className="sell-modal-backdrop fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-6"
+              onMouseDown={event => {
+                if (event.target === event.currentTarget) closeSellModal()
+              }}
+            >
+              <section
+                className="sell-modal-panel"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="sell-modal-title"
+                onMouseDown={event => event.stopPropagation()}
+              >
+                <header className="sell-modal-header">
+                  <div>
+                    <p className="text-xs text-gray-500">บันทึกการขาย</p>
+                    <h3 id="sell-modal-title" className="font-bold text-lg">ยืนยันการขาย</h3>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeSellModal}
+                    disabled={saving}
+                    className="sell-modal-close"
+                    aria-label="ปิดหน้าต่างขายสินค้า"
+                  >
+                    <X size={20}/>
+                  </button>
+                </header>
+
+                <div className="sell-modal-body space-y-3">
 
               {/* ── รูปแบบการชำระ ── */}
               <div className="flex gap-2">
@@ -1284,16 +1408,19 @@ export default function ProductDetail() {
                   placeholder="ชื่อ / เบอร์โทร / หมายเหตุลูกค้า..."
                   value={customerNote} onChange={e=>setCustomerNote(e.target.value)}/>
               </div>
-              <div className="flex gap-2">
+                </div>
+
+              <footer className="sell-modal-footer">
                 <button onClick={sellType==='full'?sell:sellInstallment} disabled={saving}
-                  className="btn-primary flex-1 py-3 flex items-center justify-center gap-2">
+                  className="btn-primary flex-1 min-h-12 py-3 flex items-center justify-center gap-2">
                   <ShoppingBag size={16}/>{saving?'...':(sellType==='full'?'ยืนยันขาย':'บันทึกผ่อนจ่าย')}
                 </button>
-                <button onClick={()=>{setSellMode(false);setSellType('full');setInstallTotal('');setInstallFirst('');setSellBankAmount('');setSellCashAmount('')}} className="btn-ghost px-4">ยกเลิก</button>
-              </div>
+                <button onClick={closeSellModal} disabled={saving} className="sell-modal-cancel min-h-12 px-5">ยกเลิก</button>
+              </footer>
+              </section>
             </div>
           ) : (
-            <button onClick={()=>{setSellMode(true);setSellDate('');setCustomerNote('');setSellImgFiles([]);setSellImgPrev([]);setSellType('full');setInstallTotal('');setInstallFirst('');setSellBankAmount('');setSellCashAmount('')}} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
+            <button onClick={openSellModal} className="btn-primary w-full py-3 flex items-center justify-center gap-2 text-base">
               <ShoppingBag size={18}/>ขายสินค้า
             </button>
           )

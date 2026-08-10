@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Banknote, ChevronLeft, CreditCard, Search, ArrowLeftRight, Plus, Minus, ImagePlus, Scissors, X, Trash2 } from 'lucide-react'
 import { uploadReceiptImages } from '../lib/imageUtils'
+import { createVatDraft, vatSourceKey } from '../lib/vat'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
@@ -160,6 +161,27 @@ export default function TradeIn() {
       // 4. Update balance
       await supabase.from('balances').update({ bank: bank_afterTrade, cash: cash_afterTrade, updated_at: now }).eq('id','main')
 
+      try {
+        await createVatDraft({
+          sourceKey: vatSourceKey('trade', tradeTx.id),
+          sourceType: 'trade',
+          transactionIds: [tradeTx.id],
+          documentDate: now,
+          items: itemsA.map(x => ({
+            description: x.product.model,
+            serial_number: x.product.serial_number,
+            quantity: 1,
+            unit_price: Number(x.sellPrice),
+            total_amount: Number(x.sellPrice),
+          })),
+          grossTotal: totalSellA,
+          paymentMethod: productPayMethod,
+          note: 'VAT คำนวณจากสินค้าที่ร้านขาย ไม่คำนวณจากส่วนต่างแลกเปลี่ยน',
+        })
+      } catch (vatError) {
+        toast.error(`แลกเปลี่ยนสำเร็จ แต่สร้างร่าง VAT ไม่สำเร็จ: ${vatError.message}`)
+      }
+
       toast.success('บันทึกการแลกเปลี่ยนสำเร็จ!')
       navigate('/inventory')
     } catch(e) { toast.error(e.message) }
@@ -304,8 +326,8 @@ export default function TradeIn() {
                 <div className="flex gap-2">
                   {[5,4,3,2,1].map(c=>(
                     <button key={c} onClick={()=>updateB(b._id,'condition',c)}
-                      className={`flex-1 py-1.5 rounded-lg text-sm font-semibold border transition-all
-                        ${b.condition===c?'bg-brand-dark text-brand-yellow border-brand-dark':'bg-white text-gray-400 border-gray-200'}`}>
+                      className={`selectable-option flex-1 py-1.5 rounded-lg text-sm font-semibold border transition-all ${b.condition===c?'is-active':''}`}
+                      aria-pressed={b.condition===c}>
                       {c}
                     </button>
                   ))}

@@ -11,6 +11,7 @@ import Finance       from './pages/Finance'
 import Export        from './pages/Export'
 import TradeIn       from './pages/TradeIn'
 import BulkSale      from './pages/BulkSale'
+import VatManagement from './pages/VatManagement'
 
 function Guard({ children }) {
   const { user, loading } = useAuthStore()
@@ -38,6 +39,7 @@ export default function App() {
           <Route path="export" element={<Export/>}/>
           <Route path="tradein" element={<TradeIn/>}/>
           <Route path="bulk-sale" element={<BulkSale/>}/>
+          <Route path="vat" element={<VatManagement/>}/>
         </Route>
       </Routes>
     </BrowserRouter>

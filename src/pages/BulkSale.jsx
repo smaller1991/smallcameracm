@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Banknote, ChevronLeft, CreditCard, Search, Scissors, ShoppingCart, X, ImagePlus } from 'lucide-react'
 import { uploadReceiptImages } from '../lib/imageUtils'
+import { createVatDraft, vatSourceKey } from '../lib/vat'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
@@ -215,6 +216,29 @@ export default function BulkSale() {
       if (imgFiles.length && txIds[0]) {
         const urls = await uploadReceiptImages(supabase, txIds[0], imgFiles)
         await supabase.from('transactions').update({ images: urls }).eq('id', txIds[0])
+      }
+
+      try {
+        await createVatDraft({
+          sourceKey: vatSourceKey('bulk_sale', batchId || txIds[0]),
+          sourceType: payType === 'full' ? 'bulk_sale' : 'installment',
+          transactionIds: txIds,
+          saleBatchId: batchId,
+          documentDate: now,
+          items: items.map(x => ({
+            description: x.product.model,
+            serial_number: x.product.serial_number,
+            quantity: 1,
+            unit_price: Number(x.sellPrice),
+            total_amount: Number(x.sellPrice),
+          })),
+          grossTotal: totalSell,
+          paymentMethod: productPayMethod,
+          customerName: note || '',
+          note: payType === 'full' ? 'สร้างอัตโนมัติจากการขายรวม' : 'ขายรวมแบบผ่อน — VAT คำนวณครั้งเดียวจากยอดเต็ม',
+        })
+      } catch (vatError) {
+        toast.error(`ขายสำเร็จ แต่สร้างร่าง VAT ไม่สำเร็จ: ${vatError.message}`)
       }
 
       toast.success(`ขายสำเร็จ ${items.length} รายการ!`)

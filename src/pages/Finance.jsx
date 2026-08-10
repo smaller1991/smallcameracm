@@ -2,7 +2,7 @@
 import { createPortal } from 'react-dom'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
-import { ArrowLeftRight, Banknote, BarChart3, CircleDollarSign, CreditCard, Edit2, ImagePlus, LogOut, Package, Plus, Scissors, Search, Shield, SlidersHorizontal, TrendingDown, TrendingUp, Undo2, UserRound, X, Check } from 'lucide-react'
+import { ArrowLeftRight, Banknote, BarChart3, CircleDollarSign, CreditCard, Edit2, ImagePlus, LogOut, Package, Plus, ReceiptText, Scissors, Search, Shield, SlidersHorizontal, TrendingDown, TrendingUp, Undo2, UserRound, X, Check } from 'lucide-react'
 import { uploadReceiptImages, deleteReceiptImage, deleteAllProductImages } from '../lib/imageUtils'
 import { thDate, thDateShort, toLocal, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
@@ -11,12 +11,18 @@ import CachedImage from '../components/CachedImage'
 import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
+import { profitAfterVat, vatDocumentOf, voidVatDraftsForTransactions } from '../lib/vat'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
 const PROD_CATS = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const TX_TYPES  = ['Income','Expense']
 const fmt  = n => Number(n||0).toLocaleString('th-TH')
+const productProfitAfterVat = product => profitAfterVat(
+  product?.sold_price,
+  product?.total_cost,
+  product?._vatDocument,
+)
 
 const CAT_COLOR = {
   'Sale':        'bg-green-100 text-green-700 border-green-200',
@@ -111,7 +117,7 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products},{data:allProducts}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,sold_price,status,warranty_expiry,payment_method,customer_note,installment_total,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,sold_price,status,warranty_expiry,payment_method,customer_note,installment_total,batch_id,sale_batch_id,notes),vat_documents!transactions_vat_document_id_fkey(id,status,document_number,subtotal,vat_amount,total_amount)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
       supabase.from('products').select('id,model,serial_number,category,total_cost,status,batch_id,notes,created_at'),
@@ -134,9 +140,14 @@ export default function Finance() {
     setTxs(txsWithBatchTotals)
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
 
-    const sold = (products||[]).filter(p=>p.sold_price)
+    const vatByProductId = txsWithBatchTotals.reduce((map, tx) => {
+      const doc = vatDocumentOf(tx)
+      if (tx.category === 'Sale' && tx.product_id && doc && !map.has(tx.product_id)) map.set(tx.product_id, doc)
+      return map
+    }, new Map())
+    const sold = (products||[]).filter(p=>p.sold_price).map(p => ({ ...p, _vatDocument: vatByProductId.get(p.id) || null }))
     setSoldItems(sold)
-    const sp         = sold.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+    const sp         = sold.reduce((a,p)=>a+productProfitAfterVat(p),0)
     const deductions = txsWithBatchTotals.filter(t=>PROFIT_DEDUCT_CATS.includes(t.category)&&t.type==='Expense').reduce((a,t)=>a+Number(t.amount),0)
     setSoldProfit(sp - deductions)
 
@@ -296,7 +307,7 @@ export default function Finance() {
     if (profitTo   && ds > profitTo) return false
     return true
   })
-  const filteredGross      = filteredSoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+  const filteredGross      = filteredSoldItems.reduce((a,p)=>a+productProfitAfterVat(p),0)
   const filteredDeductions = PROFIT_DEDUCT_CATS.map(cat => ({
     cat,
     amount: txs.filter(t => {
@@ -317,7 +328,7 @@ export default function Finance() {
     if (selProdCats.length>0 && (!p.category || !selProdCats.includes(p.category))) return false
     return true
   })
-  const summaryGross = summarySoldItems.reduce((a,p)=>a+(Number(p.sold_price)-Number(p.total_cost)),0)
+  const summaryGross = summarySoldItems.reduce((a,p)=>a+productProfitAfterVat(p),0)
   const summaryDeductTotal = txs
     .filter(t => PROFIT_DEDUCT_CATS.includes(t.category) && t.type === 'Expense' && txMatchesFilters(t))
     .reduce((a,t)=>a+Number(t.amount),0)
@@ -496,6 +507,7 @@ export default function Finance() {
       onUndo: () => setTxs(snap),
       onCommit: async () => {
         if (willRevertSale) {
+          await voidVatDraftsForTransactions([tx.id], 'ยกเลิกตามการย้อนกลับการขายจากหน้าบัญชี')
           await supabase.from('products').update({
             status: 'Available', sold_price: null, sold_date: null,
             payment_method: null, warranty_expiry: null,
@@ -593,6 +605,8 @@ export default function Finance() {
             load(); return
           }
 
+          await voidVatDraftsForTransactions(group.txs.map(tx => tx.id), 'ยกเลิกตามการย้อนกลับการขายจากหน้าบัญชี')
+
           for (const tx of group.txs) {
             if (tx.product_id) {
               await supabase.from('products').update({
@@ -628,6 +642,8 @@ export default function Finance() {
       // หา product B จาก trade_ref_id ของ product A
       const { data: pA } = await supabase.from('products').select('trade_ref_id').eq('id', tx.product_id).single()
       const productBId = pA?.trade_ref_id
+
+      await voidVatDraftsForTransactions([tx.id], 'ยกเลิกตามการย้อนกลับรายการแลกเปลี่ยนจากหน้าบัญชี')
 
       // คืน product A → Available
       await supabase.from('products').update({
@@ -687,7 +703,7 @@ export default function Finance() {
           </button>
           <button onClick={openProfitDetail}
             className="finance-summary-card finance-summary-profit liquid-glass flex-1 rounded-xl p-2.5 text-center active:scale-95 transition-all">
-            <p className="text-brand-dark/55 text-xs inline-flex items-center justify-center gap-1">กำไรขาย <Search size={11}/></p>
+            <p className="text-brand-dark/55 text-xs inline-flex items-center justify-center gap-1">กำไรหลัง VAT <Search size={11}/></p>
             <p className={`font-bold text-sm mt-0.5 ${summaryProfit>=0?'text-brand-yellow':'text-red-400'}`}>
               {summaryProfit<0?'-':''}฿{fmt(Math.abs(summaryProfit))}
             </p>
@@ -790,7 +806,7 @@ export default function Finance() {
             <div className="liquid-bottom-sheet relative w-full max-w-[430px] rounded-t-3xl max-h-[85vh] flex flex-col" onClick={e=>e.stopPropagation()}>
               <div className="px-5 pt-7 pb-3 border-b border-amber-100">
                 <div className="flex items-center justify-between mb-3">
-                  <h2 className="font-bold text-lg text-brand-dark">รายละเอียดกำไรขาย</h2>
+                  <h2 className="font-bold text-lg text-brand-dark">รายละเอียดกำไรหลัง VAT</h2>
                   <button onClick={()=>setShowProfit(false)} className="text-gray-500 p-1"><X size={18}/></button>
                 </div>
                 {/* date filter */}
@@ -827,7 +843,7 @@ export default function Finance() {
                   : filteredSoldItems
                       .sort((a,b)=>new Date(b.sold_date)-new Date(a.sold_date))
                       .map(p=>{
-                        const profit = Number(p.sold_price)-Number(p.total_cost)
+                        const profit = productProfitAfterVat(p)
                         return (
                           <div key={p.id} className="bg-amber-50 rounded-xl px-4 py-3 flex items-center justify-between">
                             <div className="min-w-0 flex-1">
@@ -1158,7 +1174,7 @@ export default function Finance() {
             {groupedSearched.map(group=>{
               const tx = group.representative
               const profit = tx.category==='Sale' && tx.products?.total_cost!=null
-                ? Number(tx.amount)-Number(tx.products.total_cost) : null
+                ? profitAfterVat(tx.amount, tx.products.total_cost, vatDocumentOf(tx)) : null
               const warrantyDays = tx.category==='Sale' && tx.products?.warranty_expiry
                 ? Math.ceil((new Date(tx.products.warranty_expiry)-new Date())/86400000) : null
               const isTrade = tx.category === 'Trade'
@@ -1169,6 +1185,7 @@ export default function Finance() {
                 const hasProfit = group.lines.some(item => item.profit != null)
                 const balanceAnchor = group.balanceTx
                 const customerNote = groupCustomerNote(group)
+                const vatDoc = group.txs.map(vatDocumentOf).find(Boolean)
                 return (
                   <button key={group.key} {...tap(()=>setTxDetail({__group:true, ...group}))}
                     className={`finance-tx-card ${txCardTone(group)} w-full text-left active:opacity-70 transition-opacity touch-manipulation`}>
@@ -1245,6 +1262,9 @@ export default function Finance() {
                         )}
                         {group.kind === 'sale' && customerNote && (
                           <p className="text-xs text-blue-500 truncate mt-1 inline-flex items-center gap-1"><UserRound size={12}/>{customerNote}</p>
+                        )}
+                        {vatDoc && (
+                          <p className="finance-vat-line"><ReceiptText size={12}/>{vatDoc.document_number || 'VAT ฉบับร่าง'} · VAT ฿{fmt(vatDoc.vat_amount)}</p>
                         )}
                         <p className="text-xs text-gray-300 mt-1">{thDate(tx.date)}</p>
                         {balMap[balanceAnchor.id] && (
@@ -1358,6 +1378,9 @@ export default function Finance() {
                   {tx.note && <p className="text-xs text-gray-400 truncate">{tx.note}</p>}
                   {tx.category==='Sale' && tx.products?.customer_note && tx.products.customer_note !== tx.note && (
                     <p className="text-xs text-blue-500 truncate inline-flex items-center gap-1"><UserRound size={12}/>{tx.products.customer_note}</p>
+                  )}
+                  {vatDocumentOf(tx) && (
+                    <p className="finance-vat-line"><ReceiptText size={12}/>{vatDocumentOf(tx).document_number || 'VAT ฉบับร่าง'} · VAT ฿{fmt(vatDocumentOf(tx).vat_amount)}</p>
                   )}
                   <p className="text-xs text-gray-300 mt-0.5">{thDate(tx.date)}</p>
                   {balMap[tx.id] && (
