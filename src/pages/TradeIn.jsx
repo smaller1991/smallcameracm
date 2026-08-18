@@ -4,13 +4,13 @@ import { supabase } from '../lib/supabase'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Banknote, ChevronLeft, CreditCard, Search, ArrowLeftRight, Plus, Minus, ImagePlus, Scissors, X, Trash2 } from 'lucide-react'
 import { uploadReceiptImages } from '../lib/imageUtils'
-import { createVatDraft, vatSourceKey } from '../lib/vat'
+import { calculateVat, createVatDraft, getVatSettings, vatSourceKey } from '../lib/vat'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const CATEGORIES = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const nowLocal = () => { const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,16) }
-const newB = () => ({ _id: Math.random().toString(36).slice(2), model:'', serial_number:'', category:'กล้องดิจิตอลเก่า', condition:1, buy_price:'', notes:'' })
+const newB = () => ({ _id: Math.random().toString(36).slice(2), model:'', serial_number:'', category:'', condition:1, buy_price:'', notes:'' })
 
 export default function TradeIn() {
   const navigate = useNavigate()
@@ -32,6 +32,7 @@ export default function TradeIn() {
   const [saving,    setSaving]    = useState(false)
   const [imgFiles,  setImgFiles]  = useState([])
   const [imgPrev,   setImgPrev]   = useState([])
+  const [vatSettings, setVatSettings] = useState({ vat_rate: 7, prices_include_vat: true })
 
   const loadProducts = async (q='') => {
     setLoading(true)
@@ -41,14 +42,20 @@ export default function TradeIn() {
     setProducts(data||[])
     setLoading(false)
   }
-  useEffect(() => { loadProducts() }, [])
+  useEffect(() => {
+    loadProducts()
+    getVatSettings().then(settings => settings && setVatSettings(settings)).catch(() => {})
+  }, [])
 
   // Derived totals
   const selectedIds  = new Set(itemsA.map(x => x.product.id))
   const displayProds = products.filter(p => !selectedIds.has(p.id))
   const totalSellA   = itemsA.reduce((a,x) => a + Number(x.sellPrice||0), 0)
   const totalCostA   = itemsA.reduce((a,x) => a + Number(x.product.total_cost||0), 0)
-  const totalProfitA = totalSellA - totalCostA
+  const totalProfitBeforeVatA = totalSellA - totalCostA
+  const vatFor = amount => calculateVat(amount, vatSettings.vat_rate, vatSettings.prices_include_vat)
+  const totalTaxA = vatFor(totalSellA)
+  const totalProfitA = totalTaxA.subtotal - totalCostA
   const totalBuyB    = itemsB.reduce((a,x) => a + Number(x.buy_price||0), 0)
   const diff         = totalSellA - totalBuyB
   const diffAbs      = Math.abs(diff)
@@ -73,6 +80,7 @@ export default function TradeIn() {
     if (itemsA.some(x => !x.sellPrice))      return toast.error('กรุณากรอกราคาขายสินค้า A ให้ครบ')
     if (itemsB.some(x => !x.model))          return toast.error('กรุณากรอกชื่อสินค้า B ให้ครบ')
     if (itemsB.some(x => !x.serial_number))  return toast.error('กรุณากรอก Serial สินค้า B ให้ครบ')
+    if (itemsB.some(x => !x.category))       return toast.error('กรุณาเลือกประเภทสินค้า B ให้ครบ')
     if (itemsB.some(x => !x.buy_price))      return toast.error('กรุณากรอกราคารับซื้อสินค้า B ให้ครบ')
     if (diff !== 0 && isSplitPay) {
       if (splitTotal <= 0)                   return toast.error('กรุณาระบุยอดโอนหรือเงินสด')
@@ -147,7 +155,7 @@ export default function TradeIn() {
         cash_amount: isSplitPay && diff !== 0 ? splitCash : null,
         note: tradeNote,
         trade_sell_a: totalSellA,
-        trade_profit_a: totalProfitA,
+        trade_profit_a: totalProfitBeforeVatA,
       }).select().single()
       if (eTx) throw eTx
       if (tradeTx) { try { await supabase.from('transactions').update({ bank_after: bank_afterTrade, cash_after: cash_afterTrade }).eq('id', tradeTx.id) } catch(_) {} }
@@ -189,7 +197,7 @@ export default function TradeIn() {
   }
 
   const canSubmit = itemsA.length > 0 && itemsA.every(x=>x.sellPrice) &&
-    itemsB.every(x=>x.model&&x.serial_number&&x.buy_price)
+    itemsB.every(x=>x.model&&x.serial_number&&x.category&&x.buy_price)
 
   return (
     <div>
@@ -220,7 +228,8 @@ export default function TradeIn() {
           {itemsA.map((x, idx) => {
             const costA = Number(x.product.total_cost||0)
             const sellA = Number(x.sellPrice||0)
-            const profA = sellA - costA
+            const taxA = vatFor(sellA)
+            const profA = taxA.subtotal - costA
             return (
               <div key={x.product.id} className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
                 <div className="flex items-start justify-between">
@@ -235,8 +244,8 @@ export default function TradeIn() {
                   <input autoComplete="off" className="input text-sm py-1.5" type="number" placeholder="0"
                     value={x.sellPrice} onChange={e=>updateSellA(idx,e.target.value)}/>
                   {x.sellPrice && (
-                    <div className="flex justify-between mt-1 text-xs">
-                      <span className="text-gray-400">กำไร = ฿{fmt(sellA)} - ฿{fmt(costA)}</span>
+                    <div className="flex justify-between gap-2 mt-1 text-xs">
+                      <span className="text-gray-500"><strong>กำไร = ฿{fmt(sellA)}</strong> - ฿{fmt(costA)} - VAT ฿{fmt(taxA.vat)}</span>
                       <span className={`font-bold ${profitColor(profA)}`}>{profA>=0?'+':''}฿{fmt(profA)}</span>
                     </div>
                   )}
@@ -309,8 +318,9 @@ export default function TradeIn() {
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">ประเภท</label>
-                  <select className="input text-sm py-1.5" value={b.category}
+                  <select className="input text-sm py-1.5" value={b.category} required
                     onChange={e=>updateB(b._id,'category',e.target.value)}>
+                    <option value="" disabled>เลือกประเภทสินค้า</option>
                     {CATEGORIES.map(c=><option key={c}>{c}</option>)}
                   </select>
                 </div>
@@ -355,19 +365,27 @@ export default function TradeIn() {
               <div className="bg-white/70 rounded-xl p-3">
                 <p className="text-xs text-gray-500 mb-1.5 font-medium">A — สินค้าร้าน ({itemsA.length} ชิ้น)</p>
                 {itemsA.map(x => {
-                  const profA = Number(x.sellPrice||0) - Number(x.product.total_cost||0)
+                  const taxA = vatFor(Number(x.sellPrice||0))
+                  const profA = taxA.subtotal - Number(x.product.total_cost||0)
                   return (
-                    <div key={x.product.id} className="flex justify-between py-0.5 text-xs">
-                      <span className="text-gray-600 truncate max-w-[55%]">{x.product.model}</span>
-                      <div className="flex gap-3 items-center">
-                        <span className="text-gray-400">฿{fmt(Number(x.sellPrice||0))}</span>
+                    <div key={x.product.id} className="flex justify-between gap-2 py-0.5 text-xs">
+                      <div className="min-w-0">
+                        <span className="text-gray-600 block truncate">{x.product.model}</span>
+                        <span className="text-gray-400 text-[11px]">VAT ฿{fmt(taxA.vat)} · หลัง VAT ฿{fmt(taxA.subtotal)}</span>
+                      </div>
+                      <div className="flex gap-3 items-center flex-shrink-0">
+                        <span className="text-gray-400">ขาย ฿{fmt(Number(x.sellPrice||0))}</span>
                         <span className={`font-semibold ${profitColor(profA)}`}>{profA>=0?'+':''}฿{fmt(profA)}</span>
                       </div>
                     </div>
                   )
                 })}
                 <div className="flex justify-between border-t border-gray-100 pt-1.5 mt-1.5">
-                  <span className="font-medium text-xs">รวมกำไร A</span>
+                  <span className="font-medium text-xs">VAT {Number(vatSettings.vat_rate || 0)}%</span>
+                  <span className="font-semibold text-sm text-red-500">฿{fmt(totalTaxA.vat)}</span>
+                </div>
+                <div className="flex justify-between pt-1">
+                  <span className="font-medium text-xs">รวมกำไร A หลัง VAT</span>
                   <span className={`font-bold text-sm ${profitColor(totalProfitA)}`}>{totalProfitA>=0?'+':''}฿{fmt(totalProfitA)}</span>
                 </div>
               </div>

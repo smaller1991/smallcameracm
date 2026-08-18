@@ -286,9 +286,9 @@ export const buildTransactionGroups = (txs, allTxs = txs) => {
   const groups = order.map(key => {
     const group = map.get(key)
     const representative = group.txs[0]
-    const balanceTx = group.txs.reduce((latest, tx) => (
-      new Date(tx.created_at || tx.date) > new Date(latest.created_at || latest.date) ? tx : latest
-    ), representative)
+    // Transactions arrive newest-first. The first transaction is the balance
+    // immediately after the complete grouped action.
+    const balanceTx = representative
     const totalAmount = group.txs.reduce((sum, tx) => sum + num(tx.amount), 0)
     const bankAmount = group.txs.reduce((sum, tx) => sum + num(tx.bank_amount), 0)
     const cashAmount = group.txs.reduce((sum, tx) => sum + num(tx.cash_amount), 0)

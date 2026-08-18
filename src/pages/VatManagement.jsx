@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Building2, CalendarDays, CheckCircle2, FileClock, FileText, Printer,
-  ReceiptText, Save, Search, Settings2, ShieldCheck, Trash2, XCircle,
+  ReceiptText, RotateCcw, Save, Search, Settings2, ShieldCheck, Trash2, XCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { supabase } from '../lib/supabase'
-import { createVatDraft, openVatDocumentPrint, openVatReportPrint, vatSourceKey } from '../lib/vat'
+import { createVatDraft, findInstallmentVatDocumentId, openVatDocumentPrint, openVatReportPrint, vatSourceKey } from '../lib/vat'
 
 const fmt = value => Number(value || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const nowMonth = () => {
@@ -19,6 +19,16 @@ const statusMeta = {
   void: { label: 'ยกเลิก', icon: XCircle },
 }
 const documentTypeLabel = type => type === 'abbreviated' ? 'อย่างย่อ' : 'เต็มรูป'
+const documentFormOf = (document, settings) => ({
+  document_number: document.document_number || '',
+  customer_name: document.customer_name || '',
+  customer_tax_id: document.customer_tax_id || '',
+  customer_address: document.customer_address || '',
+  customer_branch: document.customer_branch || '',
+  customer_phone: document.customer_phone || '',
+  note: document.note || (document.replacement_of_number ? `ออกเอกสารแทนฉบับเดิมเลขที่ ${document.replacement_of_number}` : ''),
+  document_type: document.document_type || settings.default_document_type || 'abbreviated',
+})
 
 const emptySettings = {
   id: 'main', enabled: true, vat_rate: 7, prices_include_vat: true,
@@ -27,6 +37,7 @@ const emptySettings = {
   sequence_reset: 'yearly', footer_note: '', abbreviated_enabled: true,
   abbreviated_invoice_prefix: 'ABB', abbreviated_sequence_reset: 'yearly',
   abbreviated_last_sequence_key: null, abbreviated_last_invoice_number: 0,
+  next_full_number: 1, next_abbreviated_number: 1,
   default_document_type: 'abbreviated', abbreviated_footer_note: '',
 }
 
@@ -65,16 +76,20 @@ export default function VatManagement() {
 
   const selected = documents.find(doc => doc.id === selectedId) || null
   useEffect(() => {
+    if (!selectedId) return undefined
+    const previousOverflow = document.body.style.overflow
+    const closeOnEscape = event => { if (event.key === 'Escape') setSelectedId(null) }
+    document.body.style.overflow = 'hidden'
+    window.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.body.style.overflow = previousOverflow
+      window.removeEventListener('keydown', closeOnEscape)
+    }
+  }, [selectedId])
+
+  useEffect(() => {
     if (!selected) return setCustomerForm({})
-    setCustomerForm({
-      customer_name: selected.customer_name || '',
-      customer_tax_id: selected.customer_tax_id || '',
-      customer_address: selected.customer_address || '',
-      customer_branch: selected.customer_branch || '',
-      customer_phone: selected.customer_phone || '',
-      note: selected.note || '',
-      document_type: selected.document_type || settings.default_document_type || 'abbreviated',
-    })
+    setCustomerForm(documentFormOf(selected, settings))
   }, [selectedId, selected?.updated_at])
 
   const monthDocuments = useMemo(() => documents.filter(doc => {
@@ -97,21 +112,27 @@ export default function VatManagement() {
   const totalBase = activeMonthDocs.reduce((sum, doc) => sum + Number(doc.subtotal || 0), 0)
   const draftCount = monthDocuments.filter(doc => doc.status === 'draft').length
 
-  const saveCustomer = async () => {
+  const editablePayload = () => ({
+    document_number: customerForm.document_number?.trim() || null,
+    document_type: customerForm.document_type || selected.document_type,
+    customer_name: customerForm.customer_name?.trim() || null,
+    customer_tax_id: customerForm.customer_tax_id?.trim() || null,
+    customer_address: customerForm.customer_address?.trim() || null,
+    customer_branch: customerForm.customer_branch?.trim() || null,
+    customer_phone: customerForm.customer_phone?.trim() || null,
+    note: customerForm.note?.trim() || null,
+  })
+
+  const saveDocumentEdits = async () => {
     if (!selected || selected.status !== 'draft') return
     setSaving(true)
-    const before = {
-      customer_name: selected.customer_name, customer_tax_id: selected.customer_tax_id,
-      customer_address: selected.customer_address, customer_branch: selected.customer_branch,
-      customer_phone: selected.customer_phone, note: selected.note,
-    }
-    const cleaned = Object.fromEntries(Object.entries(customerForm).map(([key, value]) => [key, typeof value === 'string' ? (value.trim() || null) : value]))
-    const { data, error } = await supabase.from('vat_documents').update(cleaned).eq('id', selected.id).select().single()
-    if (error) toast.error(error.message)
+    const payload = editablePayload()
+    const { data, error } = await supabase.from('vat_documents').update(payload).eq('id', selected.id).select().single()
+    if (error) toast.error(error.message.includes('duplicate') ? 'เลขเอกสารนี้มีอยู่แล้ว' : error.message)
     else {
-      await supabase.from('vat_document_events').insert({ document_id: selected.id, action: 'draft_customer_updated', detail: { before, after: cleaned } })
+      await supabase.from('vat_document_events').insert({ document_id: selected.id, action: 'draft_edited', detail: { before: selected, after: payload } })
       setDocuments(prev => prev.map(doc => doc.id === data.id ? data : doc))
-      toast.success('บันทึกข้อมูลลูกค้าแล้ว')
+      toast.success('บันทึกร่างแล้ว')
     }
     setSaving(false)
   }
@@ -142,6 +163,20 @@ export default function VatManagement() {
             })
           : [{ description: 'รายการขายเดิม', quantity: 1, unit_price: txs.reduce((sum, tx) => sum + Number(tx.amount || 0), 0) }]
         const grossTotal = items.reduce((sum, item) => sum + Number(item.total_amount ?? item.unit_price), 0)
+        const existingInstallmentDocumentId = productRows.some(product => product.installment_total)
+          ? await findInstallmentVatDocumentId({
+              productId: productRows[0]?.id || txs[0]?.product_id,
+              saleBatchId: productRows[0]?.sale_batch_id || null,
+            })
+          : null
+        if (existingInstallmentDocumentId) {
+          const { error: linkError } = await supabase
+            .from('transactions')
+            .update({ vat_document_id: existingInstallmentDocumentId })
+            .in('id', txs.map(tx => tx.id))
+          if (linkError) throw linkError
+          continue
+        }
         await createVatDraft({
           sourceKey: vatSourceKey('recovered', key),
           sourceType: key.startsWith('batch:') ? 'bulk_sale' : (productRows.some(p => p.installment_total) ? 'installment' : 'sale'),
@@ -177,20 +212,11 @@ export default function VatManagement() {
 
   const issueDocument = async documentType => {
     if (!selected || selected.status !== 'draft') return
-    if (!settings.business_tax_id || !settings.business_address) {
-      setTab('settings')
-      return toast.error('กรุณากรอกเลขผู้เสียภาษีและที่อยู่ร้านก่อนออกเอกสาร')
-    }
     if (documentType === 'abbreviated' && !settings.abbreviated_enabled) return toast.error('ใบกำกับภาษีอย่างย่อถูกปิดอยู่ในการตั้งค่า')
-    if (documentType === 'full' && (!customerForm.customer_name?.trim() || !customerForm.customer_address?.trim())) {
-      return toast.error('ใบกำกับภาษีเต็มรูปต้องมีชื่อและที่อยู่ผู้ซื้อ')
-    }
     const typeLabel = documentType === 'full' ? 'ใบกำกับภาษีเต็มรูป' : 'ใบกำกับภาษีอย่างย่อ'
-    if (!window.confirm(`ออก${typeLabel}และรันเลขจริงตอนนี้หรือไม่?\nหลังออกแล้วข้อมูลภาษีจะถูกล็อก`)) return
+    if (!window.confirm(`ออก${typeLabel}ตอนนี้หรือไม่?\n\nเมื่อออกแล้วเอกสารจะถูกล็อก หากต้องแก้เลขเอกสารหรือข้อมูลผู้ซื้อ ต้องกด “ย้อนกลับเป็นร่าง” ก่อน`)) return
     setSaving(true)
-    const customerPayload = Object.fromEntries(Object.entries(customerForm)
-      .filter(([key]) => key !== 'document_type')
-      .map(([key, value]) => [key, typeof value === 'string' ? (value.trim() || null) : value]))
+    const customerPayload = editablePayload()
     const { error: saveError } = await supabase.from('vat_documents')
       .update({ ...customerPayload, document_type: documentType })
       .eq('id', selected.id).eq('status', 'draft')
@@ -203,6 +229,9 @@ export default function VatManagement() {
     if (error) toast.error(error.message)
     else {
       setDocuments(prev => prev.map(doc => doc.id === data.id ? data : doc))
+      if (!customerForm.document_number?.trim()) setSettings(prev => documentType === 'abbreviated'
+        ? { ...prev, next_abbreviated_number: Number(prev.next_abbreviated_number || 1) + 1 }
+        : { ...prev, next_full_number: Number(prev.next_full_number || 1) + 1 })
       toast.success(`ออกเอกสาร ${data.document_number} แล้ว`)
     }
     setSaving(false)
@@ -223,20 +252,36 @@ export default function VatManagement() {
     setSaving(false)
   }
 
-  const deleteIssuedTestDocument = async () => {
+  const returnIssuedToDraft = async () => {
     if (!selected || selected.status !== 'issued') return
-    const label = selected.document_number || 'เอกสารที่เลือก'
+    if (!window.confirm(`ย้อน ${selected.document_number || 'เอกสารนี้'} กลับเป็นร่างหรือไม่?\n\nจะแก้เลขเอกสารและข้อมูลผู้ซื้อได้ ส่วนยอดเงินและ VAT ยังคงคำนวณอัตโนมัติ`)) return
+    setSaving(true)
+    const { data, error } = await supabase.from('vat_documents')
+      .update({ status: 'draft', issued_at: null, voided_at: null, void_reason: null })
+      .eq('id', selected.id).eq('status', 'issued').select().single()
+    if (error) toast.error(error.message)
+    else {
+      await supabase.from('vat_document_events').insert({ document_id: selected.id, action: 'issued_returned_to_draft', detail: { document_number: selected.document_number } })
+      setDocuments(prev => prev.map(doc => doc.id === data.id ? data : doc))
+      setCustomerForm(documentFormOf(data, settings))
+      toast.success('ย้อนกลับเป็นร่างแล้ว')
+    }
+    setSaving(false)
+  }
+
+  const deleteDraftDocument = async () => {
+    if (!selected || selected.status !== 'draft') return
     const confirmed = window.confirm(
-      `ลบ ${label} ซึ่งเป็นเอกสารทดสอบหรือไม่?\n\nรายการขายและยอดบัญชีจะไม่ถูกลบ แต่เลขเอกสารนี้จะไม่ถูกนำกลับมาใช้ซ้ำ`,
+      'ลบฉบับร่าง VAT นี้หรือไม่?\n\nจะลบเฉพาะเอกสาร VAT ไม่ลบรายการสินค้า รายการขาย หรือยอดบัญชี',
     )
     if (!confirmed) return
     setSaving(true)
-    const { error } = await supabase.from('vat_documents').delete().eq('id', selected.id)
+    const { error } = await supabase.from('vat_documents').delete().eq('id', selected.id).eq('status', 'draft')
     if (error) toast.error(error.message)
     else {
       setDocuments(prev => prev.filter(doc => doc.id !== selected.id))
       setSelectedId(null)
-      toast.success(`ลบเอกสารทดสอบ ${label} แล้ว`)
+      toast.success('ลบฉบับร่าง VAT แล้ว')
       await load()
     }
     setSaving(false)
@@ -289,9 +334,11 @@ export default function VatManagement() {
       business_tax_id: settings.business_tax_id?.trim() || null, business_address: settings.business_address?.trim() || null,
       business_branch: settings.business_branch?.trim() || 'สำนักงานใหญ่', business_phone: settings.business_phone?.trim() || null,
       invoice_prefix: settings.invoice_prefix?.trim().toUpperCase() || 'TAX', sequence_reset: settings.sequence_reset,
+      next_full_number: Math.max(1, Math.trunc(Number(settings.next_full_number) || 1)),
       abbreviated_enabled: Boolean(settings.abbreviated_enabled),
       abbreviated_invoice_prefix: settings.abbreviated_invoice_prefix?.trim().toUpperCase() || 'ABB',
       abbreviated_sequence_reset: settings.abbreviated_sequence_reset,
+      next_abbreviated_number: Math.max(1, Math.trunc(Number(settings.next_abbreviated_number) || 1)),
       default_document_type: !settings.abbreviated_enabled || settings.default_document_type === 'full' ? 'full' : 'abbreviated',
       abbreviated_footer_note: settings.abbreviated_footer_note?.trim() || null,
       footer_note: settings.footer_note?.trim() || null,
@@ -370,12 +417,14 @@ export default function VatManagement() {
           </section>
 
           {selected && (
-            <section className="vat-inspector">
+            <div className="vat-modal-backdrop" onMouseDown={() => setSelectedId(null)}>
+            <section className="vat-inspector vat-modal" role="dialog" aria-modal="true" aria-label="รายละเอียดเอกสาร VAT" onMouseDown={event => event.stopPropagation()}>
               <div className="vat-inspector-head">
                 <div><p className="vat-kicker">รายละเอียดเอกสาร</p><h2>{selected.document_number || 'ฉบับร่างรอข้อมูลลูกค้า'}</h2></div>
-                <span className={`vat-status is-${selected.status}`}>{statusMeta[selected.status]?.label}</span>
+                <div className="vat-modal-head-actions"><span className={`vat-status is-${selected.status}`}>{statusMeta[selected.status]?.label}</span><button className="vat-modal-close" onClick={() => setSelectedId(null)} aria-label="ปิด"><XCircle size={21}/></button></div>
               </div>
 
+              <div className="vat-modal-scroll">
               <div className="vat-locked-sale">
                 {(selected.items || []).map((item, index) => <div key={index}><span>{item.description}{item.serial_number ? ` · SN ${item.serial_number}` : ''}</span><strong>฿{fmt(item.total_amount)}</strong></div>)}
                 <div><span>มูลค่าก่อน VAT</span><strong>฿{fmt(selected.subtotal)}</strong></div>
@@ -383,8 +432,10 @@ export default function VatManagement() {
                 <div className="vat-grand-total"><span>ยอดรวม</span><strong>฿{fmt(selected.total_amount)}</strong></div>
               </div>
 
+              {selected.status === 'draft' && <div className="vat-document-number-editor"><label><span>เลขเอกสาร</span><input value={customerForm.document_number || ''} onChange={e => setCustomerForm({...customerForm,document_number:e.target.value})} placeholder="เว้นว่างเพื่อให้ระบบรันเลขอัตโนมัติ"/></label><p>แก้เองได้ หรือเว้นว่างให้ระบบใช้เลขถัดไปจากการตั้งค่า</p></div>}
+
               <div className="vat-document-type-picker">
-                <div><strong>ชนิดใบกำกับภาษี</strong><p>{selected.status === 'draft' ? 'เลือกได้จนกว่าจะออกเลขจริง' : 'ชนิดเอกสารถูกล็อกแล้ว'}</p></div>
+                <div><strong>ชนิดใบกำกับภาษี</strong><p>{selected.status === 'draft' ? 'เลือกได้ก่อนออกเอกสาร' : 'ออกเอกสารแล้ว'}</p></div>
                 <div className="vat-type-options">
                   <button disabled={selected.status !== 'draft' || !settings.abbreviated_enabled} className={(customerForm.document_type || selected.document_type) === 'abbreviated' ? 'is-active' : ''} onClick={() => setCustomerForm({...customerForm, document_type:'abbreviated'})}>อย่างย่อ</button>
                   <button disabled={selected.status !== 'draft'} className={(customerForm.document_type || selected.document_type) === 'full' ? 'is-active' : ''} onClick={() => setCustomerForm({...customerForm, document_type:'full'})}>เต็มรูป</button>
@@ -399,18 +450,22 @@ export default function VatManagement() {
                 <label><span>โทรศัพท์</span><input disabled={selected.status !== 'draft'} value={customerForm.customer_phone || ''} onChange={e => setCustomerForm({...customerForm, customer_phone:e.target.value})}/></label>
                 <label className="vat-full-field"><span>หมายเหตุ</span><textarea disabled={selected.status !== 'draft'} rows="2" value={customerForm.note || ''} onChange={e => setCustomerForm({...customerForm, note:e.target.value})}/></label>
               </div>
+              {selected.status === 'issued' && <p className="vat-audit-note">พิมพ์แล้ว {selected.printed_count || 0} ครั้ง · เอกสารถูกล็อก หากต้องแก้ให้ย้อนกลับเป็นร่างก่อน</p>}
+              {selected.status === 'void' && <p className="vat-audit-note">รายการนี้ถูกยกเลิกและไม่นำไปรวมในยอดรายงาน VAT สามารถลบรายการได้จากปุ่มด้านล่าง</p>}
+              </div>
 
               <div className="vat-actions">
-                {selected.status === 'draft' && <button className="vat-secondary-action" disabled={saving} onClick={saveCustomer}><Save size={16}/>บันทึกร่าง</button>}
-                <button className="vat-secondary-action" onClick={() => printDocument({...selected, ...customerForm, document_type:customerForm.document_type || selected.document_type})}><Printer size={16}/>{selected.status === 'draft' ? 'พิมพ์ตัวอย่าง' : 'พิมพ์ซ้ำ'}</button>
+                {selected.status === 'draft' && <button className="vat-secondary-action" disabled={saving} onClick={saveDocumentEdits}><Save size={16}/>บันทึกร่าง</button>}
+                <button className="vat-secondary-action" onClick={() => printDocument({...selected, ...editablePayload(), status:selected.status})}><Printer size={16}/>{selected.status === 'draft' ? 'พิมพ์ตัวอย่าง' : 'พิมพ์ซ้ำ'}</button>
                 {selected.status === 'draft' && settings.abbreviated_enabled && <button className="vat-issue-type-action is-abbreviated" disabled={saving} onClick={() => issueDocument('abbreviated')}><ReceiptText size={16}/>ออกแบบอย่างย่อ</button>}
                 {selected.status === 'draft' && <button className="vat-issue-type-action is-full" disabled={saving} onClick={() => issueDocument('full')}><CheckCircle2 size={16}/>ออกแบบเต็มรูป</button>}
                 {selected.status === 'draft' && <button className="vat-void-action" disabled={saving} onClick={voidDraft}><XCircle size={16}/>ยกเลิกร่าง</button>}
-                {selected.status === 'issued' && <button className="vat-delete-test-action" disabled={saving} onClick={deleteIssuedTestDocument}><XCircle size={16}/>ลบเอกสารทดสอบ</button>}
+                {selected.status === 'draft' && <button className="vat-delete-draft-action" disabled={saving} onClick={deleteDraftDocument}><Trash2 size={16}/>ลบฉบับร่าง</button>}
+                {selected.status === 'issued' && <button className="vat-secondary-action" disabled={saving} onClick={returnIssuedToDraft}><RotateCcw size={16}/>ย้อนกลับเป็นร่าง</button>}
                 {selected.status === 'void' && <button className="vat-delete-void-action" disabled={saving} onClick={deleteVoidedDocument}><Trash2 size={16}/>ลบรายการยกเลิก</button>}
               </div>
-              {selected.status === 'issued' && <p className="vat-audit-note">พิมพ์แล้ว {selected.printed_count || 0} ครั้ง · เอกสารที่ออกแล้วถูกล็อกเพื่อรักษาประวัติภาษี</p>}
             </section>
+            </div>
           )}
         </>
       )}
@@ -428,7 +483,7 @@ export default function VatManagement() {
             <div className="is-payable"><span>ประมาณการ VAT นำส่ง</span><strong>฿{fmt(totalVat)}</strong></div>
           </div>
           <div className="vat-report-table-wrap">
-            <table className="vat-report-table"><thead><tr><th>วันที่/เอกสาร</th><th>ลูกค้า</th><th>ก่อน VAT</th><th>VAT</th><th>รวม</th></tr></thead><tbody>
+            <table className="vat-report-table"><colgroup><col className="vat-report-date-col"/><col className="vat-report-customer-col"/><col className="vat-report-money-col"/><col className="vat-report-money-col"/><col className="vat-report-money-col"/></colgroup><thead><tr><th>วันที่/เอกสาร</th><th>ลูกค้า</th><th>ก่อน VAT</th><th>VAT</th><th>รวม</th></tr></thead><tbody>
               {activeMonthDocs.map(doc => <tr key={doc.id}><td><strong>{thDate(doc.document_date)}</strong><small>{doc.document_number || 'ฉบับร่าง'} · {documentTypeLabel(doc.document_type)}</small></td><td>{doc.customer_name || 'ลูกค้าทั่วไป'}</td><td>฿{fmt(doc.subtotal)}</td><td>฿{fmt(doc.vat_amount)}</td><td>฿{fmt(doc.total_amount)}</td></tr>)}
               {!activeMonthDocs.length && <tr><td colSpan="5" className="vat-empty">ไม่มีรายการในเดือนนี้</td></tr>}
             </tbody></table>
@@ -469,7 +524,7 @@ export default function VatManagement() {
             <div className="vat-settings-section-head"><h3>ใบกำกับภาษีเต็มรูป</h3><p>สำหรับผู้ซื้อที่ให้ชื่อและที่อยู่ครบ</p></div>
             <div className="vat-settings-grid">
               <label><span>คำนำหน้าเลข</span><input value={settings.invoice_prefix || ''} onChange={e => setSettings({...settings,invoice_prefix:e.target.value})} placeholder="TAX"/></label>
-              <label><span>เริ่มเลขใหม่</span><select value={settings.sequence_reset} onChange={e => setSettings({...settings,sequence_reset:e.target.value})}><option value="yearly">ทุกปี</option><option value="monthly">ทุกเดือน</option><option value="never">ไม่เริ่มใหม่</option></select></label>
+              <label><span>เลขลำดับที่จะใช้กับแผ่นถัดไป</span><input type="number" min="1" step="1" value={settings.next_full_number ?? 1} onChange={e => setSettings({...settings,next_full_number:e.target.value})}/></label>
               <label className="vat-full-field"><span>ข้อความท้ายเอกสาร</span><textarea rows="2" value={settings.footer_note || ''} onChange={e => setSettings({...settings,footer_note:e.target.value})}/></label>
             </div>
           </div>
@@ -478,7 +533,7 @@ export default function VatManagement() {
             <div className="vat-settings-section-head vat-setting-inline"><div><h3>ใบกำกับภาษีอย่างย่อ</h3><p>สำหรับลูกค้าทั่วไปที่ไม่ให้ข้อมูลครบ</p></div><button aria-label="เปิดใบกำกับภาษีอย่างย่อ" onClick={() => setSettings({...settings,abbreviated_enabled:!settings.abbreviated_enabled,default_document_type:settings.abbreviated_enabled ? 'full' : settings.default_document_type})} className={`vat-mini-toggle ${settings.abbreviated_enabled ? 'is-on' : ''}`}><span/></button></div>
             <div className="vat-settings-grid">
               <label><span>คำนำหน้าเลข</span><input disabled={!settings.abbreviated_enabled} value={settings.abbreviated_invoice_prefix || ''} onChange={e => setSettings({...settings,abbreviated_invoice_prefix:e.target.value})} placeholder="ABB"/></label>
-              <label><span>เริ่มเลขใหม่</span><select disabled={!settings.abbreviated_enabled} value={settings.abbreviated_sequence_reset || 'yearly'} onChange={e => setSettings({...settings,abbreviated_sequence_reset:e.target.value})}><option value="yearly">ทุกปี</option><option value="monthly">ทุกเดือน</option><option value="never">ไม่เริ่มใหม่</option></select></label>
+              <label><span>เลขลำดับที่จะใช้กับแผ่นถัดไป</span><input type="number" min="1" step="1" disabled={!settings.abbreviated_enabled} value={settings.next_abbreviated_number ?? 1} onChange={e => setSettings({...settings,next_abbreviated_number:e.target.value})}/></label>
               <label className="vat-full-field"><span>ข้อความท้ายใบกำกับภาษีอย่างย่อ</span><textarea disabled={!settings.abbreviated_enabled} rows="2" value={settings.abbreviated_footer_note || ''} onChange={e => setSettings({...settings,abbreviated_footer_note:e.target.value})}/></label>
             </div>
           </div>

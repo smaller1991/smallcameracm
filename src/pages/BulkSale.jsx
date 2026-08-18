@@ -4,7 +4,7 @@ import { supabase } from '../lib/supabase'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Banknote, ChevronLeft, CreditCard, Search, Scissors, ShoppingCart, X, ImagePlus } from 'lucide-react'
 import { uploadReceiptImages } from '../lib/imageUtils'
-import { createVatDraft, vatSourceKey } from '../lib/vat'
+import { calculateVat, createVatDraft, getVatSettings, vatSourceKey } from '../lib/vat'
 import toast from 'react-hot-toast'
 
 const fmt = n => Number(n||0).toLocaleString('th-TH')
@@ -30,6 +30,7 @@ export default function BulkSale() {
   const [saving,        setSaving]        = useState(false)
   const [imgFiles,      setImgFiles]      = useState([])
   const [imgPrev,       setImgPrev]       = useState([])
+  const [vatSettings,   setVatSettings]   = useState({ vat_rate: 7, prices_include_vat: true })
 
   const loadProducts = async (q='') => {
     setLoading(true)
@@ -39,13 +40,18 @@ export default function BulkSale() {
     setProducts(data||[])
     setLoading(false)
   }
-  useEffect(() => { loadProducts() }, [])
+  useEffect(() => {
+    loadProducts()
+    getVatSettings().then(settings => settings && setVatSettings(settings)).catch(() => {})
+  }, [])
 
   const selectedIds  = new Set(items.map(x => x.product.id))
   const displayProds = products.filter(p => !selectedIds.has(p.id))
   const totalSell    = items.reduce((a,x) => a + Number(x.sellPrice||0), 0)
   const totalCost    = items.reduce((a,x) => a + Number(x.product.total_cost||0), 0)
-  const totalProfit  = totalSell - totalCost
+  const vatFor = amount => calculateVat(amount, vatSettings.vat_rate, vatSettings.prices_include_vat)
+  const totalTax = vatFor(totalSell)
+  const totalProfit  = totalTax.subtotal - totalCost
   const firstNum     = Number(installFirst||0)
   const remaining    = totalSell - firstNum
 
@@ -280,7 +286,8 @@ export default function BulkSale() {
           {items.map((x, idx) => {
             const cost = Number(x.product.total_cost||0)
             const sell = Number(x.sellPrice||0)
-            const prof = sell - cost
+            const tax = vatFor(sell)
+            const prof = tax.subtotal - cost
             return (
               <div key={x.product.id} className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
                 <div className="flex items-start justify-between">
@@ -295,8 +302,8 @@ export default function BulkSale() {
                   <input autoComplete="off" className="input text-sm py-1.5" type="number" placeholder="0"
                     value={x.sellPrice} onChange={e=>updatePrice(idx,e.target.value)}/>
                   {x.sellPrice && (
-                    <div className="flex justify-between mt-1 text-xs">
-                      <span className="text-gray-400">กำไร = ฿{fmt(sell)} - ฿{fmt(cost)}</span>
+                    <div className="flex justify-between gap-2 mt-1 text-xs">
+                      <span className="text-gray-500"><strong>กำไร = ฿{fmt(sell)}</strong> - ฿{fmt(cost)} - VAT ฿{fmt(tax.vat)}</span>
                       <span className={`font-bold ${profitColor(prof)}`}>{prof>=0?'+':''}฿{fmt(prof)}</span>
                     </div>
                   )}
@@ -417,12 +424,16 @@ export default function BulkSale() {
           <div className="card bg-brand-dark space-y-2">
             <p className="text-white/50 text-xs font-medium">สรุปการขาย</p>
             {items.map(x => {
-              const prof = Number(x.sellPrice||0) - Number(x.product.total_cost||0)
+              const tax = vatFor(Number(x.sellPrice||0))
+              const prof = tax.subtotal - Number(x.product.total_cost||0)
               return (
-                <div key={x.product.id} className="flex justify-between items-center text-sm">
-                  <span className="text-white/70 truncate max-w-[50%]">{x.product.model}</span>
-                  <div className="flex gap-3 items-center">
-                    <span className="text-white/40 text-xs">฿{fmt(Number(x.sellPrice||0))}</span>
+                <div key={x.product.id} className="flex justify-between items-start gap-3 text-sm">
+                  <div className="min-w-0">
+                    <span className="text-white/70 block truncate">{x.product.model}</span>
+                    <span className="text-white/40 text-[11px]">ก่อน VAT ฿{fmt(tax.subtotal)} · VAT ฿{fmt(tax.vat)}</span>
+                  </div>
+                  <div className="flex gap-3 items-center flex-shrink-0">
+                    <span className="text-white/40 text-xs">ขาย ฿{fmt(Number(x.sellPrice||0))}</span>
                     <span className={`text-xs font-semibold ${profitColor(prof)}`}>{prof>=0?'+':''}฿{fmt(prof)}</span>
                   </div>
                 </div>
@@ -433,7 +444,15 @@ export default function BulkSale() {
               <span className="font-bold text-brand-yellow text-xl">฿{fmt(totalSell)}</span>
             </div>
             <div className="flex justify-between items-center">
-              <span className="text-white/40 text-xs">กำไรรวม</span>
+              <span className="text-white/40 text-xs">VAT {Number(vatSettings.vat_rate || 0)}%</span>
+              <span className="text-sm font-semibold text-red-300">฿{fmt(totalTax.vat)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-white/40 text-xs">ยอดขายหลังหัก VAT</span>
+              <span className="text-sm font-semibold text-white/80">฿{fmt(totalTax.subtotal)}</span>
+            </div>
+            <div className="flex justify-between items-center">
+              <span className="text-white/40 text-xs">กำไรรวมหลังหัก VAT</span>
               <span className={`text-sm font-bold ${profitColor(totalProfit)}`}>
                 {totalProfit>=0?'+':''}฿{fmt(totalProfit)}
               </span>

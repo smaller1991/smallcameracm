@@ -1,6 +1,7 @@
 import { supabase } from './supabase'
+import { roundMoney } from './money'
 
-export const roundMoney = value => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100
+export { roundMoney }
 
 export const vatDocumentOf = tx => (
   Array.isArray(tx?.vat_documents) ? tx.vat_documents[0] : tx?.vat_documents
@@ -11,7 +12,7 @@ export function amountBeforeVat(amount, document) {
   const doc = document || null
   const documentTotal = Number(doc?.total_amount || 0)
   const documentSubtotal = Number(doc?.subtotal || 0)
-  if (!doc || documentTotal <= 0 || documentSubtotal < 0) return gross
+  if (!doc || doc.status === 'void' || documentTotal <= 0 || documentSubtotal < 0) return gross
   return roundMoney(gross * documentSubtotal / documentTotal)
 }
 
@@ -74,6 +75,15 @@ export async function createVatDraft({
       total_amount: itemTax.total,
     }
   })
+  if (normalizedItems.length) {
+    const lastItem = normalizedItems[normalizedItems.length - 1]
+    const itemSubtotal = normalizedItems.reduce((sum, item) => sum + Number(item.subtotal || 0), 0)
+    const itemVat = normalizedItems.reduce((sum, item) => sum + Number(item.vat_amount || 0), 0)
+    const itemTotal = normalizedItems.reduce((sum, item) => sum + Number(item.total_amount || 0), 0)
+    lastItem.subtotal = roundMoney(lastItem.subtotal + roundMoney(totals.subtotal - itemSubtotal))
+    lastItem.vat_amount = roundMoney(lastItem.vat_amount + roundMoney(totals.vat - itemVat))
+    lastItem.total_amount = roundMoney(lastItem.total_amount + roundMoney(totals.total - itemTotal))
+  }
 
   const businessSnapshot = {
     name: settings.business_name,
@@ -123,6 +133,34 @@ export async function createVatDraft({
 
 export const vatSourceKey = (type, value) => `${type}:${value}`
 
+export async function findInstallmentVatDocumentId({ productId = null, saleBatchId = null } = {}) {
+  if (!productId && !saleBatchId) return null
+  if (productId) {
+    const { data: linkedTransaction, error: linkedError } = await supabase
+      .from('transactions')
+      .select('vat_document_id')
+      .eq('product_id', productId)
+      .not('vat_document_id', 'is', null)
+      .order('date', { ascending: true })
+      .limit(1)
+      .maybeSingle()
+    if (linkedError) throw linkedError
+    if (linkedTransaction?.vat_document_id) return linkedTransaction.vat_document_id
+  }
+  let query = supabase
+    .from('vat_documents')
+    .select('id')
+    .neq('status', 'void')
+    .order('document_date', { ascending: true })
+    .limit(1)
+  query = saleBatchId
+    ? query.eq('source_sale_batch_id', saleBatchId)
+    : query.like('source_key', `installment:${productId}:%`)
+  const { data, error } = await query.maybeSingle()
+  if (error) throw error
+  return data?.id || null
+}
+
 export async function voidVatDraftsForTransactions(transactionIds, reason = 'ยกเลิกตามรายการขายที่ถูกย้อนกลับ') {
   const ids = [...new Set((transactionIds || []).filter(Boolean))]
   if (!ids.length) return []
@@ -165,6 +203,8 @@ const escapeHtml = value => String(value ?? '')
   .replaceAll('"', '&quot;')
   .replaceAll("'", '&#039;')
 
+const oneLine = value => String(value ?? '').replace(/\s+/g, ' ').trim()
+
 const money = value => Number(value || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const vatRateLabel = value => Number(value || 0).toLocaleString('th-TH', { maximumFractionDigits: 2 })
 const thaiDate = value => new Date(value).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: 'numeric' })
@@ -203,6 +243,7 @@ async function openA4Pdf(html, fileName, pageSelector) {
         backgroundColor: '#ffffff',
         scale: 2,
         useCORS: true,
+        foreignObjectRendering: true,
         logging: false,
         width: page.offsetWidth,
         height: page.offsetHeight,
@@ -224,7 +265,7 @@ async function openA4Pdf(html, fileName, pageSelector) {
   }
 }
 
-export async function openVatDocumentPrint(document, settings, onPrinted) {
+export function vatDocumentPrintHtml(document, settings) {
   const isAbbreviated = document.document_type === 'abbreviated'
   const business = document.status === 'issued'
     ? (document.business_snapshot || {})
@@ -243,6 +284,8 @@ export async function openVatDocumentPrint(document, settings, onPrinted) {
       <td><strong>${escapeHtml(item.description)}</strong>${item.serial_number ? `<br><small>Serial: ${escapeHtml(item.serial_number)}</small>` : ''}</td>
       <td class="center">${item.quantity}</td>
       <td class="num">${money(isAbbreviated ? Number(item.total_amount || 0) / Number(item.quantity || 1) : item.unit_price)}</td>
+      <td class="num">${money(item.subtotal)}</td>
+      <td class="num">${money(item.vat_amount)}</td>
       <td class="num">${money(item.total_amount)}</td>
     </tr>`).join('')
   const isDraft = document.status !== 'issued'
@@ -256,20 +299,23 @@ export async function openVatDocumentPrint(document, settings, onPrinted) {
        <div class="detail-line"><span>ที่อยู่</span><strong>${escapeHtml(document.customer_address || '-')}</strong></div>
        <div class="detail-line"><span>เบอร์โทร</span><strong>${escapeHtml(document.customer_phone || '-')}</strong></div>
        <div class="detail-line"><span>สาขา</span><strong>${escapeHtml(document.customer_branch || '-')}</strong></div>`
+  const sellerBlock = `<div class="box-title">ผู้ขาย</div>
+       <div class="detail-line"><span>ชื่อ</span><strong>${escapeHtml((business.seller_name ?? settings?.seller_name) || '-')}</strong></div>
+       <div class="detail-line"><span>เลขประจำตัวผู้เสียภาษี</span><strong>${escapeHtml(business.tax_id || '-')}</strong></div>
+       <div class="detail-line business-address"><span>ที่อยู่</span><strong>${escapeHtml(oneLine(business.address) || '-')}</strong></div>
+       <div class="detail-line"><span>เบอร์โทร</span><strong>${escapeHtml(business.phone || '-')}</strong></div>
+       <div class="detail-line"><span>สาขา</span><strong>${escapeHtml(business.branch || 'สำนักงานใหญ่')}</strong></div>`
   const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><title></title>
   <style>
-    *{box-sizing:border-box}html,body{width:210mm;margin:0;padding:0;background:#fff}body{font-family:Arial,"Noto Sans Thai",sans-serif;color:#2e1d19;font-size:11.5px;line-height:1.45}.sheet{position:relative;display:flex;flex-direction:column;width:210mm;height:297mm;overflow:hidden;padding:12mm;background:#fff}.page-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:7px;padding-bottom:5px;border-bottom:1px solid #c8b6a8;font-size:10px;color:#6f625e}.page-meta strong{color:#2e1d19}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:2px solid #721811;padding-bottom:10px}.business{width:58%;min-width:0;text-align:left}.brand{margin-bottom:5px;color:#721811;font-size:21px;font-weight:800;line-height:1.25;text-align:left}.business-details{display:grid;gap:2px;text-align:left}.detail-line{display:grid;grid-template-columns:105px minmax(0,1fr);align-items:start;gap:7px;min-width:0;line-height:1.5;text-align:left}.detail-line>span{color:#6f625e;font-size:10px;font-weight:700;text-align:left}.detail-line>strong{min-width:0;font-size:11px;font-weight:700;overflow-wrap:anywhere;text-align:left}.title{max-width:42%;text-align:right;font-size:17px;font-weight:800;line-height:1.35}.muted{color:#6f625e}.grid{display:block;margin:11px 0}.box{width:100%;border:1px solid #c8b6a8;border-radius:8px;padding:9px;min-width:0;min-height:76px;overflow-wrap:anywhere;text-align:left}.box-title{margin:0 0 6px;font-size:13px;font-weight:800;line-height:1.35;text-align:left}.box .detail-line{grid-template-columns:112px minmax(0,1fr);margin-top:2px}.box .detail-line>span{line-height:1.45}table{width:100%;border-collapse:collapse;margin-top:9px;table-layout:fixed}th{background:#efe8df;color:#3b211c}th,td{border:1px solid #c8b6a8;padding:6px;vertical-align:top;overflow-wrap:anywhere}.center{text-align:center}.num{text-align:right;white-space:nowrap}.tax-included-note{margin-top:8px;padding:6px 8px;background:#efe8df;border-radius:6px;text-align:right;font-weight:700;color:#6f625e}.totals{margin-left:auto;width:270px;max-width:100%;margin-top:10px}.totals div{display:flex;justify-content:space-between;gap:12px;padding:4px 0}.totals .grand{margin-top:5px;padding-top:7px;border-top:2px solid #721811;font-size:15px;font-weight:800;color:#721811}.foot{margin-top:12px;padding-top:7px;border-top:1px solid #c8b6a8}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:26mm;margin-top:auto;padding-top:18px;text-align:center}.signature-space{height:18mm;border-bottom:1px solid #6f625e}.signature-label{padding-top:5px;font-weight:700}.signature-date{padding-top:4px;color:#6f625e;font-size:10px}.watermark{position:absolute;inset:42% 0 auto;text-align:center;font-size:64px;font-weight:900;color:rgba(114,24,17,.1);transform:rotate(-18deg);pointer-events:none}
+    @font-face{font-family:"Sarabun PDF";src:url("/fonts/Sarabun-Regular.ttf") format("truetype");font-style:normal;font-weight:400;font-display:block}
+    @font-face{font-family:"Sarabun PDF";src:url("/fonts/Sarabun-Medium.ttf") format("truetype");font-style:normal;font-weight:500;font-display:block}
+    @font-face{font-family:"Sarabun PDF";src:url("/fonts/Sarabun-Bold.ttf") format("truetype");font-style:normal;font-weight:700;font-display:block}
+    *{box-sizing:border-box}html,body{width:210mm;margin:0;padding:0;background:#fff}body{font-family:"Sarabun PDF",sans-serif;color:#2e1d19;font-size:10.8px;line-height:1.7;letter-spacing:normal;word-spacing:normal;font-kerning:normal;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.sheet{position:relative;display:flex;flex-direction:column;width:210mm;height:297mm;overflow:hidden;padding:12mm;background:#fff}.page-meta{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;padding-bottom:6px;border-bottom:1px solid #c8b6a8;font-size:9.5px;line-height:1.55;color:#6f625e}.page-meta strong{color:#2e1d19}.top{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;border-bottom:2px solid #721811;padding-bottom:11px}.business{width:58%;min-width:0;text-align:left}.brand{color:#721811;font-size:22px;font-weight:700;line-height:1.52;letter-spacing:normal;word-spacing:normal;text-align:left}.detail-line{display:grid;grid-template-columns:105px minmax(0,1fr);align-items:start;gap:9px;min-width:0;line-height:1.78;text-align:left}.detail-line>span{color:#6f625e;font-size:9.8px;font-weight:400;text-align:left}.detail-line>strong{min-width:0;font-size:10.8px;font-weight:500;overflow-wrap:anywhere;text-align:left}.business-address>strong{white-space:nowrap;font-size:9.8px;letter-spacing:normal;overflow:visible}.title{max-width:42%;text-align:right;font-size:16.5px;font-weight:700;line-height:1.58;word-spacing:normal}.muted{color:#6f625e}.document-meta{color:#2e1d19;font-size:10.8px;font-weight:500;line-height:1.72}.document-meta:first-child{margin-top:5px}.grid{display:grid;gap:9px;margin:12px 0}.box{width:100%;border:1px solid #c8b6a8;border-radius:9px;padding:10px 11px;min-width:0;min-height:78px;overflow-wrap:anywhere;text-align:left}.box-title{margin:0 0 7px;font-size:12.8px;font-weight:700;line-height:1.6;text-align:left}.box .detail-line{grid-template-columns:112px minmax(0,1fr);margin-top:2px}.box .detail-line>span{line-height:1.72}table{width:100%;border-collapse:collapse;margin-top:9px;table-layout:fixed}th{background:#efe8df;color:#3b211c;font-size:7.2px;font-weight:500;line-height:1.35;vertical-align:middle;white-space:nowrap}th,td{border:1px solid #c8b6a8;overflow-wrap:anywhere}th{padding:7px 3px}td{padding:6px 5px;vertical-align:top;line-height:1.68}td strong{font-weight:500}.vat-column{font-size:6.8px;line-height:1.35}.center{text-align:center}.num{text-align:right;white-space:nowrap;letter-spacing:normal;word-spacing:normal}.tax-included-note{margin-top:9px;padding:7px 9px;background:#efe8df;border-radius:6px;text-align:right;font-weight:500;color:#6f625e;line-height:1.6}.totals{margin-left:auto;width:350px;max-width:100%;margin-top:11px}.totals div{display:flex;justify-content:space-between;gap:18px;padding:5px 0;line-height:1.62}.totals div>span,.totals div>strong{white-space:nowrap}.totals strong{font-weight:700}.totals .grand{margin-top:6px;padding-top:8px;border-top:2px solid #721811;font-size:14.5px;font-weight:700;color:#721811}.foot{margin-top:12px;padding-top:8px;border-top:1px solid #c8b6a8;line-height:1.68}.signatures{display:grid;grid-template-columns:1fr 1fr;gap:26mm;margin-top:auto;padding-top:18px;text-align:center}.signature-space{height:18mm;border-bottom:1px solid #6f625e}.signature-label{padding-top:6px;font-weight:500;line-height:1.6}.signature-date{padding-top:4px;color:#6f625e;font-size:9.5px;line-height:1.55}.watermark{position:absolute;inset:42% 0 auto;text-align:center;font-size:64px;font-weight:700;color:rgba(114,24,17,.1);transform:rotate(-18deg);pointer-events:none}
   </style></head><body><div class="sheet">${isDraft ? '<div class="watermark">ฉบับร่าง</div>' : ''}
     <div class="page-meta"><span></span><span>หน้า 1 / 1</span></div>
-    <div class="top"><div class="business"><div class="brand">${escapeHtml(business.name || 'SMALL CAMERA')}</div><div class="business-details">
-      <div class="detail-line"><span>ชื่อผู้ขาย</span><strong>${escapeHtml((business.seller_name ?? settings?.seller_name) || '-')}</strong></div>
-      <div class="detail-line"><span>เลขประจำตัวผู้เสียภาษี</span><strong>${escapeHtml(business.tax_id || '-')}</strong></div>
-      <div class="detail-line"><span>ที่อยู่</span><strong>${escapeHtml(business.address || '-')}</strong></div>
-      <div class="detail-line"><span>เบอร์โทร</span><strong>${escapeHtml(business.phone || '-')}</strong></div>
-      <div class="detail-line"><span>สาขา</span><strong>${escapeHtml(business.branch || 'สำนักงานใหญ่')}</strong></div>
-    </div></div><div class="title">${documentTitle}<div class="muted" style="font-size:11.5px;margin-top:4px">เลขที่ ${escapeHtml(documentLabel)}</div><div class="muted" style="font-size:11.5px">วันที่ ${thaiDate(document.document_date)}</div></div></div>
-    <div class="grid"><div class="box">${customerBlock}</div></div>
-    <table><thead><tr><th style="width:42px">ลำดับ</th><th>รายการ</th><th style="width:58px">จำนวน</th><th style="width:105px">ราคาต่อหน่วย</th><th style="width:110px">รวม</th></tr></thead><tbody>${rows}</tbody></table>
+    <div class="top"><div class="business"><div class="brand">${escapeHtml(business.name || 'SMALL CAMERA')}</div></div><div class="title">${documentTitle}<div class="document-meta">เลขที่ ${escapeHtml(documentLabel)}</div><div class="document-meta">วันที่ ${thaiDate(document.document_date)}</div></div></div>
+    <div class="grid"><div class="box">${sellerBlock}</div><div class="box">${customerBlock}</div></div>
+    <table><thead><tr><th style="width:38px">ลำดับ</th><th>รายการ</th><th style="width:44px">จำนวน</th><th style="width:76px">ราคาต่อหน่วย</th><th class="vat-column" style="width:122px">ราคาก่อนภาษีมูลค่าเพิ่ม</th><th class="vat-column" style="width:94px">ภาษีมูลค่าเพิ่ม</th><th style="width:82px">รวม</th></tr></thead><tbody>${rows}</tbody></table>
     ${isAbbreviated ? '<div class="tax-included-note">ราคาสินค้ารวมภาษีมูลค่าเพิ่มแล้ว</div>' : ''}
     <div class="totals"><div><span>มูลค่าก่อนภาษีมูลค่าเพิ่ม</span><strong>${money(document.subtotal)} บาท</strong></div><div><span>ภาษีมูลค่าเพิ่ม ${vatRateLabel(document.vat_rate)}%</span><strong>${money(document.vat_amount)} บาท</strong></div><div class="grand"><span>ยอดรวมสุทธิ</span><span>${money(document.total_amount)} บาท</span></div></div>
     ${business.footer_note ? `<div class="foot">${escapeHtml(business.footer_note)}</div>` : ''}
@@ -278,6 +324,11 @@ export async function openVatDocumentPrint(document, settings, onPrinted) {
       <div><div class="signature-space"></div><div class="signature-label">ลายเซ็นผู้ขาย / ผู้รับเงิน</div><div class="signature-date">วันที่ ______ / ______ / ______</div></div>
     </div>
   </div></body></html>`
+  return html
+}
+
+export async function openVatDocumentPrint(document, settings, onPrinted) {
+  const html = vatDocumentPrintHtml(document, settings)
   await openA4Pdf(html, `${document.document_number || 'ร่างใบกำกับภาษี'}.pdf`, '.sheet')
   await onPrinted?.()
 }
@@ -296,6 +347,6 @@ export async function openVatReportPrint(documents, settings, periodLabel) {
       : ''
     return `<section class="report-page"><div class="page-meta"><span></span><span>หน้า ${pageIndex + 1} / ${pageCount}</span></div><header><div><h1>รายงานภาษีขาย</h1><strong>${escapeHtml(settings?.business_name || 'SMALL CAMERA')}</strong></div><div class="business-meta">เลขประจำตัวผู้เสียภาษี ${escapeHtml(settings?.business_tax_id || '-')}<br>ช่วงรายงาน ${escapeHtml(periodLabel)}</div></header><table><colgroup><col class="c-no"><col class="c-date"><col class="c-doc"><col><col class="c-money"><col class="c-money"><col class="c-money"></colgroup><thead><tr><th>ลำดับ</th><th>วันที่</th><th>เลขเอกสาร</th><th>ลูกค้า</th><th>ก่อน VAT</th><th>ภาษีขาย</th><th>ยอดรวม</th></tr></thead><tbody>${rows || '<tr><td colspan="7" class="empty">ไม่มีรายการ</td></tr>'}</tbody>${totals}</table></section>`
   }).join('')
-  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><title></title><style>*{box-sizing:border-box}html,body{width:210mm;margin:0;padding:0;background:#fff}body{font-family:Arial,"Noto Sans Thai",sans-serif;color:#2e1d19;font-size:9.5px;line-height:1.35}.report-page{width:210mm;height:297mm;overflow:hidden;padding:10mm;background:#fff}.page-meta{display:flex;justify-content:space-between;align-items:center;padding-bottom:5px;border-bottom:1px solid #c8b6a8;color:#6f625e;font-size:9px}.page-meta strong{color:#2e1d19}header{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;padding:8px 0 9px;border-bottom:2px solid #721811}h1{margin:0 0 2px;color:#721811;font-size:18px;line-height:1.1}.business-meta{text-align:right;color:#6f625e}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:9px}th{background:#efe8df;color:#3b211c;font-weight:800}th,td{border:1px solid #c8b6a8;padding:5px 4px;vertical-align:top;overflow-wrap:anywhere}.c-no{width:7%}.c-date{width:13%}.c-doc{width:17%}.c-money{width:13%}.center{text-align:center}.num{text-align:right;white-space:nowrap}tfoot{font-weight:800;background:#f7f3ee}.empty{text-align:center;padding:18px;color:#6f625e}</style></head><body>${pages}</body></html>`
+  const html = `<!doctype html><html lang="th"><head><meta charset="utf-8"><title></title><style>@font-face{font-family:"Sarabun PDF";src:url("/fonts/Sarabun-Regular.ttf") format("truetype");font-style:normal;font-weight:400;font-display:block}@font-face{font-family:"Sarabun PDF";src:url("/fonts/Sarabun-Medium.ttf") format("truetype");font-style:normal;font-weight:500;font-display:block}@font-face{font-family:"Sarabun PDF";src:url("/fonts/Sarabun-Bold.ttf") format("truetype");font-style:normal;font-weight:700;font-display:block}*{box-sizing:border-box}html,body{width:210mm;margin:0;padding:0;background:#fff}body{font-family:"Sarabun PDF",sans-serif;color:#2e1d19;font-size:9.2px;line-height:1.65;letter-spacing:normal;word-spacing:normal;font-kerning:normal;font-synthesis:none;text-rendering:optimizeLegibility;-webkit-font-smoothing:antialiased}.report-page{width:210mm;height:297mm;overflow:hidden;padding:10mm;background:#fff}.page-meta{display:flex;justify-content:space-between;align-items:center;padding-bottom:6px;border-bottom:1px solid #c8b6a8;color:#6f625e;font-size:8.8px;line-height:1.55}.page-meta strong{color:#2e1d19}header{display:flex;justify-content:space-between;align-items:flex-end;gap:18px;padding:9px 0 10px;border-bottom:2px solid #721811}h1{margin:0 0 3px;color:#721811;font-size:18px;font-weight:700;line-height:1.5;word-spacing:normal}.business-meta{text-align:right;color:#6f625e;line-height:1.65}table{width:100%;border-collapse:collapse;table-layout:fixed;margin-top:10px}th{background:#efe8df;color:#3b211c;font-weight:500;line-height:1.5;vertical-align:middle;white-space:nowrap}th,td{border:1px solid #c8b6a8;padding:6px 5px;overflow-wrap:anywhere}td{vertical-align:top;line-height:1.65}.c-no{width:7%}.c-date{width:13%}.c-doc{width:17%}.c-money{width:13%}.center{text-align:center}.num{text-align:right;white-space:nowrap;letter-spacing:normal;word-spacing:normal}tfoot{font-weight:700;background:#f7f3ee}.empty{text-align:center;padding:18px;color:#6f625e}</style></head><body>${pages}</body></html>`
   await openA4Pdf(html, `รายงานภาษีขาย-${periodLabel}.pdf`, '.report-page')
 }

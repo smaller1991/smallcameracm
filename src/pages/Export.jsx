@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
-import { exportInventory, exportTransactions, exportInventoryWithImages, exportTransactionsWithImages, downloadImportTemplate } from '../lib/exportUtils'
+import { exportInventory, exportTransactions, exportInventoryWithImages, exportTransactionsWithImages, previewTransactionsPDFFile, downloadImportTemplate } from '../lib/exportUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Download, Package, FileText, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
+import { buildStockMap } from '../lib/stockLedger'
+import { profitAfterVat, vatDocumentOf } from '../lib/vat'
 
 // ─── Import helpers ────────────────────────────────────────────
 function parseThDate(val) {
@@ -115,53 +117,61 @@ const getReportBalance = (txs, from, to, currentBalance) => {
   const balMap = buildBalanceMap(txs, currentBalance)
   return balMap[filtered[0].id] || currentBalance
 }
-const buildStockMap = (txs, currentStockValue) => {
-  const map = {}
-  let runStock = Number(currentStockValue || 0)
-  const soldProductSeen = new Set()
-  const stockDelta = tx => {
-    const productCost = Number(tx.products?.total_cost || 0)
-    const batchCost = Number(tx.products?.batch_total_cost || 0)
-    if (tx.category === 'Buy Stock' && tx.product_id && productCost) {
-      if ((tx.note || '').includes('ชำระค่าซื้อ')) return 0
-      return batchCost || productCost
-    }
-    if (tx.category === 'Add-on' && tx.product_id) return Number(tx.amount || 0)
-    if (tx.category === 'Sale' && tx.product_id && tx.products?.status === 'Sold' && productCost && !soldProductSeen.has(tx.product_id)) {
-      soldProductSeen.add(tx.product_id)
-      return -productCost
-    }
-    if (tx.category === 'Trade') {
-      const sellA = Number(tx.trade_sell_a || 0)
-      const profitA = Number(tx.trade_profit_a || 0)
-      if (!sellA && !profitA) return 0
-      const costA = sellA - profitA
-      const diff = tx.type === 'Income' ? Number(tx.amount || 0) : -Number(tx.amount || 0)
-      const buyB = sellA - diff
-      return buyB - costA
-    }
-    return 0
-  }
-  for (const tx of txs) {
-    map[tx.id] = runStock
-    runStock -= stockDelta(tx)
-  }
-  return map
-}
 const withPurchaseBatchTotals = (txs, products) => {
-  const batchTotals = (products || []).reduce((map, p) => {
+  const addOnsByProduct = (txs || []).reduce((map, tx) => {
+    if (tx.category !== 'Add-on' || !tx.product_id) return map
+    if (!map[tx.product_id]) map[tx.product_id] = []
+    const name = String(tx.note || '')
+      .replace(/^Add-on:\s*/i, '')
+      .split(/\s+[—-]\s+/)[0]
+      .trim()
+    map[tx.product_id].push({
+      id: tx.id,
+      name: name || 'อุปกรณ์เสริม',
+      cost: Number(tx.amount || 0),
+      purchased_at: tx.date,
+    })
+    return map
+  }, {})
+  Object.values(addOnsByProduct).forEach(items => items.sort((a, b) => new Date(a.purchased_at || 0) - new Date(b.purchased_at || 0)))
+  const productsWithAddOns = (products || []).map(product => ({
+    ...product,
+    report_add_ons: addOnsByProduct[product.id] || [],
+  }))
+  const batchTotals = productsWithAddOns.reduce((map, p) => {
     if (p.batch_id) map[p.batch_id] = (map[p.batch_id] || 0) + Number(p.total_cost || 0)
     return map
   }, {})
-  const batchItems = (products || []).reduce((map, p) => {
+  const batchItems = productsWithAddOns.reduce((map, p) => {
     if (!p.batch_id) return map
     if (!map[p.batch_id]) map[p.batch_id] = []
     map[p.batch_id].push(p)
     return map
   }, {})
+  const saleBatchItems = productsWithAddOns.reduce((map, p) => {
+    if (!p.sale_batch_id) return map
+    if (!map[p.sale_batch_id]) map[p.sale_batch_id] = []
+    map[p.sale_batch_id].push(p)
+    return map
+  }, {})
+  const productById = new Map(productsWithAddOns.map(product => [product.id, product]))
   return (txs || []).map(t => (
-    t.products?.batch_id
-      ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0), batch_items: batchItems[t.products.batch_id] || [] } }
+    t.products
+      ? { ...t, products: {
+          ...(productById.get(t.product_id) || {}),
+          ...t.products,
+          report_add_ons: addOnsByProduct[t.product_id] || [],
+          ...(t.products.batch_id ? {
+            batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0),
+            batch_items: batchItems[t.products.batch_id] || [],
+          } : {}),
+          ...(t.products.sale_batch_id ? {
+            sale_batch_items: saleBatchItems[t.products.sale_batch_id] || [],
+          } : {}),
+          ...(t.products.trade_ref_id ? {
+            trade_item_b: productById.get(t.products.trade_ref_id) || null,
+          } : {}),
+        } }
       : t
   ))
 }
@@ -220,16 +230,25 @@ export default function Export() {
     if (invFmt === 'pdf' && !withImages && !pdfWindow) return
     setBusy(true); setImgProgress(null)
     try {
-      const {data} = await supabase.from('products').select('*').order('created_at',{ascending:false})
+      const [{data}, {data: vatTxData}] = await Promise.all([
+        supabase.from('products').select('*').order('created_at',{ascending:false}),
+        supabase.from('transactions').select('product_id,category,vat_documents!transactions_vat_document_id_fkey(id,status,subtotal,vat_amount,total_amount)').eq('category', 'Sale'),
+      ])
+      const vatByProduct = (vatTxData || []).reduce((map, tx) => {
+        const document = vatDocumentOf(tx)
+        if (tx.product_id && document?.status !== 'void' && !map.has(tx.product_id)) map.set(tx.product_id, document)
+        return map
+      }, new Map())
+      const exportProducts = (data || []).map(product => ({ ...product, _vatDocument: vatByProduct.get(product.id) || null }))
       if (withImages) {
         const {data: txData} = await supabase.from('transactions')
           .select('id,product_id,date,category,amount,images')
           .not('images', 'is', null)
-        await exportInventoryWithImages(data||[], txData||[], invFilter, invFmt, (done,total)=>setImgProgress({done,total}))
+        await exportInventoryWithImages(exportProducts, txData||[], invFilter, invFmt, (done,total)=>setImgProgress({done,total}))
       } else if (invFmt==='xlsx') {
-        exportInventory(data||[], invFilter)
+        exportInventory(exportProducts, invFilter)
       } else {
-        exportInventoryPDF(data||[], invFilter, pdfWindow)
+        exportInventoryPDF(exportProducts, invFilter, pdfWindow)
       }
       toast.success(invFmt === 'pdf' && !withImages ? 'เปิดหน้าต่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
@@ -237,14 +256,12 @@ export default function Export() {
   }
 
   const doExportTx = async () => {
-    const pdfWindow = txFmt === 'pdf' && !withTxImages ? openPDFPreviewWindow('กำลังเตรียม PDF รายการบัญชี...') : null
-    if (txFmt === 'pdf' && !withTxImages && !pdfWindow) return
     setBusy(true); setTxImgProgress(null)
     try {
       const [{ data }, { data: balData }, { data: stockData }] = await Promise.all([
-        supabase.from('transactions').select('*,products(model,category,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status,batch_id,sale_batch_id,notes)').order('date',{ascending:false}),
+        supabase.from('transactions').select('*,products(id,model,category,base_cost,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status,batch_id,sale_batch_id,trade_ref_id,notes,payment_method),vat_documents!transactions_vat_document_id_fkey(id,status,subtotal,vat_amount,total_amount)').order('date',{ascending:false}),
         supabase.from('balances').select('bank,cash').eq('id','main').single(),
-        supabase.from('products').select('id,model,serial_number,category,total_cost,status,batch_id,notes,created_at'),
+        supabase.from('products').select('id,model,serial_number,category,base_cost,total_cost,sold_price,status,batch_id,sale_batch_id,trade_ref_id,is_trade_in,notes,customer_note,payment_method,created_at'),
       ])
       const txData = withPurchaseBatchTotals(data || [], stockData || [])
       const balance = balData ? { bank: Number(balData.bank||0), cash: Number(balData.cash||0) } : null
@@ -254,11 +271,11 @@ export default function Export() {
       if (withTxImages) {
         await exportTransactionsWithImages(txData, from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), reportBalance, reportStockValue)
       } else if (txFmt==='xlsx') {
-        exportTransactions(txData, from||undefined, to||undefined, reportBalance)
+        await exportTransactions(txData, from||undefined, to||undefined, reportBalance, reportStockValue)
       } else {
-        exportTransactionsPDF(txData, from||undefined, to||undefined, balance, currentStockValue, pdfWindow)
+        await previewTransactionsPDFFile(txData, from||undefined, to||undefined, reportBalance, reportStockValue)
       }
-      toast.success(txFmt === 'pdf' && !withTxImages ? 'เปิดหน้าต่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
+      toast.success(txFmt === 'pdf' && !withTxImages ? 'เปิดตัวอย่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
     finally{ setBusy(false); setTxImgProgress(null) }
   }
@@ -922,7 +939,7 @@ function exportInventoryPDF(products, statusFilter='all', previewWindow=null) {
     .map(p=>[p.model,p.serial_number,p.category||'กล้อง',p.condition,STATUS_TH[p.status]||p.status,
              `฿${fmt(p.base_cost)}`,`฿${fmt(p.total_cost)}`,
              p.sold_price?`฿${fmt(p.sold_price)}`:'',
-             p.sold_price?`฿${fmt(Number(p.sold_price)-Number(p.total_cost))}`:'',
+             p.sold_price?`฿${fmt(profitAfterVat(p.sold_price,p.total_cost,p._vatDocument))}`:'',
              thDate(p.created_at),thDate(p.sold_date),p.customer_note||'',p.notes||''])
   if (!rows.length) {
     previewWindow?.close()
@@ -931,7 +948,7 @@ function exportInventoryPDF(products, statusFilter='all', previewWindow=null) {
   const totalCost = filtered.reduce((a,p)=>a+Number(p.total_cost||0),0)
   const totalSold = filtered.reduce((a,p)=>p.sold_price?a+Number(p.sold_price):a,0)
   const soldCount = filtered.filter(p=>p.status==='Sold').length
-  const profit = filtered.reduce((a,p)=>p.sold_price?a+(Number(p.sold_price)-Number(p.total_cost||0)):a,0)
+  const profit = filtered.reduce((a,p)=>p.sold_price?a+profitAfterVat(p.sold_price,p.total_cost,p._vatDocument):a,0)
   makePDF('รายงานสต็อกสินค้า',['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนเริ่ม','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ'],rows,previewWindow,{
     subtitle: `ตัวกรอง: ${statusFilter === 'all' ? 'ทั้งหมด' : STATUS_TH[statusFilter] || statusFilter}`,
     numericCols: [3,5,6,7,8],
@@ -980,15 +997,19 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
   )
   const plValues = filtered.map(t=>{
     if (t.category==='Sale'&&t.products?.total_cost!=null) {
-      if (!t.products?.installment_total) return Number(t.amount)-Number(t.products.total_cost)
+      if (!t.products?.installment_total) return profitAfterVat(t.amount,t.products.total_cost,vatDocumentOf(t))
       if (installmentSaleTxIds.has(t.id) && !finalInstallmentSaleTxIds.has(t.id)) return null
       if (t.products?.status==='Sold'&&!popupCounted.has(t.product_id)) {
         popupCounted.add(t.product_id)
-        return Number(t.products.installment_total)-Number(t.products.total_cost)
+        return profitAfterVat(t.products.installment_total,t.products.total_cost,vatDocumentOf(t))
       }
       return null
     }
-    if (t.category==='Trade'&&t.trade_profit_a!=null) return Number(t.trade_profit_a)
+    if (t.category==='Trade'&&t.trade_profit_a!=null) return profitAfterVat(
+      t.trade_sell_a,
+      Number(t.trade_sell_a || 0) - Number(t.trade_profit_a || 0),
+      vatDocumentOf(t),
+    )
     if (t.type==='Expense'&&DEDUCT.has(t.category)) return -Number(t.amount)
     return null
   })
@@ -1065,7 +1086,7 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
     statsColumns: 4,
     footnotes,
     summaryLines: [
-      `รวมรายรับ ฿${fmt(totalIncome)}`,
+      `เงินรับจริง ฿${fmt(totalIncome)}`,
       `รวมรายจ่าย ฿${fmt(totalExpense)}`,
       `กำไรสุทธิ ฿${fmt(totalProfit)}`,
       reportBalance ? `โอนล่าสุดในรายงาน ฿${fmt(reportBalance.bank)}` : 'โอนล่าสุดในรายงาน -',
@@ -1073,7 +1094,7 @@ function exportTransactionsPDF(txs, from, to, balance=null, currentStockValue=0,
       `สต๊อกล่าสุดในรายงาน ฿${fmt(reportStockValue)}`,
     ],
     stats: [
-      { label: 'รวมรายรับ', value: `฿${fmt(totalIncome)}`, tone: 'in' },
+      { label: 'เงินรับจริง', value: `฿${fmt(totalIncome)}`, tone: 'in' },
       { label: 'รวมรายจ่าย', value: `฿${fmt(totalExpense)}`, tone: 'out' },
       { label: 'กำไรขายก่อนหัก', value: `฿${fmt(grossProfit)}`, tone: grossProfit >= 0 ? 'in' : 'out' },
       { label: 'กำไรสุทธิ', value: `฿${fmt(totalProfit)}`, tone: totalProfit >= 0 ? 'in' : 'out' },

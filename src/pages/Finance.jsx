@@ -12,6 +12,7 @@ import toast from 'react-hot-toast'
 import { scheduleDelete } from '../lib/undoDelete'
 import { buildTransactionGroups, groupKindLabel } from '../lib/transactionGroups'
 import { profitAfterVat, vatDocumentOf, voidVatDraftsForTransactions } from '../lib/vat'
+import { buildStockMap } from '../lib/stockLedger'
 
 const CATS = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const PROFIT_DEDUCT_CATS = ['Shipping','Marketing','Operating','Other']
@@ -22,6 +23,11 @@ const productProfitAfterVat = product => profitAfterVat(
   product?.sold_price,
   product?.total_cost,
   product?._vatDocument,
+)
+const tradeProfitAfterVat = tx => profitAfterVat(
+  tx?.trade_sell_a,
+  Number(tx?.trade_sell_a || 0) - Number(tx?.trade_profit_a || 0),
+  vatDocumentOf(tx),
 )
 
 const CAT_COLOR = {
@@ -44,6 +50,10 @@ const txCardTone = item => {
 }
 const hasSplitAmounts = tx => Number(tx?.bank_amount || 0) > 0 || Number(tx?.cash_amount || 0) > 0
 const firstTxImage = tx => tx.images?.[0] || null
+const SaleVatStatusTag = ({ document }) => {
+  const isIssued = document?.status === 'issued'
+  return <span className={`finance-vat-status ${isIssued ? 'is-issued' : 'is-draft'}`}><ReceiptText size={12}/>{isIssued ? 'ออกแล้ว' : 'ฉบับร่าง'}</span>
+}
 
 const monthStart = () => {
   const d = new Date()
@@ -117,10 +127,10 @@ export default function Finance() {
 
   const load = async () => {
     const [{data:txData},{data:bal},{data:products},{data:allProducts}] = await Promise.all([
-      supabase.from('transactions').select('*,products(model,serial_number,category,total_cost,sold_price,status,warranty_expiry,payment_method,customer_note,installment_total,batch_id,sale_batch_id,notes),vat_documents!transactions_vat_document_id_fkey(id,status,document_number,subtotal,vat_amount,total_amount)').order('date',{ascending:false}),
+      supabase.from('transactions').select('*,products(id,model,serial_number,category,base_cost,total_cost,sold_price,status,warranty_expiry,payment_method,customer_note,installment_total,batch_id,sale_batch_id,notes),vat_documents!transactions_vat_document_id_fkey(id,status,document_number,subtotal,vat_amount,total_amount)').order('date',{ascending:false}),
       supabase.from('balances').select('*').eq('id','main').single(),
       supabase.from('products').select('id,model,serial_number,category,total_cost,sold_price,sold_date,payment_method,is_trade_in').eq('status','Sold'),
-      supabase.from('products').select('id,model,serial_number,category,total_cost,status,batch_id,notes,created_at'),
+      supabase.from('products').select('id,model,serial_number,category,base_cost,total_cost,status,batch_id,notes,created_at'),
     ])
     const batchTotals = (allProducts||[]).reduce((map, p) => {
       if (p.batch_id) map[p.batch_id] = (map[p.batch_id] || 0) + Number(p.total_cost || 0)
@@ -132,11 +142,18 @@ export default function Finance() {
       map[p.batch_id].push(p)
       return map
     }, {})
-    const txsWithBatchTotals = (txData||[]).map(t => (
-      t.products?.batch_id
-        ? { ...t, products: { ...t.products, batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0), batch_items: batchItems[t.products.batch_id] || [] } }
-        : t
-    ))
+    const productById = new Map((allProducts || []).map(product => [product.id, product]))
+    const txsWithBatchTotals = (txData||[]).map(t => t.products ? ({
+      ...t,
+      products: {
+        ...(productById.get(t.product_id) || {}),
+        ...t.products,
+        ...(t.products.batch_id ? {
+          batch_total_cost: batchTotals[t.products.batch_id] || Number(t.products.total_cost || 0),
+          batch_items: batchItems[t.products.batch_id] || [],
+        } : {}),
+      },
+    }) : t)
     setTxs(txsWithBatchTotals)
     if (bal) setBalance({bank:Number(bal.bank),cash:Number(bal.cash)})
 
@@ -196,54 +213,7 @@ export default function Finance() {
   }, [txs, balance])
 
   // มูลค่าสต๊อกหลังรายการ: เริ่มจากสต๊อกปัจจุบัน แล้วย้อนรายการจากใหม่ไปเก่า
-  const stockMap = useMemo(() => {
-    const map = {}
-    let runStock = Number(stockValue || 0)
-
-    const productCostTotal = txsInGroup => {
-      const seen = new Set()
-      return txsInGroup.reduce((sum, tx) => {
-        const key = tx.product_id || tx.products?.id || tx.id
-        if (seen.has(key)) return sum
-        seen.add(key)
-        return sum + Number(tx.products?.total_cost || 0)
-      }, 0)
-    }
-
-    const stockDelta = group => {
-      const tx = group.representative
-      if (group.kind === 'purchase' || tx.category === 'Buy Stock') {
-        if (group.txs.some(item => (item.note || '').includes('ชำระค่าซื้อ'))) return 0
-        const batchCost = Number(tx.products?.batch_total_cost || 0)
-        return batchCost || productCostTotal(group.txs)
-      }
-      if (tx.category === 'Add-on' && tx.product_id) {
-        return Number(tx.amount || 0)
-      }
-      if (group.kind === 'sale' || tx.category === 'Sale') {
-        if (group.installment?.hasInstallments && !group.installment.isFinalInstallment) return 0
-        return -productCostTotal(group.txs)
-      }
-      if (tx.category === 'Trade') {
-        const sellA = Number(tx.trade_sell_a || 0)
-        const profitA = Number(tx.trade_profit_a || 0)
-        if (!sellA && !profitA) return 0
-        const costA = sellA - profitA
-        const diff = tx.type === 'Income'
-          ? Number(tx.amount || 0)
-          : -Number(tx.amount || 0)
-        const buyB = sellA - diff
-        return buyB - costA
-      }
-      return 0
-    }
-
-    for (const group of buildTransactionGroups(txs, txs)) {
-      for (const tx of group.txs) map[tx.id] = runStock
-      runStock -= stockDelta(group)
-    }
-    return map
-  }, [txs, stockValue])
+  const stockMap = useMemo(() => buildStockMap(txs, stockValue), [txs, stockValue])
 
   // แปลง UTC timestamp → local YYYY-MM-DD string สำหรับเปรียบเทียบวัน (timezone-safe)
   const toLocalDateStr = iso => {
@@ -1203,9 +1173,10 @@ export default function Finance() {
                             <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${isTrade ? 'bg-blue-100 text-blue-700 border-blue-200' : catColor(tx.category)}`}>
                               {groupKindLabel(group)}
                             </span>
+                            {group.kind === 'sale' && <SaleVatStatusTag document={vatDoc}/>}
                             {group.installment?.hasInstallments && (
                               <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 border bg-red-100 text-red-700 border-red-200">
-                                งวดที่ {group.installment.installmentNumber}
+                                งวดที่ {group.installment.installmentNumber}{group.installment.isFinalInstallment ? ' (งวดปิดยอด)' : ''}
                               </span>
                             )}
                             {group.paymentLabel && (
@@ -1300,8 +1271,8 @@ export default function Finance() {
                         <div className="text-right flex-shrink-0">
                           {tx.trade_sell_a && <p className="text-xs text-gray-500">ขาย ฿{fmt(tx.trade_sell_a)}</p>}
                           {tx.trade_profit_a != null && (
-                            <p className={`text-xs font-bold ${Number(tx.trade_profit_a)>=0?'text-green-600':'text-red-500'}`}>
-                              กำไร {Number(tx.trade_profit_a)>=0?'+':''}฿{fmt(tx.trade_profit_a)}
+                            <p className={`text-xs font-bold ${tradeProfitAfterVat(tx)>=0?'text-green-600':'text-red-500'}`}>
+                              กำไรหลัง VAT {tradeProfitAfterVat(tx)>=0?'+':''}฿{fmt(tradeProfitAfterVat(tx))}
                             </p>
                           )}
                         </div>
@@ -1341,6 +1312,7 @@ export default function Finance() {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex flex-wrap gap-1 flex-1">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${catColor(tx.category)}`}>{tx.category}</span>
+                      {tx.category === 'Sale' && <SaleVatStatusTag document={vatDocumentOf(tx)}/>}
                       {hasSplitAmounts(tx) && (
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-purple-100 text-purple-700 inline-flex items-center gap-1">
                           <Scissors size={12}/>แบ่งจ่าย {tx.bank_amount?`โอน ${fmt(tx.bank_amount)}`:''}
@@ -1415,7 +1387,7 @@ export default function Finance() {
                 </span>
                 {txDetail.__group && txDetail.installment?.hasInstallments && (
                   <span className="text-xs font-semibold px-2.5 py-1 rounded-full border bg-red-100 text-red-700 border-red-200">
-                    งวดที่ {txDetail.installment.installmentNumber}
+                    งวดที่ {txDetail.installment.installmentNumber}{txDetail.installment.isFinalInstallment ? ' (งวดปิดยอด)' : ''}
                   </span>
                 )}
               </div>

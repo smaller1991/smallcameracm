@@ -2,7 +2,7 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import { uploadReceiptImages } from '../lib/imageUtils'
-import { createVatDraft, profitAfterVat, vatDocumentOf, vatSourceKey, voidVatDraftsForTransactions } from '../lib/vat'
+import { calculateVat, createVatDraft, findInstallmentVatDocumentId, getVatSettings, profitAfterVat, vatDocumentOf, vatSourceKey, voidVatDraftsForTransactions } from '../lib/vat'
 import { toLocal, thDateShort, nowLocal } from '../lib/dateUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Banknote, ChevronLeft, CircleDollarSign, CreditCard, Plus, Trash2, Edit2, Check, X, ShoppingBag, Shield, ImagePlus, Package, Scissors, Undo2, UserRound } from 'lucide-react'
@@ -78,6 +78,7 @@ export default function ProductDetail() {
   const [customerNote, setCustomerNote] = useState('')
   const [sellImgFiles, setSellImgFiles] = useState([])
   const [sellImgPrev,  setSellImgPrev]  = useState([])
+  const [vatSettings,  setVatSettings]  = useState({ vat_rate: 7, prices_include_vat: true })
 
   const closeSellModal = () => {
     if (saving) return
@@ -229,6 +230,9 @@ export default function ProductDetail() {
     setLoading(false)
   }
   useEffect(()=>{load()},[id])
+  useEffect(() => {
+    getVatSettings().then(settings => settings && setVatSettings(settings)).catch(() => {})
+  }, [])
   useEffect(() => {
     if (loading || !product) return
     const payAction = searchParams.get('pay')
@@ -559,6 +563,10 @@ export default function ProductDetail() {
       const soldAt  = payDate2 ? new Date(payDate2).toISOString() : new Date().toISOString()
       const warranty = new Date(new Date(soldAt).getTime()+15*86400000).toISOString()
       const isBatch = product.sale_batch_id && batchProducts.length > 1
+      const installmentVatDocumentId = await findInstallmentVatDocumentId({
+        productId: product.id,
+        saleBatchId: isBatch ? product.sale_batch_id : null,
+      })
 
       if (isBatch) {
         const totalRemaining = batchTotalRemaining
@@ -590,6 +598,7 @@ export default function ProductDetail() {
           const { data: newTx } = await supabase.from('transactions').insert({
             date: soldAt, type: 'Income', category: 'Sale', amount: bpPayment,
             product_id: bp.id, payment_method: productPaymentMethod(payMethod2, payBankAmount, payCashAmount),
+            vat_document_id: installmentVatDocumentId,
             bank_amount: payMethod2 === 'แบ่งจ่าย' && bpBank > 0 ? bpBank : null,
             cash_amount: payMethod2 === 'แบ่งจ่าย' && bpCash > 0 ? bpCash : null,
             note: isFullyPaidBatch
@@ -633,6 +642,7 @@ export default function ProductDetail() {
         const {data:newTx} = await supabase.from('transactions').insert({
           date: soldAt, type:'Income', category:'Sale', amount,
           product_id: id, payment_method: productPaymentMethod(payMethod2, payBankAmount, payCashAmount),
+          vat_document_id: installmentVatDocumentId,
           bank_amount: pay.bankField,
           cash_amount: pay.cashField,
           note: isFullyPaid
@@ -889,6 +899,10 @@ export default function ProductDetail() {
   const profit = product.sold_price
     ? profitAfterVat(product.sold_price, product.total_cost, vatDocumentOf(saleTransaction))
     : null
+  const previewSaleProfit = amount => {
+    const tax = calculateVat(Number(amount || 0), vatSettings.vat_rate, vatSettings.prices_include_vat)
+    return { ...tax, profit: tax.subtotal - Number(product.total_cost || 0) }
+  }
   const isBatch = product.sale_batch_id && batchProducts.length > 1
   const batchTotalInstallment = isBatch ? batchProducts.reduce((a,bp) => a + Number(bp.installment_total||0), 0) : 0
   const batchTotalPaid        = isBatch ? batchSalePaid : 0
@@ -1310,9 +1324,10 @@ export default function ProductDetail() {
                   <label className="text-xs text-gray-500 mb-1 block">ราคาขายจริง (บาท)</label>
                   <input autoComplete="off" className="input" type="number" placeholder="0" value={soldPrice} onChange={e=>setSoldPrice(e.target.value)}/>
                   {soldPrice && (
-                    <p className={"text-xs mt-1 font-medium "+(Number(soldPrice)-Number(product.total_cost)>=0?'text-green-600':'text-red-500')}>
-                      กำไร: ฿{fmt(Number(soldPrice)-Number(product.total_cost))}
-                    </p>
+                    <div className="flex justify-between gap-2 mt-1 text-xs">
+                      <span className="text-gray-500"><strong>กำไร = ฿{fmt(soldPrice)}</strong> - ฿{fmt(product.total_cost)} - VAT ฿{fmt(previewSaleProfit(soldPrice).vat)}</span>
+                      <strong className={previewSaleProfit(soldPrice).profit>=0?'text-green-600':'text-red-500'}>{previewSaleProfit(soldPrice).profit>=0?'+':''}฿{fmt(previewSaleProfit(soldPrice).profit)}</strong>
+                    </div>
                   )}
                 </div>
               ) : (
@@ -1322,9 +1337,10 @@ export default function ProductDetail() {
                     <input autoComplete="off" className="input" type="number" placeholder="0"
                       value={installTotal} onChange={e=>setInstallTotal(e.target.value)}/>
                     {installTotal && (
-                      <p className={"text-xs mt-1 font-medium "+(Number(installTotal)-Number(product.total_cost)>=0?'text-green-600':'text-red-500')}>
-                        กำไรประมาณ: ฿{fmt(Number(installTotal)-Number(product.total_cost))}
-                      </p>
+                      <div className="flex justify-between gap-2 mt-1 text-xs">
+                        <span className="text-gray-500"><strong>กำไร = ฿{fmt(installTotal)}</strong> - ฿{fmt(product.total_cost)} - VAT ฿{fmt(previewSaleProfit(installTotal).vat)}</span>
+                        <strong className={previewSaleProfit(installTotal).profit>=0?'text-green-600':'text-red-500'}>{previewSaleProfit(installTotal).profit>=0?'+':''}฿{fmt(previewSaleProfit(installTotal).profit)}</strong>
+                      </div>
                     )}
                   </div>
                   <div>

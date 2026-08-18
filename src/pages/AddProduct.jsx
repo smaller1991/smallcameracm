@@ -191,92 +191,6 @@ export default function AddProduct() {
             <p className="text-xs text-gray-400 mt-1">หากไม่ระบุจะใช้วันที่และเวลาปัจจุบัน</p>
           </div>
 
-          {/* ── payment splits ── */}
-          <div>
-            <div className="mb-3">
-              <label className="block text-sm font-medium text-gray-600 mb-2">รูปแบบการซื้อ</label>
-              <div className="flex gap-2">
-                {[
-                  ['full', 'จ่ายครบ'],
-                  ['installment', 'ซื้อผ่อน'],
-                ].map(([value, label]) => (
-                  <button key={value} onClick={() => setPurchaseType(value)}
-                    className={`purchase-type-option flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${purchaseType === value ? 'is-active' : ''}`}
-                    aria-pressed={purchaseType === value}>
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-600">{purchaseType === 'installment' ? 'ชำระงวดแรก' : 'การชำระเงิน'}</label>
-              <button onClick={addPayment}
-                className="flex items-center gap-1 text-xs text-blue-500 font-semibold py-1 px-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors">
-                <Plus size={12}/>เพิ่มช่องทาง
-              </button>
-            </div>
-
-            <div className="space-y-2">
-              {payments.map((pay, idx) => (
-                <div key={pay._id} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-400 w-5 text-right flex-shrink-0">{idx+1}.</span>
-                  <input
-                    autoComplete="off"
-                    className="input flex-1 min-w-0"
-                    type="number"
-                    placeholder="จำนวนเงิน"
-                    value={pay.amount}
-                    onChange={e => setPayField(pay._id, 'amount', e.target.value)}
-                  />
-                  <div className="flex gap-1 flex-shrink-0">
-                    {['โอน','เงินสด'].map(m => (
-                      <button key={m} onClick={() => setPayField(pay._id, 'method', m)}
-                        className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap
-                          ${pay.method===m
-                            ? (m==='โอน' ? 'bg-blue-500 text-white border-blue-500' : 'bg-green-600 text-white border-green-600')
-                            : 'bg-white text-gray-400 border-gray-200'}`}>
-                        <span className="inline-flex items-center gap-1.5">
-                          {m==='โอน' ? <CreditCard size={13}/> : <Banknote size={13}/>} {m}
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                  {payments.length > 1 && (
-                    <button onClick={() => removePayment(pay._id)} className="text-red-400 hover:text-red-600 flex-shrink-0 p-1">
-                      <X size={14}/>
-                    </button>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* payment summary */}
-            {totalCost > 0 && (
-              <div className="mt-3 rounded-xl bg-gray-50 border border-gray-100 px-3 py-2 space-y-1 text-sm">
-                <div className="flex justify-between text-gray-600">
-                  <span>ต้นทุนรวม</span>
-                  <span className="font-semibold">฿{totalCost.toLocaleString('th-TH')}</span>
-                </div>
-                <div className="flex justify-between text-gray-600">
-                  <span>{purchaseType === 'installment' ? 'ชำระงวดแรก' : 'ชำระแล้ว'}</span>
-                  <span className="font-semibold text-blue-600">฿{totalPaid.toLocaleString('th-TH')}</span>
-                </div>
-                {remaining > 0 && (
-                  <div className="flex justify-between text-red-500 font-semibold border-t border-gray-200 pt-1 mt-1">
-                    <span>ค้างจ่ายค่าซื้อ</span>
-                    <span>฿{remaining.toLocaleString('th-TH')}</span>
-                  </div>
-                )}
-                {remaining === 0 && totalPaid > 0 && (
-                  <div className="flex justify-between text-green-600 font-semibold border-t border-gray-200 pt-1 mt-1">
-                    <span>ชำระครบแล้ว</span>
-                    <Check size={16}/>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-600 mb-1">รูปใบเสร็จ / หลักฐานการซื้อ</label>
             <div className="flex gap-2 flex-wrap">
@@ -356,6 +270,93 @@ export default function AddProduct() {
             className="w-full py-3 rounded-2xl border-2 border-dashed border-amber-300 text-amber-500 hover:border-brand-yellow hover:text-brand-yellow transition-colors flex items-center justify-center gap-2 text-sm font-semibold">
             <Plus size={16}/>เพิ่มสินค้าอีกชิ้น
           </button>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-600 mb-2">รูปแบบการซื้อ</label>
+            <div className="flex gap-2">
+              {[
+                ['full', 'จ่ายครบ'],
+                ['installment', 'ซื้อผ่อน'],
+              ].map(([value, label]) => (
+                <button key={value} onClick={() => setPurchaseType(value)}
+                  className={`purchase-type-option flex-1 py-2 rounded-xl text-sm font-semibold border transition-all ${purchaseType === value ? 'is-active' : ''}`}
+                  aria-pressed={purchaseType === value}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* ── payment splits ── */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-sm font-medium text-gray-600">{purchaseType === 'installment' ? 'ชำระงวดแรก' : 'การชำระเงิน'}</label>
+              <button onClick={addPayment}
+                className="flex items-center gap-1 text-xs text-blue-500 font-semibold py-1 px-2 rounded-lg border border-blue-200 bg-blue-50 hover:bg-blue-100 transition-colors">
+                <Plus size={12}/>เพิ่มช่องทาง
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {payments.map((pay, idx) => (
+                <div key={pay._id} className="flex items-center gap-2">
+                  <span className="text-xs text-gray-400 w-5 text-right flex-shrink-0">{idx+1}.</span>
+                  <input
+                    autoComplete="off"
+                    className="input flex-1 min-w-0"
+                    type="number"
+                    placeholder="จำนวนเงิน"
+                    value={pay.amount}
+                    onChange={e => setPayField(pay._id, 'amount', e.target.value)}
+                  />
+                  <div className="flex gap-1 flex-shrink-0">
+                    {['โอน','เงินสด'].map(m => (
+                      <button key={m} onClick={() => setPayField(pay._id, 'method', m)}
+                        className={`px-2.5 py-2 rounded-xl text-xs font-semibold border transition-all whitespace-nowrap
+                          ${pay.method===m
+                            ? (m==='โอน' ? 'bg-blue-500 text-white border-blue-500' : 'bg-green-600 text-white border-green-600')
+                            : 'bg-white text-gray-400 border-gray-200'}`}>
+                        <span className="inline-flex items-center gap-1.5">
+                          {m==='โอน' ? <CreditCard size={13}/> : <Banknote size={13}/>} {m}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                  {payments.length > 1 && (
+                    <button onClick={() => removePayment(pay._id)} className="text-red-400 hover:text-red-600 flex-shrink-0 p-1">
+                      <X size={14}/>
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* payment summary */}
+            {totalCost > 0 && (
+              <div className="mt-3 rounded-xl bg-gray-50 border border-gray-100 px-3 py-2 space-y-1 text-sm">
+                <div className="flex justify-between text-gray-600">
+                  <span>ต้นทุนรวม</span>
+                  <span className="font-semibold">฿{totalCost.toLocaleString('th-TH')}</span>
+                </div>
+                <div className="flex justify-between text-gray-600">
+                  <span>{purchaseType === 'installment' ? 'ชำระงวดแรก' : 'ชำระแล้ว'}</span>
+                  <span className="font-semibold text-blue-600">฿{totalPaid.toLocaleString('th-TH')}</span>
+                </div>
+                {remaining > 0 && (
+                  <div className="flex justify-between text-red-500 font-semibold border-t border-gray-200 pt-1 mt-1">
+                    <span>ค้างจ่ายค่าซื้อ</span>
+                    <span>฿{remaining.toLocaleString('th-TH')}</span>
+                  </div>
+                )}
+                {remaining === 0 && totalPaid > 0 && (
+                  <div className="flex justify-between text-green-600 font-semibold border-t border-gray-200 pt-1 mt-1">
+                    <span>ชำระครบแล้ว</span>
+                    <Check size={16}/>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* ── save ── */}
