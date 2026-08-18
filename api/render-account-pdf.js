@@ -56,15 +56,17 @@ export default async function handler(request, response) {
   let renderStage = 'font-loading'
   try {
     const printableHtml = await inlineReportFonts(html)
-    renderStage = 'browser-launch'
     const localChromePath = process.env.ACCOUNT_PDF_CHROME_PATH
     const headlessMode = localChromePath ? true : 'shell'
+    renderStage = 'browser-executable'
+    const executablePath = localChromePath || await chromium.executablePath()
+    renderStage = 'browser-launch'
     browser = await puppeteer.launch({
       args: localChromePath
         ? ['--no-sandbox', '--disable-setuid-sandbox']
-        : puppeteer.defaultArgs({ args: chromium.args, headless: headlessMode }),
+        : chromium.args,
       defaultViewport: { width: 1123, height: 794, deviceScaleFactor: 1 },
-      executablePath: localChromePath || await chromium.executablePath(),
+      executablePath,
       headless: headlessMode,
     })
     renderStage = 'page-render'
