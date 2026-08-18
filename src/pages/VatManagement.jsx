@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
+import * as XLSX from 'xlsx'
 import {
-  Building2, CalendarDays, CheckCircle2, FileClock, FileText, Printer,
+  Building2, CalendarDays, CheckCircle2, Download, FileClock, FileText, Printer,
   ReceiptText, RotateCcw, Save, Search, Settings2, ShieldCheck, Trash2, XCircle,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -24,7 +25,7 @@ const documentFormOf = (document, settings) => ({
   customer_name: document.customer_name || '',
   customer_tax_id: document.customer_tax_id || '',
   customer_address: document.customer_address || '',
-  customer_branch: document.customer_branch || '',
+  customer_branch: document.customer_branch || (document.document_type === 'full' ? 'สำนักงานใหญ่' : ''),
   customer_phone: document.customer_phone || '',
   note: document.note || (document.replacement_of_number ? `ออกเอกสารแทนฉบับเดิมเลขที่ ${document.replacement_of_number}` : ''),
   document_type: document.document_type || settings.default_document_type || 'abbreviated',
@@ -35,7 +36,7 @@ const emptySettings = {
   business_name: 'SMALL CAMERA', seller_name: '', business_tax_id: '', business_address: '',
   business_branch: 'สำนักงานใหญ่', business_phone: '', invoice_prefix: 'TAX',
   sequence_reset: 'yearly', footer_note: '', abbreviated_enabled: true,
-  abbreviated_invoice_prefix: 'ABB', abbreviated_sequence_reset: 'yearly',
+  abbreviated_invoice_prefix: 'SM', abbreviated_sequence_reset: 'monthly',
   abbreviated_last_sequence_key: null, abbreviated_last_invoice_number: 0,
   next_full_number: 1, next_abbreviated_number: 1,
   default_document_type: 'abbreviated', abbreviated_footer_note: '',
@@ -98,6 +99,14 @@ export default function VatManagement() {
     return !month || key === month
   }), [documents, month])
 
+  const reportMonths = useMemo(() => [...new Set([
+    nowMonth(),
+    ...documents.map(doc => {
+      const d = new Date(doc.document_date)
+      return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    }),
+  ])].sort((a, b) => b.localeCompare(a)), [documents])
+
   const filtered = useMemo(() => monthDocuments.filter(doc => {
     if (status !== 'all' && doc.status !== status) return false
     const q = search.trim().toLowerCase()
@@ -118,7 +127,7 @@ export default function VatManagement() {
     customer_name: customerForm.customer_name?.trim() || null,
     customer_tax_id: customerForm.customer_tax_id?.trim() || null,
     customer_address: customerForm.customer_address?.trim() || null,
-    customer_branch: customerForm.customer_branch?.trim() || null,
+    customer_branch: customerForm.customer_branch?.trim() || ((customerForm.document_type || selected.document_type) === 'full' ? 'สำนักงานใหญ่' : null),
     customer_phone: customerForm.customer_phone?.trim() || null,
     note: customerForm.note?.trim() || null,
   })
@@ -322,10 +331,57 @@ export default function VatManagement() {
     } catch (error) { toast.error(error.message) }
   }
 
+  const downloadVatReport = () => {
+    const taxPeriod = month
+      ? `เดือนภาษี ${periodLabel.replace(/\s+(\d+)$/, ' ปี $1')}`
+      : 'เดือนภาษี ทุกช่วงเวลา'
+    const rows = [
+      ['รายงานภาษีขาย'],
+      [taxPeriod.replace('เดือนภาษี ', 'เดือนภาษี : ').replace(' ปี ', ' ปี : ')],
+      ['ชื่อผู้ประกอบการ : หัสดิน วันปรีดี เลขที่ผู้เสียภาษี : 8580776004086 สาขา : สำนักงานใหญ่'],
+      ['ที่อยู่สถานที่ประกอบการ : 393/13 ซอยคอกหมูป่า ตำบลสันนาเม็ง อำเภอสันทราย จังหวัดเชียงใหม่ 50210'],
+      [],
+      ['ลำดับ', 'วันที่', 'เลขเอกสาร', 'ลูกค้า', 'เลขประจำตัวผู้เสียภาษี', 'สาขา', 'มูลค่าสินค้า', 'ภาษีมูลค่าเพิ่ม', 'ยอดรวม'],
+      ...activeMonthDocs.map((doc, index) => [
+        index + 1,
+        thDate(doc.document_date),
+        doc.document_number || 'ฉบับร่าง',
+        doc.customer_name || 'ลูกค้าทั่วไป',
+        doc.customer_tax_id || '-',
+        doc.customer_branch || (doc.document_type === 'full' ? 'สำนักงานใหญ่' : '-'),
+        Number(doc.subtotal || 0),
+        Number(doc.vat_amount || 0),
+        Number(doc.total_amount || 0),
+      ]),
+      [],
+      ['รวมทั้งรายงาน', '', '', '', '', '', totalBase, totalVat, totalGross],
+    ]
+    const worksheet = XLSX.utils.aoa_to_sheet(rows)
+    worksheet['!merges'] = [
+      XLSX.utils.decode_range('A1:I1'),
+      XLSX.utils.decode_range('A2:I2'),
+      XLSX.utils.decode_range('A3:I3'),
+      XLSX.utils.decode_range('A4:I4'),
+    ]
+    worksheet['!cols'] = [
+      { wch: 8 }, { wch: 14 }, { wch: 18 }, { wch: 24 }, { wch: 22 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 15 },
+    ]
+    for (let row = 7; row <= 6 + activeMonthDocs.length; row += 1) {
+      for (const column of ['G', 'H', 'I']) {
+        const cell = worksheet[`${column}${row}`]
+        if (cell) cell.z = '#,##0.00'
+      }
+    }
+    const totalsRow = 8 + activeMonthDocs.length
+    for (const column of ['G', 'H', 'I']) worksheet[`${column}${totalsRow}`].z = '#,##0.00'
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'รายงานภาษีขาย')
+    XLSX.writeFile(workbook, `รายงานภาษีขาย-${month || 'ทุกช่วงเวลา'}.xlsx`)
+  }
+
   const saveSettings = async () => {
     if (!settings.business_name.trim()) return toast.error('กรุณากรอกชื่อกิจการ')
     if (Number(settings.vat_rate) < 0) return toast.error('อัตรา VAT ไม่ถูกต้อง')
-    if (settings.abbreviated_enabled && (settings.invoice_prefix || 'TAX').trim().toUpperCase() === (settings.abbreviated_invoice_prefix || 'ABB').trim().toUpperCase()) return toast.error('คำนำหน้าเลขแบบเต็มรูปและแบบอย่างย่อต้องไม่ซ้ำกัน')
     setSaving(true)
     const payload = {
       id: 'main', enabled: Boolean(settings.enabled), vat_rate: Number(settings.vat_rate),
@@ -336,8 +392,8 @@ export default function VatManagement() {
       invoice_prefix: settings.invoice_prefix?.trim().toUpperCase() || 'TAX', sequence_reset: settings.sequence_reset,
       next_full_number: Math.max(1, Math.trunc(Number(settings.next_full_number) || 1)),
       abbreviated_enabled: Boolean(settings.abbreviated_enabled),
-      abbreviated_invoice_prefix: settings.abbreviated_invoice_prefix?.trim().toUpperCase() || 'ABB',
-      abbreviated_sequence_reset: settings.abbreviated_sequence_reset,
+      abbreviated_invoice_prefix: settings.abbreviated_invoice_prefix?.trim().toUpperCase() || 'SM',
+      abbreviated_sequence_reset: 'monthly',
       next_abbreviated_number: Math.max(1, Math.trunc(Number(settings.next_abbreviated_number) || 1)),
       default_document_type: !settings.abbreviated_enabled || settings.default_document_type === 'full' ? 'full' : 'abbreviated',
       abbreviated_footer_note: settings.abbreviated_footer_note?.trim() || null,
@@ -437,8 +493,8 @@ export default function VatManagement() {
               <div className="vat-document-type-picker">
                 <div><strong>ชนิดใบกำกับภาษี</strong><p>{selected.status === 'draft' ? 'เลือกได้ก่อนออกเอกสาร' : 'ออกเอกสารแล้ว'}</p></div>
                 <div className="vat-type-options">
-                  <button disabled={selected.status !== 'draft' || !settings.abbreviated_enabled} className={(customerForm.document_type || selected.document_type) === 'abbreviated' ? 'is-active' : ''} onClick={() => setCustomerForm({...customerForm, document_type:'abbreviated'})}>อย่างย่อ</button>
-                  <button disabled={selected.status !== 'draft'} className={(customerForm.document_type || selected.document_type) === 'full' ? 'is-active' : ''} onClick={() => setCustomerForm({...customerForm, document_type:'full'})}>เต็มรูป</button>
+                  <button disabled={selected.status !== 'draft' || !settings.abbreviated_enabled} className={(customerForm.document_type || selected.document_type) === 'abbreviated' ? 'is-active' : ''} onClick={() => setCustomerForm({...customerForm, document_type:'abbreviated', customer_branch:selected.customer_branch || ''})}>อย่างย่อ</button>
+                  <button disabled={selected.status !== 'draft'} className={(customerForm.document_type || selected.document_type) === 'full' ? 'is-active' : ''} onClick={() => setCustomerForm({...customerForm, document_type:'full', customer_branch:customerForm.customer_branch || 'สำนักงานใหญ่'})}>เต็มรูป</button>
                 </div>
               </div>
 
@@ -474,18 +530,22 @@ export default function VatManagement() {
         <section className="vat-report-workspace">
           <div className="vat-report-head">
             <div><p className="vat-kicker">รายงานภาษีขาย</p><h2>{periodLabel}</h2></div>
-            <button onClick={printReport}><Printer size={16}/>พิมพ์รายงาน</button>
+            <div className="vat-report-controls">
+              <label className="vat-month-field"><CalendarDays size={16}/><select aria-label="เลือกเดือนรายงานภาษีขาย" value={month} onChange={e => setMonth(e.target.value)}>{reportMonths.map(value => <option key={value} value={value}>{new Date(`${value}-01T12:00:00`).toLocaleDateString('th-TH', { month: 'long', year: 'numeric' })}</option>)}</select></label>
+              <button className="vat-report-excel" onClick={downloadVatReport}><Download size={16}/>ดาวน์โหลด Excel</button>
+              <button onClick={printReport}><Printer size={16}/>พิมพ์รายงาน</button>
+            </div>
           </div>
           <div className="vat-report-totals">
             <div><span>มูลค่าก่อน VAT</span><strong>฿{fmt(totalBase)}</strong></div>
-            <div><span>ภาษีขาย</span><strong>฿{fmt(totalVat)}</strong></div>
+            <div><span>ภาษีมูลค่าเพิ่ม</span><strong>฿{fmt(totalVat)}</strong></div>
             <div><span>ภาษีซื้อใช้หัก</span><strong>฿0.00</strong><small>รับซื้อจากบุคคลทั่วไป</small></div>
             <div className="is-payable"><span>ประมาณการ VAT นำส่ง</span><strong>฿{fmt(totalVat)}</strong></div>
           </div>
           <div className="vat-report-table-wrap">
-            <table className="vat-report-table"><colgroup><col className="vat-report-date-col"/><col className="vat-report-customer-col"/><col className="vat-report-money-col"/><col className="vat-report-money-col"/><col className="vat-report-money-col"/></colgroup><thead><tr><th>วันที่/เอกสาร</th><th>ลูกค้า</th><th>ก่อน VAT</th><th>VAT</th><th>รวม</th></tr></thead><tbody>
-              {activeMonthDocs.map(doc => <tr key={doc.id}><td><strong>{thDate(doc.document_date)}</strong><small>{doc.document_number || 'ฉบับร่าง'} · {documentTypeLabel(doc.document_type)}</small></td><td>{doc.customer_name || 'ลูกค้าทั่วไป'}</td><td>฿{fmt(doc.subtotal)}</td><td>฿{fmt(doc.vat_amount)}</td><td>฿{fmt(doc.total_amount)}</td></tr>)}
-              {!activeMonthDocs.length && <tr><td colSpan="5" className="vat-empty">ไม่มีรายการในเดือนนี้</td></tr>}
+            <table className="vat-report-table"><colgroup><col className="vat-report-date-col"/><col className="vat-report-customer-col"/><col className="vat-report-tax-col"/><col className="vat-report-branch-col"/><col className="vat-report-money-col"/><col className="vat-report-money-col"/><col className="vat-report-money-col"/></colgroup><thead><tr><th>วันที่/เอกสาร</th><th>ลูกค้า</th><th>เลขประจำตัวผู้เสียภาษี</th><th>สาขา</th><th>มูลค่าสินค้า</th><th>ภาษีมูลค่าเพิ่ม</th><th>รวม</th></tr></thead><tbody>
+              {activeMonthDocs.map(doc => <tr key={doc.id}><td><strong>{thDate(doc.document_date)}</strong><small>{doc.document_number || 'ฉบับร่าง'} · {documentTypeLabel(doc.document_type)}</small></td><td>{doc.customer_name || 'ลูกค้าทั่วไป'}</td><td>{doc.customer_tax_id || '-'}</td><td>{doc.customer_branch || (doc.document_type === 'full' ? 'สำนักงานใหญ่' : '-')}</td><td>฿{fmt(doc.subtotal)}</td><td>฿{fmt(doc.vat_amount)}</td><td>฿{fmt(doc.total_amount)}</td></tr>)}
+              {!activeMonthDocs.length && <tr><td colSpan="7" className="vat-empty">ไม่มีรายการในเดือนนี้</td></tr>}
             </tbody></table>
           </div>
           <p className="vat-audit-note">ยอดฉบับร่างรวมอยู่ในรายงานเพื่อให้ภาษีขายตรงกับวันที่ขายจริง ส่วนเอกสารยกเลิกจะไม่รวมยอด</p>
@@ -532,7 +592,7 @@ export default function VatManagement() {
           <div className="vat-settings-section is-abbreviated">
             <div className="vat-settings-section-head vat-setting-inline"><div><h3>ใบกำกับภาษีอย่างย่อ</h3><p>สำหรับลูกค้าทั่วไปที่ไม่ให้ข้อมูลครบ</p></div><button aria-label="เปิดใบกำกับภาษีอย่างย่อ" onClick={() => setSettings({...settings,abbreviated_enabled:!settings.abbreviated_enabled,default_document_type:settings.abbreviated_enabled ? 'full' : settings.default_document_type})} className={`vat-mini-toggle ${settings.abbreviated_enabled ? 'is-on' : ''}`}><span/></button></div>
             <div className="vat-settings-grid">
-              <label><span>คำนำหน้าเลข</span><input disabled={!settings.abbreviated_enabled} value={settings.abbreviated_invoice_prefix || ''} onChange={e => setSettings({...settings,abbreviated_invoice_prefix:e.target.value})} placeholder="ABB"/></label>
+              <label><span>คำนำหน้าเลข</span><input disabled={!settings.abbreviated_enabled} value={settings.abbreviated_invoice_prefix || ''} onChange={e => setSettings({...settings,abbreviated_invoice_prefix:e.target.value})} placeholder="SM"/></label>
               <label><span>เลขลำดับที่จะใช้กับแผ่นถัดไป</span><input type="number" min="1" step="1" disabled={!settings.abbreviated_enabled} value={settings.next_abbreviated_number ?? 1} onChange={e => setSettings({...settings,next_abbreviated_number:e.target.value})}/></label>
               <label className="vat-full-field"><span>ข้อความท้ายใบกำกับภาษีอย่างย่อ</span><textarea disabled={!settings.abbreviated_enabled} rows="2" value={settings.abbreviated_footer_note || ''} onChange={e => setSettings({...settings,abbreviated_footer_note:e.target.value})}/></label>
             </div>

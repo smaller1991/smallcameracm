@@ -4,8 +4,8 @@
 ALTER TABLE public.vat_settings
   ADD COLUMN IF NOT EXISTS seller_name TEXT,
   ADD COLUMN IF NOT EXISTS abbreviated_enabled BOOLEAN NOT NULL DEFAULT true,
-  ADD COLUMN IF NOT EXISTS abbreviated_invoice_prefix TEXT NOT NULL DEFAULT 'ABB',
-  ADD COLUMN IF NOT EXISTS abbreviated_sequence_reset TEXT NOT NULL DEFAULT 'yearly',
+  ADD COLUMN IF NOT EXISTS abbreviated_invoice_prefix TEXT NOT NULL DEFAULT 'SM',
+  ADD COLUMN IF NOT EXISTS abbreviated_sequence_reset TEXT NOT NULL DEFAULT 'monthly',
   ADD COLUMN IF NOT EXISTS abbreviated_last_sequence_key TEXT,
   ADD COLUMN IF NOT EXISTS abbreviated_last_invoice_number BIGINT NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS default_document_type TEXT NOT NULL DEFAULT 'abbreviated',

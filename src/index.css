@@ -1045,6 +1045,7 @@ textarea::placeholder {
   background: var(--surface-2);
 }
 .vat-month-field input,
+.vat-month-field select,
 .vat-search-field input { width: 100%; min-width: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-size: .8rem; }
 .vat-status-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: .3rem; }
 .vat-status-row button {
@@ -1153,6 +1154,10 @@ textarea::placeholder {
 }
 .vat-inspector-head h2,
 .vat-report-head h2 { margin-top: .1rem; font-size: 1rem; font-weight: 850; }
+.vat-report-controls { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: .45rem; }
+.vat-report-head .vat-report-excel { border: 1px solid var(--line); background: var(--surface-2); color: var(--ink) !important; }
+#root .vat-report-head .vat-report-excel,
+#root .vat-report-head .vat-report-excel * { color: var(--ink) !important; }
 .vat-locked-sale { padding: .65rem 0; border-bottom: 1px solid var(--line); }
 .vat-locked-sale > div { display: flex; justify-content: space-between; gap: .8rem; padding: .28rem 0; font-size: .75rem; }
 .vat-locked-sale > div:nth-last-child(-n+3) span { color: var(--muted) !important; }
@@ -1262,7 +1267,7 @@ textarea::placeholder {
 .vat-report-totals .is-payable { background: #e5cbc7; border-color: #cfaaa3; }
 .vat-report-totals .is-payable strong { color: var(--red) !important; }
 .vat-report-table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 14px; }
-.vat-report-table { width: 100%; min-width: 610px; border-collapse: collapse; font-size: .68rem; }
+.vat-report-table { width: 100%; min-width: 820px; border-collapse: collapse; font-size: .68rem; }
 .vat-report-table th { padding: .55rem; background: var(--surface-2); text-align: left; color: var(--muted) !important; }
 .vat-report-table td { padding: .55rem; border-top: 1px solid var(--line); }
 .vat-report-table td:nth-last-child(-n+3) { text-align: right; white-space: nowrap; }
@@ -1302,11 +1307,13 @@ textarea::placeholder {
   .vat-modal-backdrop { padding: max(.45rem, env(safe-area-inset-top)) max(.45rem, env(safe-area-inset-right)) max(.45rem, env(safe-area-inset-bottom)) max(.45rem, env(safe-area-inset-left)); }
   .vat-modal { max-height: calc(100dvh - .9rem - env(safe-area-inset-top) - env(safe-area-inset-bottom)); border-radius: 18px; }
   .vat-modal > .vat-actions > button { flex: 1 1 135px; justify-content: center; }
-  .vat-report-table-wrap { overflow-x: hidden; }
-  .vat-report-table { min-width: 0; table-layout: fixed; font-size: .56rem; }
-  .vat-report-table .vat-report-date-col { width: 29%; }
-  .vat-report-table .vat-report-customer-col { width: 20%; }
-  .vat-report-table .vat-report-money-col { width: 17%; }
+  .vat-report-table-wrap { overflow-x: auto; }
+  .vat-report-table { min-width: 760px; table-layout: fixed; font-size: .56rem; }
+  .vat-report-table .vat-report-date-col { width: 16%; }
+  .vat-report-table .vat-report-customer-col { width: 17%; }
+  .vat-report-table .vat-report-tax-col { width: 19%; }
+  .vat-report-table .vat-report-branch-col { width: 12%; }
+  .vat-report-table .vat-report-money-col { width: 12%; }
   .vat-report-table th,
   .vat-report-table td { padding: .38rem .2rem; overflow-wrap: anywhere; }
   .vat-report-table th { font-size: .53rem; line-height: 1.25; }
