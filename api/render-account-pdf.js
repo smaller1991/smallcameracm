@@ -29,8 +29,10 @@ async function loadFontUrls() {
 }
 
 async function inlineReportFonts(html) {
+  const requiredPaths = Object.keys(fontFiles).filter(path => html.includes(path))
+  if (!requiredPaths.length) return html
   const fonts = await loadFontUrls()
-  return Object.entries(fonts).reduce(
+  return Object.entries(fonts).filter(([path]) => requiredPaths.includes(path)).reduce(
     (result, [path, dataUrl]) => result.replaceAll(path, dataUrl),
     html,
   )
@@ -51,8 +53,10 @@ export default async function handler(request, response) {
   }
 
   let browser
+  let renderStage = 'font-loading'
   try {
     const printableHtml = await inlineReportFonts(html)
+    renderStage = 'browser-launch'
     const localChromePath = process.env.ACCOUNT_PDF_CHROME_PATH
     const headlessMode = localChromePath ? true : 'shell'
     browser = await puppeteer.launch({
@@ -63,6 +67,7 @@ export default async function handler(request, response) {
       executablePath: localChromePath || await chromium.executablePath(),
       headless: headlessMode,
     })
+    renderStage = 'page-render'
     const page = await browser.newPage()
     await page.setContent(printableHtml, { waitUntil: 'networkidle0' })
     await page.evaluate(async () => {
@@ -71,6 +76,7 @@ export default async function handler(request, response) {
         throw new Error('PromptReport font did not load')
       }
     })
+    renderStage = 'pdf-output'
     const pdf = await page.pdf({
       format: 'A4',
       landscape: true,
@@ -85,7 +91,8 @@ export default async function handler(request, response) {
     return response.status(200).send(Buffer.from(pdf))
   } catch (error) {
     console.error('Account PDF render failed:', error)
-    return response.status(500).json({ error: 'Unable to render account PDF' })
+    response.setHeader('X-Account-PDF-Stage', renderStage)
+    return response.status(500).json({ error: 'Unable to render account PDF', stage: renderStage })
   } finally {
     if (browser) await browser.close()
   }

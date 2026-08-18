@@ -1,7 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/render-account-pdf.js": { "maxDuration": 60 }
+    "api/render-account-pdf.js": {
+      "maxDuration": 60,
+      "includeFiles": "public/fonts/**"
+    }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }
