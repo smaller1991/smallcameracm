@@ -1006,10 +1006,11 @@ function accountPdfGroupRowsHtml(rows) {
     const rowSpan = Number(cell?.rowSpan || 1)
     return rowSpan > 1 ? wrappedLineCount(cell) : 0
   })), 0)
-  // Match Excel's grouped layout: every product row receives an equal share of
-  // the space required by the merged note/customer cells. This prevents a long
-  // rowspan from compressing one product row and leaving a large blank row.
-  const minimumGroupHeight = Math.max(rows.length * 54, mergedContentLines * 15 + 18)
+  // Match Excel's grouped layout while keeping account PDF rows compact. The
+  // customer/note columns use 7px text with a 1.52 line-height, so sizing them
+  // with the old 15px-per-line estimate left a large amount of unused space.
+  // Content can still expand a row naturally when it needs more room.
+  const minimumGroupHeight = Math.max(rows.length * 44, mergedContentLines * 11 + 12)
   const rowHeight = Math.ceil(minimumGroupHeight / Math.max(1, rows.length))
   const renderCellLines = value => accountPdfEscape(value)
     .split('\n')
@@ -1090,7 +1091,7 @@ async function renderTransactionsPdfFromHtml({ title, groups, stats, summary, co
     td{padding:6px 4px;border-right:1.25px solid #e9b7b2;border-bottom:1.25px solid #e9b7b2;vertical-align:middle;font-size:8.4px;line-height:1.75;font-weight:400;overflow-wrap:anywhere;word-break:normal;letter-spacing:normal;word-spacing:normal}
     .cell-line{display:block;min-height:1.75em;line-height:1.75;white-space:normal}
     .report-group:last-of-type tr:last-child td{border-bottom:0}
-    .band-1 td{background:#fff8f7}.numeric{text-align:right;font-size:7.6px;font-variant-numeric:tabular-nums;white-space:normal;overflow-wrap:anywhere}.centered{text-align:center}td[data-col="1"],td[data-col="11"]{font-size:7.6px;white-space:normal}td[data-col="13"],td[data-col="14"]{font-size:7px;line-height:1.52}td[data-col="13"] .cell-line,td[data-col="14"] .cell-line{min-height:1.52em;line-height:1.52}td[data-col="14"]{vertical-align:top;padding-top:7px;padding-bottom:7px}td[data-col="15"],td[data-col="16"],td[data-col="17"]{font-size:7.2px}.column-totals td{height:40px;background:#fff1ef;border-top:1.5px solid #d32f23;border-bottom:0;font-size:8px;font-weight:600;vertical-align:middle}.column-totals td:last-child{border-right:0}.column-totals .numeric{font-size:7px;line-height:1.5;white-space:nowrap}
+    .band-1 td{background:#fff8f7}.numeric{text-align:right;font-size:7.6px;font-variant-numeric:tabular-nums;white-space:normal;overflow-wrap:anywhere}.centered{text-align:center}td[data-col="1"],td[data-col="11"]{font-size:7.6px;white-space:normal}td[data-col="13"],td[data-col="14"]{font-size:7px;line-height:1.52}td[data-col="13"] .cell-line,td[data-col="14"] .cell-line{min-height:1.52em;line-height:1.52}td[data-col="13"],td[data-col="14"]{padding-top:5px;padding-bottom:5px}td[data-col="14"]{vertical-align:top}td[data-col="15"],td[data-col="16"],td[data-col="17"]{font-size:7.2px}.column-totals td{height:40px;background:#fff1ef;border-top:1.5px solid #d32f23;border-bottom:0;font-size:8px;font-weight:600;vertical-align:middle}.column-totals td:last-child{border-right:0}.column-totals .numeric{font-size:7px;line-height:1.5;white-space:nowrap}
     .column-totals .total-label{text-align:center;color:#9b2119;font-size:8.2px}.column-totals .balance-skip{text-align:center;color:#a78b87;font-weight:400}
     .summary{min-height:54px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1.25px solid #e9b7b2;border-radius:11px;overflow:hidden;margin-top:7px;background:#fff1ef}
     .summary div{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:center;gap:9px;padding:7px 10px;border-right:1.25px solid #e9b7b2;font-size:8px;line-height:1.55}.summary div:last-child{border-right:0}.summary span{min-width:0;margin:0;overflow-wrap:anywhere}.summary strong{font-size:8.2px;line-height:1.55;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
