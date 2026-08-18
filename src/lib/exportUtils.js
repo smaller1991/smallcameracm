@@ -23,6 +23,22 @@ const profitAfterVat = (saleAmount, cost, transaction) => roundMoney(
 const productProfitAfterVat = product => roundMoney(
   amountBeforeVat(product?.sold_price, product?._vatDocument) - Number(product?.total_cost || 0),
 )
+const appendVatDocumentNumbers = (note, transactions) => {
+  const numbers = [...new Set((transactions || [])
+    .map(transaction => vatDocumentOf(transaction))
+    .filter(document => document?.status !== 'void' && String(document?.document_number || '').trim())
+    .map(document => String(document.document_number).trim()))]
+  if (!numbers.length) return note
+  return [note, numbers.map(number => `(${number})`).join('\n')].filter(Boolean).join('\n\n')
+}
+const inventoryReportNote = product => {
+  const addOns = (product?.report_add_ons || []).map(addOn => {
+    const purchasedDate = addOn.purchased_at ? ` (${thDateShort(addOn.purchased_at)})` : ''
+    return `- ${addOn.name || 'อุปกรณ์เสริม'} ฿${Number(addOn.cost || 0).toLocaleString('th-TH')}${purchasedDate}`
+  })
+  const accessoryBlock = addOns.length ? `อุปกรณ์เสริม\n${addOns.join('\n')}` : ''
+  return [accessoryBlock, String(product?.notes || '').trim()].filter(Boolean).join('\n\n')
+}
 const THAI_MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
 const dateAtLocalMidnight = value => value ? new Date(`${String(value).slice(0, 10)}T00:00:00`) : null
 const isLastDayOfMonth = date => date && date.getDate() === new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate()
@@ -197,26 +213,15 @@ function write(rows, sheet, filename) {
   XLSX.writeFile(wb, filename)
 }
 
-export function exportInventory(products, statusFilter = 'all') {
-  const rows = products
-    .filter(p => statusFilter === 'all' || p.status === statusFilter)
-    .map(p => ({
-      'รุ่น':              p.model,
-      'Serial Number':     p.serial_number,
-      'เกรดสภาพ':         p.condition,
-      'สถานะ':            STATUS_TH[p.status] || p.status,
-      'ต้นทุนเริ่มต้น':   Number(p.base_cost),
-      'ต้นทุนรวม':        Number(p.total_cost),
-      'ราคาขาย':          p.sold_price ? Number(p.sold_price) : '',
-      'กำไร':             p.sold_price ? productProfitAfterVat(p) : '',
-      'วันที่รับเข้า':    thDate(p.created_at),
-      'วันที่ขาย':        thDate(p.sold_date),
-      'วันหมดประกัน':    thDate(p.warranty_expiry),
-      'รายละเอียดลูกค้า': p.customer_note || '',
-      'หมายเหตุ':         p.notes || '',
-    }))
-  if (!rows.length) return alert('ไม่มีข้อมูล')
-  write(rows, 'สต็อกสินค้า', `สต็อกสินค้า_${stamp()}.xlsx`)
+export async function exportInventory(products, statusFilter = 'all') {
+  const buffer = await buildInventoryXLSX(products, statusFilter)
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `สต็อกสินค้า_${stamp()}.xlsx`
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 const accountPaymentText = (tx, type) => {
@@ -429,7 +434,7 @@ const excelReportNote = (group, groupIndex, installment, items) => {
 
 const ACCOUNT_XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
-  <fonts count="8">
+  <fonts count="9">
     <font><sz val="10"/><color rgb="FF2E1D19"/><name val="Sarabun"/></font>
     <font><b/><sz val="16"/><color rgb="FFD32F23"/><name val="Sarabun"/></font>
     <font><b/><sz val="9"/><color rgb="FFFFFFFF"/><name val="Sarabun"/></font>
@@ -438,6 +443,7 @@ const ACCOUNT_XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="ye
     <font><b/><sz val="12"/><color rgb="FF16A34A"/><name val="Sarabun"/></font>
     <font><b/><sz val="12"/><color rgb="FFD32F23"/><name val="Sarabun"/></font>
     <font><b/><sz val="9"/><color rgb="FF2E1D19"/><name val="Sarabun"/></font>
+    <font><sz val="7.5"/><color rgb="FF2E1D19"/><name val="Sarabun"/></font>
   </fonts>
   <fills count="6">
     <fill><patternFill patternType="none"/></fill>
@@ -452,7 +458,7 @@ const ACCOUNT_XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="ye
     <border><left style="thin"><color rgb="FFF5CDC9"/></left><right style="thin"><color rgb="FFF5CDC9"/></right><top style="thin"><color rgb="FFF5CDC9"/></top><bottom style="thin"><color rgb="FFF5CDC9"/></bottom><diagonal/></border>
   </borders>
   <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
-  <cellXfs count="15">
+  <cellXfs count="18">
     <xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>
     <xf numFmtId="0" fontId="1" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
     <xf numFmtId="0" fontId="2" fillId="2" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
@@ -468,13 +474,16 @@ const ACCOUNT_XLSX_STYLES = `<?xml version="1.0" encoding="UTF-8" standalone="ye
     <xf numFmtId="0" fontId="4" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center"/></xf>
     <xf numFmtId="0" fontId="3" fillId="4" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
     <xf numFmtId="0" fontId="3" fillId="3" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="center" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="8" fillId="4" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="0" fontId="8" fillId="3" borderId="1" xfId="0" applyAlignment="1"><alignment horizontal="left" vertical="center" wrapText="1"/></xf>
+    <xf numFmtId="4" fontId="7" fillId="5" borderId="1" xfId="0" applyNumberFormat="1" applyAlignment="1"><alignment horizontal="right" vertical="center" wrapText="1"/></xf>
   </cellXfs>
   <cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles>
   <dxfs count="0"/>
   <tableStyles count="0" defaultTableStyle="TableStyleMedium9" defaultPivotStyle="PivotStyleMedium4"/>
 </styleSheet>`
 
-const styleAccountWorkbookBuffer = async (buffer, { dataStartRow, dataEndRow, footerRow, bandIndexes = [], rowHeights = [] }) => {
+const styleAccountWorkbookBuffer = async (buffer, { dataStartRow, dataEndRow, totalsRow, footerRow, bandIndexes = [], rowHeights = [] }) => {
   const zip = await JSZip.loadAsync(buffer)
   let sheetXml = await zip.file('xl/worksheets/sheet1.xml').async('string')
   const numericColumns = new Set(['D','E','F','G','H','I','M','P','Q','R'])
@@ -489,14 +498,21 @@ const styleAccountWorkbookBuffer = async (buffer, { dataStartRow, dataEndRow, fo
     else if (row === 6) style = 2
     else if (row >= dataStartRow && row <= dataEndRow) {
       const alternate = Number(bandIndexes[row - dataStartRow] || 0) % 2 === 1
-      style = numericColumns.has(column) ? (alternate ? 6 : 5) : centeredColumns.has(column) ? (alternate ? 14 : 13) : (alternate ? 4 : 3)
-    } else if (row === footerRow) style = 10
+      style = ['N','O'].includes(column)
+        ? (alternate ? 16 : 15)
+        : numericColumns.has(column)
+          ? (alternate ? 6 : 5)
+          : centeredColumns.has(column)
+            ? (alternate ? 14 : 13)
+            : (alternate ? 4 : 3)
+    } else if (row === totalsRow) style = numericColumns.has(column) ? 17 : 10
+    else if (row === footerRow) style = 10
     return `<c r="${column}${rowText}" s="${style}"${rest}>`
   })
   sheetXml = sheetXml.replace(/<row r="(\d+)"([^>]*)>/g, (tag, rowText, rest) => {
     const row = Number(rowText)
     const dataHeight = rowHeights[row - dataStartRow]
-    const height = row === 1 ? 28 : row === 3 ? 20 : row === 4 ? 26 : row === 6 ? 34 : row === footerRow ? 28 : row >= dataStartRow && row <= dataEndRow ? (dataHeight || 40) : 20
+    const height = row === 1 ? 28 : row === 3 ? 20 : row === 4 ? 26 : row === 6 ? 34 : row === totalsRow ? 26 : row === footerRow ? 28 : row >= dataStartRow && row <= dataEndRow ? (dataHeight || 40) : 20
     return `<row r="${rowText}" ht="${height}" customHeight="1"${rest}>`
   })
   sheetXml = sheetXml.replace('<sheetView workbookViewId="0"/>', '<sheetView showGridLines="0" workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView>')
@@ -506,6 +522,111 @@ const styleAccountWorkbookBuffer = async (buffer, { dataStartRow, dataEndRow, fo
   zip.file('xl/styles.xml', ACCOUNT_XLSX_STYLES)
   zip.file('xl/worksheets/sheet1.xml', sheetXml)
   return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } })
+}
+
+const styleInventoryWorkbookBuffer = async (buffer, { dataStartRow, dataEndRow, totalsRow, footerRow, rowHeights = [] }) => {
+  const zip = await JSZip.loadAsync(buffer)
+  let sheetXml = await zip.file('xl/worksheets/sheet1.xml').async('string')
+  const numericColumns = new Set(['G','H','I','J'])
+  const centeredColumns = new Set(['A','D','E','F','K','L'])
+  sheetXml = sheetXml.replace(/<c r="([A-Z]+)(\d+)"([^>]*)>/g, (tag, column, rowText, rest) => {
+    const row = Number(rowText)
+    let style = 0
+    if (row === 1) style = column < 'K' ? 1 : 11
+    else if (row === 3) style = 7
+    else if (row === 4) style = ['G','K'].includes(column) ? 9 : 8
+    else if (row === 5) style = 12
+    else if (row === 6) style = 2
+    else if (row >= dataStartRow && row <= dataEndRow) {
+      const alternate = (row - dataStartRow) % 2 === 1
+      style = ['M','N'].includes(column)
+        ? (alternate ? 16 : 15)
+        : numericColumns.has(column)
+          ? (alternate ? 6 : 5)
+          : centeredColumns.has(column)
+            ? (alternate ? 14 : 13)
+            : (alternate ? 4 : 3)
+    } else if (row === totalsRow) style = numericColumns.has(column) ? 17 : 10
+    else if (row === footerRow) style = 10
+    return `<c r="${column}${rowText}" s="${style}"${rest}>`
+  })
+  sheetXml = sheetXml.replace(/<row r="(\d+)"([^>]*)>/g, (tag, rowText, rest) => {
+    const row = Number(rowText)
+    const dataHeight = rowHeights[row - dataStartRow]
+    const height = row === 1 ? 28 : row === 3 ? 20 : row === 4 ? 26 : row === 6 ? 34 : row === totalsRow ? 26 : row === footerRow ? 28 : row >= dataStartRow && row <= dataEndRow ? (dataHeight || 42) : 20
+    return `<row r="${rowText}" ht="${height}" customHeight="1"${rest}>`
+  })
+  sheetXml = sheetXml.replace('<sheetView workbookViewId="0"/>', '<sheetView showGridLines="0" workbookViewId="0"><pane ySplit="6" topLeftCell="A7" activePane="bottomLeft" state="frozen"/></sheetView>')
+  sheetXml = sheetXml.replace(/<pageMargins[^>]*\/>/g, '')
+  sheetXml = sheetXml.replace(/<pageSetup[^>]*\/>/g, '')
+  sheetXml = sheetXml.replace('</worksheet>', '<printOptions horizontalCentered="1"/><pageMargins left="0.25" right="0.25" top="0.35" bottom="0.35" header="0.15" footer="0.15"/><pageSetup paperSize="9" orientation="landscape" fitToWidth="1" fitToHeight="0"/></worksheet>')
+  zip.file('xl/styles.xml', ACCOUNT_XLSX_STYLES)
+  zip.file('xl/worksheets/sheet1.xml', sheetXml)
+  return zip.generateAsync({ type: 'arraybuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } })
+}
+
+export async function buildInventoryXLSX(products, statusFilter = 'all') {
+  const filtered = sortProductsForStockPDF(products.filter(product => statusFilter === 'all' || product.status === statusFilter))
+  if (!filtered.length) throw new Error('ไม่มีข้อมูล')
+  const totalBaseCost = roundMoney(filtered.reduce((sum, product) => sum + Number(product.base_cost || 0), 0))
+  const totalCost = roundMoney(filtered.reduce((sum, product) => sum + Number(product.total_cost || 0), 0))
+  const totalSold = roundMoney(filtered.reduce((sum, product) => sum + Number(product.sold_price || 0), 0))
+  const totalProfit = roundMoney(filtered.reduce((sum, product) => sum + (product.sold_price ? productProfitAfterVat(product) : 0), 0))
+  const soldCount = filtered.filter(product => product.status === 'Sold').length
+  const title = `รายงานสต็อกสินค้า - ${statusFilter === 'all' ? 'ทั้งหมด' : STATUS_TH[statusFilter] || statusFilter}`
+  const header = ['ลำดับ','รุ่น','Serial Number','ประเภท','เกรดสภาพ','สถานะ','ต้นทุนเริ่มต้น','ต้นทุนรวม','ราคาขาย','กำไร','วันที่รับเข้า','วันที่ขาย','รายละเอียดลูกค้า','หมายเหตุ']
+  const reportRows = filtered.map((product, index) => [
+    index + 1,
+    product.model || '',
+    product.serial_number || '',
+    product.category || 'กล้อง',
+    String(product.condition || ''),
+    STATUS_TH[product.status] || product.status || '',
+    Number(product.base_cost || 0),
+    Number(product.total_cost || 0),
+    product.sold_price ? Number(product.sold_price) : '',
+    product.sold_price ? productProfitAfterVat(product) : '',
+    thDate(product.created_at),
+    thDate(product.sold_date),
+    product.customer_note || '',
+    inventoryReportNote(product),
+  ])
+  const rowHeights = filtered.map(product => {
+    const textLineCount = Math.max(
+      String(product.customer_note || '').split('\n').length,
+      inventoryReportNote(product).split('\n').length,
+    )
+    return Math.min(120, Math.max(42, textLineCount * 12 + 8))
+  })
+  const emptyRow = () => Array(14).fill('')
+  const rows = [
+    [title, ...Array(9).fill(''), 'SMALL CAMERA CM', ...Array(3).fill('')],
+    emptyRow(),
+    ['จำนวนรายการ','','','ขายแล้ว','','','ต้นทุนรวม','','','','กำไรรวม','','',''],
+    [filtered.length,'','',soldCount,'','',totalCost,'','','',totalProfit,'','',''],
+    [`จำนวนรายการ ${filtered.length} รายการ`, ...Array(13).fill('')],
+    header,
+    ...reportRows,
+    ['รวมตัวเลขในตาราง','','','','','',totalBaseCost,totalCost,totalSold,totalProfit,'','','',''],
+    [`จำนวนทั้งหมด ${filtered.length} รายการ`,'','','',`ขายแล้ว ${soldCount} รายการ`,'','',`ต้นทุนรวม ${totalCost.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,'','',`กำไรรวม ${totalProfit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,'','',''],
+  ]
+  const ws = XLSX.utils.aoa_to_sheet(rows)
+  const totalsRow = rows.length - 1
+  const footerRow = rows.length
+  ws['!merges'] = [
+    { s:{r:0,c:0}, e:{r:0,c:9} }, { s:{r:0,c:10}, e:{r:0,c:13} },
+    { s:{r:2,c:0}, e:{r:2,c:2} }, { s:{r:2,c:3}, e:{r:2,c:5} }, { s:{r:2,c:6}, e:{r:2,c:9} }, { s:{r:2,c:10}, e:{r:2,c:13} },
+    { s:{r:3,c:0}, e:{r:3,c:2} }, { s:{r:3,c:3}, e:{r:3,c:5} }, { s:{r:3,c:6}, e:{r:3,c:9} }, { s:{r:3,c:10}, e:{r:3,c:13} },
+    { s:{r:totalsRow-1,c:0}, e:{r:totalsRow-1,c:5} },
+    { s:{r:footerRow-1,c:0}, e:{r:footerRow-1,c:3} }, { s:{r:footerRow-1,c:4}, e:{r:footerRow-1,c:6} },
+    { s:{r:footerRow-1,c:7}, e:{r:footerRow-1,c:9} }, { s:{r:footerRow-1,c:10}, e:{r:footerRow-1,c:13} },
+  ]
+  ws['!cols'] = [6,24,18,15,11,16,14,14,14,14,17,17,28,32].map(wch => ({ wch }))
+  ws['!autofilter'] = { ref: `A6:N${6 + reportRows.length}` }
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'สต็อกสินค้า')
+  const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
+  return styleInventoryWorkbookBuffer(buffer, { dataStartRow: 7, dataEndRow: 6 + reportRows.length, totalsRow, footerRow, rowHeights })
 }
 
 export async function buildTransactionsXLSX(transactions, from, to, balance = null, stockValue = null, allTransactions = transactions) {
@@ -537,7 +658,7 @@ export async function buildTransactionsXLSX(transactions, from, to, balance = nu
     const installment = group.txs.map(tx => installmentByTransactionId.get(tx.id)).find(Boolean) || null
     const items = excelReportItems(group)
     const isGrouped = items.length > 1
-    const mergedNote = excelReportNote(group, groupIndex, installment, items)
+    const mergedNote = appendVatDocumentNumbers(excelReportNote(group, groupIndex, installment, items), group.txs)
     const groupCustomerDetail = [...new Set(items
       .map(item => String(item.product?.customer_note || '').trim())
       .filter(Boolean))]
@@ -625,9 +746,11 @@ export async function buildTransactionsXLSX(transactions, from, to, balance = nu
     [`จำนวนรายการ ${reportGroups.length} รายการ`, ...Array(17).fill('')],
     header,
     ...reportRows,
+    ['รวมตัวเลขในตาราง','','',totalIncome,totalExpense,totalSaleAfterVat,totalVat,totalSaleGross,totalProfit,'','','',roundMoney(reportRows.reduce((sum, row) => sum + Number(row[12] || 0), 0)),'','','','',''],
     [`ยอดรวมก่อนหัก ${totalSaleGross.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,'','','','',`รวมยอด VAT 7% ${totalVat.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,'','','','',`ยอดรวมหลังหัก ${totalSaleAfterVat.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,'','','',`กำไรขั้นต้นไม่รวม VAT ${totalProfit.toLocaleString('th-TH', { minimumFractionDigits: 2 })} บาท`,'','',''],
   ]
   const ws = XLSX.utils.aoa_to_sheet(rows)
+  const totalsRow = rows.length - 1
   const footerRow = rows.length
   ws['!merges'] = [
     { s:{r:0,c:0}, e:{r:0,c:12} }, { s:{r:0,c:13}, e:{r:0,c:17} },
@@ -636,6 +759,7 @@ export async function buildTransactionsXLSX(transactions, from, to, balance = nu
     { s:{r:3,c:0}, e:{r:3,c:2} }, { s:{r:3,c:3}, e:{r:3,c:5} }, { s:{r:3,c:6}, e:{r:3,c:8} },
     { s:{r:3,c:9}, e:{r:3,c:11} }, { s:{r:3,c:12}, e:{r:3,c:14} }, { s:{r:3,c:15}, e:{r:3,c:17} },
     ...verticalMerges,
+    { s:{r:totalsRow-1,c:0}, e:{r:totalsRow-1,c:2} },
     { s:{r:footerRow-1,c:0}, e:{r:footerRow-1,c:4} }, { s:{r:footerRow-1,c:5}, e:{r:footerRow-1,c:9} },
     { s:{r:footerRow-1,c:10}, e:{r:footerRow-1,c:13} }, { s:{r:footerRow-1,c:14}, e:{r:footerRow-1,c:17} },
   ]
@@ -644,7 +768,7 @@ export async function buildTransactionsXLSX(transactions, from, to, balance = nu
   const wb = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(wb, ws, 'รายการบัญชี')
   const buffer = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-  return styleAccountWorkbookBuffer(buffer, { dataStartRow: 7, dataEndRow: 6 + reportRows.length, footerRow, bandIndexes: reportGroupIndexes, rowHeights })
+  return styleAccountWorkbookBuffer(buffer, { dataStartRow: 7, dataEndRow: 6 + reportRows.length, totalsRow, footerRow, bandIndexes: reportGroupIndexes, rowHeights })
 }
 
 export async function exportTransactions(transactions, from, to, balance = null, stockValue = null) {
@@ -798,52 +922,65 @@ const summaryFoot = (columnCount, lines) => {
 }
 
 // ─── Inventory PDF blob ───────────────────────────────────────
-async function buildInventoryPDF(filtered) {
-  const { doc, autoTable } = await initPDFDoc()
+async function buildInventoryPDF(filtered, statusFilter = 'all') {
   const sorted = sortProductsForStockPDF(filtered)
-
   const totalCost = sorted.reduce((a,p)=>a+Number(p.total_cost||0),0)
   const totalSold = sorted.reduce((a,p)=>p.sold_price?a+Number(p.sold_price):a,0)
   const soldCount = sorted.filter(p=>p.status==='Sold').length
   const totalProfit = sorted.reduce((a,p)=>p.sold_price?a+productProfitAfterVat(p):a,0)
-  let startY = drawReportHeader(doc, 'รายงานสต็อกสินค้า', `จำนวน ${sorted.length} รายการ`)
-  startY = drawStatCards(doc, [
-    { label: 'จำนวนรายการ', value: `${sorted.length} รายการ` },
-    { label: 'ขายแล้ว', value: `${soldCount} รายการ`, tone: 'in' },
-    { label: 'ต้นทุนรวม', value: moneyText(totalCost), tone: 'warn' },
-    { label: 'กำไรรวม', value: moneyText(totalProfit), tone: totalProfit >= 0 ? 'in' : 'out' },
-  ], startY)
-  const head = [['รุ่น','Serial','ประเภท','เกรด','สถานะ','ต้นทุนรวม','ราคาขาย','กำไร','วันรับเข้า','วันขาย','รายละเอียดลูกค้า','หมายเหตุ']]
-  const body = sorted.map(p => {
-    const profit = p.sold_price ? productProfitAfterVat(p) : ''
-    return [
-      p.model || '', p.serial_number || '', p.category || 'กล้อง',
-      String(p.condition || ''), STATUS_TH[p.status] || p.status,
-      Number(p.total_cost || 0).toLocaleString('th-TH'),
-      p.sold_price ? Number(p.sold_price).toLocaleString('th-TH') : '',
-      profit !== '' ? profit.toLocaleString('th-TH') : '',
-      thDate(p.created_at), thDate(p.sold_date),
-      p.customer_note || '', p.notes || '',
-    ]
-  })
-
-  autoTable(doc, {
-    ...reportTableOptions,
-    head, body, startY,
-    foot: summaryFoot(head[0].length, [
-      `ต้นทุนรวม ${Number(totalCost).toLocaleString('th-TH')} บาท`,
-      `ราคาขายรวม ${Number(totalSold).toLocaleString('th-TH')} บาท`,
-      `กำไรรวม ${Number(totalProfit).toLocaleString('th-TH')} บาท`,
+  const totalBaseCost = sorted.reduce((a,p)=>a+Number(p.base_cost||0),0)
+  return renderInventoryPdfFromHtml({
+    title: `รายงานสต็อกสินค้า - ${statusFilter === 'all' ? 'ทั้งหมด' : STATUS_TH[statusFilter] || statusFilter}`,
+    rows: sorted.map((product, index) => [
+      index + 1,
+      product.model || '',
+      product.serial_number || '',
+      product.category || 'กล้อง',
+      String(product.condition || ''),
+      STATUS_TH[product.status] || product.status || '',
+      Number(product.base_cost || 0),
+      Number(product.total_cost || 0),
+      product.sold_price ? Number(product.sold_price) : '',
+      product.sold_price ? productProfitAfterVat(product) : '',
+      thDate(product.created_at),
+      thDate(product.sold_date),
+      product.customer_note || '',
+      inventoryReportNote(product),
     ]),
-    columnStyles: {
-      0: { cellWidth: 32 }, 1: { cellWidth: 22 }, 2: { cellWidth: 16 },
-      3: { cellWidth: 10, halign: 'center' }, 4: { cellWidth: 18 },
-      5: { cellWidth: 20, halign: 'right' }, 6: { cellWidth: 18, halign: 'right' },
-      7: { cellWidth: 18, halign: 'right' }, 8: { cellWidth: 22 }, 9: { cellWidth: 22 },
-      10: { cellWidth: 40 }, 11: { cellWidth: 39 },
-    },
+    stats: [
+      { label: 'จำนวนรายการ', value: `${sorted.length} รายการ` },
+      { label: 'ขายแล้ว', value: `${soldCount} รายการ`, tone: 'in' },
+      { label: 'ต้นทุนรวม', value: moneyText(totalCost), tone: 'warn' },
+      { label: 'กำไรรวม', value: moneyText(totalProfit), tone: totalProfit >= 0 ? 'in' : 'out' },
+    ],
+    columnTotals: { baseCost: totalBaseCost, cost: totalCost, sold: totalSold, profit: totalProfit },
+    summary: [
+      { label: 'จำนวนทั้งหมด', value: `${sorted.length} รายการ` },
+      { label: 'ขายแล้ว', value: `${soldCount} รายการ` },
+      { label: 'ต้นทุนรวม', value: moneyText(totalCost) },
+      { label: 'กำไรรวม', value: moneyText(totalProfit) },
+    ],
   })
-  return doc.output('blob')
+}
+
+export async function previewInventoryPDFFile(products, statusFilter = 'all', previewWindow = null) {
+  const filtered = products.filter(product => statusFilter === 'all' || product.status === statusFilter)
+  if (!filtered.length) {
+    previewWindow?.close()
+    throw new Error('ไม่มีข้อมูล')
+  }
+  const preview = previewWindow || window.open('', '_blank')
+  if (!preview) throw new Error('กรุณาอนุญาต Pop-up เพื่อเปิดตัวอย่าง PDF')
+  try {
+    const blob = await buildInventoryPDF(filtered, statusFilter)
+    const url = URL.createObjectURL(blob)
+    preview.location.replace(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 10 * 60 * 1000)
+    return `สต็อกสินค้า_${stamp()}.pdf`
+  } catch (error) {
+    preview.close()
+    throw error
+  }
 }
 
 // ─── Transactions PDF blob ────────────────────────────────────
@@ -953,7 +1090,7 @@ async function renderTransactionsPdfFromHtml({ title, groups, stats, summary, co
     td{padding:6px 4px;border-right:1.25px solid #e9b7b2;border-bottom:1.25px solid #e9b7b2;vertical-align:middle;font-size:8.4px;line-height:1.75;font-weight:400;overflow-wrap:anywhere;word-break:normal;letter-spacing:normal;word-spacing:normal}
     .cell-line{display:block;min-height:1.75em;line-height:1.75;white-space:normal}
     .report-group:last-of-type tr:last-child td{border-bottom:0}
-    .band-1 td{background:#fff8f7}.numeric{text-align:right;font-size:7.6px;font-variant-numeric:tabular-nums;white-space:normal;overflow-wrap:anywhere}.centered{text-align:center}td[data-col="1"],td[data-col="11"]{font-size:7.6px;white-space:normal}td[data-col="14"]{vertical-align:top;padding-top:8px;padding-bottom:8px}td[data-col="15"],td[data-col="16"],td[data-col="17"]{font-size:7.2px}.column-totals td{height:40px;background:#fff1ef;border-top:1.5px solid #d32f23;border-bottom:0;font-size:8px;font-weight:600;vertical-align:middle}.column-totals td:last-child{border-right:0}.column-totals .numeric{font-size:7px;line-height:1.5;white-space:nowrap}
+    .band-1 td{background:#fff8f7}.numeric{text-align:right;font-size:7.6px;font-variant-numeric:tabular-nums;white-space:normal;overflow-wrap:anywhere}.centered{text-align:center}td[data-col="1"],td[data-col="11"]{font-size:7.6px;white-space:normal}td[data-col="13"],td[data-col="14"]{font-size:7px;line-height:1.52}td[data-col="13"] .cell-line,td[data-col="14"] .cell-line{min-height:1.52em;line-height:1.52}td[data-col="14"]{vertical-align:top;padding-top:7px;padding-bottom:7px}td[data-col="15"],td[data-col="16"],td[data-col="17"]{font-size:7.2px}.column-totals td{height:40px;background:#fff1ef;border-top:1.5px solid #d32f23;border-bottom:0;font-size:8px;font-weight:600;vertical-align:middle}.column-totals td:last-child{border-right:0}.column-totals .numeric{font-size:7px;line-height:1.5;white-space:nowrap}
     .column-totals .total-label{text-align:center;color:#9b2119;font-size:8.2px}.column-totals .balance-skip{text-align:center;color:#a78b87;font-weight:400}
     .summary{min-height:54px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1.25px solid #e9b7b2;border-radius:11px;overflow:hidden;margin-top:7px;background:#fff1ef}
     .summary div{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:center;gap:9px;padding:7px 10px;border-right:1.25px solid #e9b7b2;font-size:8px;line-height:1.55}.summary div:last-child{border-right:0}.summary span{min-width:0;margin:0;overflow-wrap:anywhere}.summary strong{font-size:8.2px;line-height:1.55;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
@@ -1047,6 +1184,112 @@ async function renderTransactionsPdfFromHtml({ title, groups, stats, summary, co
         windowWidth: 1123,
         windowHeight: 794,
       })
+      pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 297, 210, undefined, 'SLOW')
+    }
+    return pdf.output('blob')
+  } finally {
+    frame.remove()
+  }
+}
+
+async function renderInventoryPdfFromHtml({ title, rows, stats, summary, columnTotals }) {
+  const frame = document.createElement('iframe')
+  frame.setAttribute('aria-hidden', 'true')
+  Object.assign(frame.style, { position: 'fixed', left: '-12000px', top: '0', width: '1123px', height: '794px', border: '0' })
+  document.body.appendChild(frame)
+  const headers = ['ลำดับ','รุ่น','Serial Number','ประเภท','เกรดสภาพ','สถานะ','ต้นทุนเริ่มต้น','ต้นทุนรวม','ราคาขาย','กำไร','วันที่รับเข้า','วันที่ขาย','รายละเอียดลูกค้า','หมายเหตุ']
+  const widths = [6,24,18,15,11,16,14,14,14,14,17,17,28,32]
+  const widthTotal = widths.reduce((sum, width) => sum + width, 0)
+  const colgroup = `<colgroup>${widths.map(width => `<col style="width:${(width / widthTotal * 100).toFixed(4)}%">`).join('')}</colgroup>`
+  const tableHead = `<thead><tr>${headers.map((header, index) => `<th data-col="${index}">${accountPdfEscape(header)}</th>`).join('')}</tr></thead>`
+  const renderLines = value => accountPdfEscape(value).split('\n').map(line => `<span class="cell-line">${line || '&nbsp;'}</span>`).join('')
+  const rowHtml = rows.map((row, rowIndex) => {
+    const cells = row.map((rawValue, column) => {
+      const isNumeric = [0, 6, 7, 8, 9].includes(column)
+      const value = isNumeric && rawValue !== '' ? Number(rawValue).toLocaleString('th-TH') : rawValue
+      const classes = [0, 3, 4, 5, 10, 11].includes(column) ? 'centered' : isNumeric ? 'numeric' : ''
+      return `<td data-col="${column}" class="${classes}">${renderLines(value)}</td>`
+    }).join('')
+    return `<tr class="inventory-row band-${rowIndex % 2}">${cells}</tr>`
+  })
+  const statsHtml = stats.map(stat => `<div class="stat ${stat.tone || ''}"><span>${accountPdfEscape(stat.label)}</span><strong>${accountPdfEscape(stat.value)}</strong></div>`).join('')
+  const summaryHtml = summary.map(item => `<div><span>${accountPdfEscape(item.label)}</span><strong>${accountPdfEscape(item.value)}</strong></div>`).join('')
+  const totalCell = value => `<td class="numeric">${Number(value || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>`
+  const totalsHtml = `<tfoot class="column-totals"><tr><td colspan="6" class="total-label">รวมตัวเลขในตาราง</td>${totalCell(columnTotals.baseCost)}${totalCell(columnTotals.cost)}${totalCell(columnTotals.sold)}${totalCell(columnTotals.profit)}<td></td><td></td><td></td><td></td></tr></tfoot>`
+  const css = `
+    @font-face{font-family:PromptReport;src:url('/fonts/Prompt-Regular.ttf') format('truetype');font-weight:400;font-style:normal;font-display:block}
+    @font-face{font-family:PromptReport;src:url('/fonts/Prompt-Medium.ttf') format('truetype');font-weight:500;font-style:normal;font-display:block}
+    @font-face{font-family:PromptReport;src:url('/fonts/Prompt-SemiBold.ttf') format('truetype');font-weight:600 700;font-style:normal;font-display:block}
+    *{box-sizing:border-box}@page{size:A4 landscape;margin:0}html,body{margin:0;background:#fff;font-family:PromptReport,Tahoma,sans-serif;color:#2e1d19;font-kerning:normal;font-variant-ligatures:none;font-synthesis:none;letter-spacing:0;word-spacing:0}
+    #inventory-measure{position:absolute;left:-9000px;top:0;width:1075px;visibility:hidden}.inventory-page{width:1123px;height:794px;padding:22px 24px;background:#fff;overflow:hidden;break-after:page;page-break-after:always;break-inside:avoid}.inventory-page:last-child{break-after:auto;page-break-after:auto}
+    .report-head{height:52px;display:flex;align-items:center;justify-content:space-between;border:1px solid #f5cdc9;border-radius:15px;padding:0 15px;margin-bottom:8px}.report-head h1{margin:0;font-size:17px;line-height:1.55;font-weight:600}.brand{font-size:20px;line-height:1;font-weight:700;color:#d32f23;white-space:nowrap}
+    .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:7px}.stat{height:42px;border:1px solid #f5cdc9;border-radius:11px;background:#fff7f6;padding:5px 9px}.stat span{display:block;font-size:8.5px;line-height:1.45;color:#7b5a56;white-space:nowrap}.stat strong{display:block;font-size:11.5px;line-height:1.45;font-weight:600}.stat.in strong{color:#16a34a}.stat.out strong{color:#dc2626}.stat.warn strong{color:#d32f23}.count{height:20px;color:#7b5a56;font-size:10px;line-height:20px}
+    .table-shell{border:1.25px solid #e9b7b2;overflow:visible}table{width:100%;border-collapse:separate;border-spacing:0;table-layout:fixed;background:#fff}thead{display:table-header-group}th{height:38px;background:#d32f23;color:#fff;border-right:1.25px solid #e9b7b2;border-bottom:1.25px solid #e9b7b2;padding:5px 3px;text-align:center;vertical-align:middle;font-size:8px;line-height:1.55;font-weight:600;white-space:normal}th:last-child,td:last-child{border-right:0}
+    td{padding:6px 4px;border-right:1.25px solid #e9b7b2;border-bottom:1.25px solid #e9b7b2;vertical-align:middle;font-size:8.2px;line-height:1.62;font-weight:400;overflow-wrap:anywhere}.cell-line{display:block;min-height:1.62em;line-height:1.62;white-space:normal}.band-1 td{background:#fff8f7}.numeric{text-align:right;font-size:7.7px;font-variant-numeric:tabular-nums}.centered{text-align:center}td[data-col="10"],td[data-col="11"]{font-size:7.5px}td[data-col="12"],td[data-col="13"]{font-size:7px;line-height:1.5;vertical-align:top;padding-top:7px;padding-bottom:7px}td[data-col="12"] .cell-line,td[data-col="13"] .cell-line{min-height:1.5em;line-height:1.5}
+    .column-totals td{height:40px;background:#fff1ef;border-top:1.5px solid #d32f23;border-bottom:0;font-size:8px;font-weight:600;vertical-align:middle}.column-totals .numeric{font-size:7px;white-space:nowrap}.column-totals .total-label{text-align:center;color:#9b2119;font-size:8.2px}
+    .summary{min-height:54px;display:grid;grid-template-columns:repeat(4,minmax(0,1fr));border:1.25px solid #e9b7b2;border-radius:11px;overflow:hidden;margin-top:7px;background:#fff1ef}.summary div{min-width:0;display:grid;grid-template-columns:minmax(0,1fr) max-content;align-items:center;gap:9px;padding:7px 10px;border-right:1.25px solid #e9b7b2;font-size:8px;line-height:1.55}.summary div:last-child{border-right:0}.summary strong{font-size:8.2px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums}
+  `
+  const initialHtml = `<!doctype html><html lang="th"><head><meta charset="utf-8"><style>${css}</style></head><body><div id="inventory-measure"><div class="table-shell"><table>${colgroup}${tableHead}<tbody>${rowHtml.join('')}</tbody></table></div></div><main id="inventory-pages"></main></body></html>`
+  try {
+    const loaded = new Promise(resolve => frame.addEventListener('load', resolve, { once: true }))
+    frame.srcdoc = initialHtml
+    await loaded
+    await frame.contentDocument.fonts?.ready
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const measuredRows = [...frame.contentDocument.querySelectorAll('#inventory-measure .inventory-row')]
+    const rowHeights = measuredRows.map(row => Math.max(42, Math.ceil(row.getBoundingClientRect().height)))
+    const firstCapacity = 794 - 44 - 52 - 8 - 49 - 20 - 38 - 22
+    const regularCapacity = 794 - 44 - 38 - 22
+    const endingHeight = 105
+    const pageRows = []
+    let page = []
+    let used = 0
+    let capacity = firstCapacity
+    rowHeights.forEach((height, index) => {
+      if (page.length && used + height > capacity) {
+        pageRows.push(page)
+        page = []
+        used = 0
+        capacity = regularCapacity
+      }
+      page.push(index)
+      used += height
+    })
+    if (page.length || !pageRows.length) pageRows.push(page)
+    const lastIndexes = pageRows.at(-1)
+    let lastHeight = lastIndexes.reduce((sum, index) => sum + rowHeights[index], 0)
+    const lastCapacity = pageRows.length === 1 ? firstCapacity : regularCapacity
+    const finalPageRows = []
+    while (lastIndexes.length > 1 && lastHeight + endingHeight > lastCapacity) {
+      const moved = lastIndexes.pop()
+      finalPageRows.unshift(moved)
+      lastHeight -= rowHeights[moved]
+    }
+    if (finalPageRows.length) pageRows.push(finalPageRows)
+    frame.contentDocument.getElementById('inventory-pages').innerHTML = pageRows.map((indexes, pageIndex) => {
+      const firstPage = pageIndex === 0
+      const lastPage = pageIndex === pageRows.length - 1
+      return `<section class="account-page inventory-page">${firstPage ? `<header class="report-head"><h1>${accountPdfEscape(title)}</h1><div class="brand">SMALL CAMERA CM</div></header><section class="stats">${statsHtml}</section><div class="count">จำนวนรายการ ${rows.length} รายการ</div>` : ''}<div class="table-shell"><table>${colgroup}${tableHead}<tbody>${indexes.map(index => rowHtml[index]).join('')}</tbody>${lastPage ? totalsHtml : ''}</table></div>${lastPage ? `<footer class="summary">${summaryHtml}</footer>` : ''}</section>`
+    }).join('')
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    const reportHtml = `<!doctype html>${frame.contentDocument.documentElement.outerHTML}`
+    try {
+      const response = await fetch('/api/render-account-pdf', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ html: reportHtml }) })
+      if (!response.ok) throw new Error(`PDF service returned ${response.status}`)
+      const blob = await response.blob()
+      if (blob.type !== 'application/pdf' || blob.size < 1000) throw new Error('PDF service returned an invalid file')
+      return blob
+    } catch (error) {
+      if (!import.meta.env.DEV) throw new Error('สร้าง PDF สต็อกสินค้าไม่สำเร็จ กรุณาลองใหม่อีกครั้ง')
+      console.warn('Vector PDF service unavailable; using development-only image fallback.', error)
+    }
+    const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas'), import('jspdf')])
+    const pages = [...frame.contentDocument.querySelectorAll('.inventory-page')]
+    const pdf = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4', compress: true })
+    pdf.setProperties({ title: `สต็อกสินค้า_${stamp()}` })
+    for (let index = 0; index < pages.length; index += 1) {
+      if (index > 0) pdf.addPage('a4', 'landscape')
+      const canvas = await html2canvas(pages[index], { backgroundColor: '#ffffff', scale: 3, useCORS: true, foreignObjectRendering: false, logging: false, width: 1123, height: 794, windowWidth: 1123, windowHeight: 794 })
       pdf.addImage(canvas.toDataURL('image/png'), 'PNG', 0, 0, 297, 210, undefined, 'SLOW')
     }
     return pdf.output('blob')
@@ -1280,7 +1523,7 @@ export async function buildTransactionsPDF(filtered, balance = null, stockValue 
       installmentHistory,
       ...notes,
     ].filter(Boolean).join('\n\n') : ''
-    const mergedNote = isOpeningBalance
+    const baseMergedNote = isOpeningBalance
       ? openingBalanceNote
       : installment
       ? installmentNote
@@ -1294,6 +1537,7 @@ export async function buildTransactionsPDF(filtered, balance = null, stockValue 
           action ? `การชำระ:\n${paymentLines(group.txs).join('\n')}` : '',
           ...notes,
         ].filter(Boolean).join('\n\n')
+    const mergedNote = appendVatDocumentNumbers(baseMergedNote, group.txs)
     const hasGroupIncome = group.txs.some(tx => tx.type === 'Income')
     const hasGroupExpense = group.txs.some(tx => tx.type === 'Expense')
     const groupIncome = group.txs.filter(tx => tx.type === 'Income').reduce((sum, tx) => sum + Number(tx.amount || 0), 0)
@@ -1467,29 +1711,9 @@ export async function exportInventoryWithImages(products, transactions = [], sta
   const s = stamp()
 
   if (format === 'xlsx') {
-    const rows = filtered.map(p => ({
-      'รุ่น':              p.model,
-      'Serial Number':     p.serial_number,
-      'เกรดสภาพ':         p.condition,
-      'สถานะ':            STATUS_TH[p.status] || p.status,
-      'ต้นทุนเริ่มต้น':   Number(p.base_cost),
-      'ต้นทุนรวม':        Number(p.total_cost),
-      'ราคาขาย':          p.sold_price ? Number(p.sold_price) : '',
-      'กำไร':             p.sold_price ? productProfitAfterVat(p) : '',
-      'วันที่รับเข้า':    thDate(p.created_at),
-      'วันที่ขาย':        thDate(p.sold_date),
-      'วันหมดประกัน':    thDate(p.warranty_expiry),
-      'รายละเอียดลูกค้า': p.customer_note || '',
-      'หมายเหตุ':         p.notes || '',
-    }))
-    const ws = XLSX.utils.json_to_sheet(rows)
-    ws['!cols'] = Object.keys(rows[0] || {}).map(() => ({ wch: 20 }))
-    const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'สต็อกสินค้า')
-    const xlsxBuf = XLSX.write(wb, { bookType: 'xlsx', type: 'array' })
-    zip.file(`สต็อกสินค้า_${s}.xlsx`, xlsxBuf)
+    zip.file(`สต็อกสินค้า_${s}.xlsx`, await buildInventoryXLSX(products, statusFilter))
   } else {
-    const pdfBlob = await buildInventoryPDF(filtered)
+    const pdfBlob = await buildInventoryPDF(filtered, statusFilter)
     zip.file(`สต็อกสินค้า_${s}.pdf`, pdfBlob)
   }
 

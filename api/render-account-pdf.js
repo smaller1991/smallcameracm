@@ -45,8 +45,8 @@ export default async function handler(request, response) {
   }
 
   const html = request.body?.html
-  if (typeof html !== 'string' || !html.includes('class="account-page"')) {
-    return response.status(400).json({ error: 'Invalid account report HTML' })
+  if (typeof html !== 'string' || !/class="[^"]*\baccount-page\b[^"]*"/.test(html)) {
+    return response.status(400).json({ error: 'Invalid report HTML' })
   }
   if (Buffer.byteLength(html, 'utf8') > MAX_HTML_BYTES) {
     return response.status(413).json({ error: 'Account report is too large' })

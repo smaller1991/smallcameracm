@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '../lib/supabase'
-import { exportInventory, exportTransactions, exportInventoryWithImages, exportTransactionsWithImages, previewTransactionsPDFFile, downloadImportTemplate } from '../lib/exportUtils'
+import { exportInventory, exportTransactions, exportInventoryWithImages, exportTransactionsWithImages, previewInventoryPDFFile, previewTransactionsPDFFile, downloadImportTemplate } from '../lib/exportUtils'
 import ThaiDatePicker from '../components/ThaiDatePicker'
 import { Download, Package, FileText, Upload, FileSpreadsheet, CheckCircle, AlertCircle } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -117,8 +117,8 @@ const getReportBalance = (txs, from, to, currentBalance) => {
   const balMap = buildBalanceMap(txs, currentBalance)
   return balMap[filtered[0].id] || currentBalance
 }
-const withPurchaseBatchTotals = (txs, products) => {
-  const addOnsByProduct = (txs || []).reduce((map, tx) => {
+const reportAddOnsByProduct = txs => {
+  const result = (txs || []).reduce((map, tx) => {
     if (tx.category !== 'Add-on' || !tx.product_id) return map
     if (!map[tx.product_id]) map[tx.product_id] = []
     const name = String(tx.note || '')
@@ -133,7 +133,11 @@ const withPurchaseBatchTotals = (txs, products) => {
     })
     return map
   }, {})
-  Object.values(addOnsByProduct).forEach(items => items.sort((a, b) => new Date(a.purchased_at || 0) - new Date(b.purchased_at || 0)))
+  Object.values(result).forEach(items => items.sort((a, b) => new Date(a.purchased_at || 0) - new Date(b.purchased_at || 0)))
+  return result
+}
+const withPurchaseBatchTotals = (txs, products) => {
+  const addOnsByProduct = reportAddOnsByProduct(txs)
   const productsWithAddOns = (products || []).map(product => ({
     ...product,
     report_add_ons: addOnsByProduct[product.id] || [],
@@ -230,25 +234,30 @@ export default function Export() {
     if (invFmt === 'pdf' && !withImages && !pdfWindow) return
     setBusy(true); setImgProgress(null)
     try {
-      const [{data}, {data: vatTxData}] = await Promise.all([
+      const [{data}, {data: reportTxData}] = await Promise.all([
         supabase.from('products').select('*').order('created_at',{ascending:false}),
-        supabase.from('transactions').select('product_id,category,vat_documents!transactions_vat_document_id_fkey(id,status,subtotal,vat_amount,total_amount)').eq('category', 'Sale'),
+        supabase.from('transactions').select('id,product_id,category,note,amount,date,vat_documents!transactions_vat_document_id_fkey(id,status,document_number,subtotal,vat_amount,total_amount)'),
       ])
-      const vatByProduct = (vatTxData || []).reduce((map, tx) => {
+      const vatByProduct = (reportTxData || []).reduce((map, tx) => {
         const document = vatDocumentOf(tx)
-        if (tx.product_id && document?.status !== 'void' && !map.has(tx.product_id)) map.set(tx.product_id, document)
+        if (tx.category === 'Sale' && tx.product_id && document?.status !== 'void' && !map.has(tx.product_id)) map.set(tx.product_id, document)
         return map
       }, new Map())
-      const exportProducts = (data || []).map(product => ({ ...product, _vatDocument: vatByProduct.get(product.id) || null }))
+      const addOnsByProduct = reportAddOnsByProduct(reportTxData)
+      const exportProducts = (data || []).map(product => ({
+        ...product,
+        _vatDocument: vatByProduct.get(product.id) || null,
+        report_add_ons: addOnsByProduct[product.id] || [],
+      }))
       if (withImages) {
         const {data: txData} = await supabase.from('transactions')
           .select('id,product_id,date,category,amount,images')
           .not('images', 'is', null)
         await exportInventoryWithImages(exportProducts, txData||[], invFilter, invFmt, (done,total)=>setImgProgress({done,total}))
       } else if (invFmt==='xlsx') {
-        exportInventory(exportProducts, invFilter)
+        await exportInventory(exportProducts, invFilter)
       } else {
-        exportInventoryPDF(exportProducts, invFilter, pdfWindow)
+        await previewInventoryPDFFile(exportProducts, invFilter, pdfWindow)
       }
       toast.success(invFmt === 'pdf' && !withImages ? 'เปิดหน้าต่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
@@ -259,7 +268,7 @@ export default function Export() {
     setBusy(true); setTxImgProgress(null)
     try {
       const [{ data }, { data: balData }, { data: stockData }] = await Promise.all([
-        supabase.from('transactions').select('*,products(id,model,category,base_cost,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status,batch_id,sale_batch_id,trade_ref_id,notes,payment_method),vat_documents!transactions_vat_document_id_fkey(id,status,subtotal,vat_amount,total_amount)').order('date',{ascending:false}),
+        supabase.from('transactions').select('*,products(id,model,category,base_cost,total_cost,sold_price,customer_note,images,created_at,sold_date,serial_number,installment_total,status,batch_id,sale_batch_id,trade_ref_id,notes,payment_method),vat_documents!transactions_vat_document_id_fkey(id,status,document_number,subtotal,vat_amount,total_amount)').order('date',{ascending:false}),
         supabase.from('balances').select('bank,cash').eq('id','main').single(),
         supabase.from('products').select('id,model,serial_number,category,base_cost,total_cost,sold_price,status,batch_id,sale_batch_id,trade_ref_id,is_trade_in,notes,customer_note,payment_method,created_at'),
       ])
