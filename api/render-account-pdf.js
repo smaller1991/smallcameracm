@@ -91,8 +91,10 @@ export default async function handler(request, response) {
     return response.status(200).send(Buffer.from(pdf))
   } catch (error) {
     console.error('Account PDF render failed:', error)
+    const failureReason = error?.code || error?.name || 'unknown'
     response.setHeader('X-Account-PDF-Stage', renderStage)
-    return response.status(500).json({ error: 'Unable to render account PDF', stage: renderStage })
+    response.setHeader('X-Account-PDF-Reason', String(failureReason).slice(0, 80))
+    return response.status(500).json({ error: 'Unable to render account PDF', stage: renderStage, reason: failureReason })
   } finally {
     if (browser) await browser.close()
   }

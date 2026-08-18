@@ -3,7 +3,7 @@
   "functions": {
     "api/render-account-pdf.js": {
       "maxDuration": 60,
-      "includeFiles": "public/fonts/**"
+      "includeFiles": "{public/fonts/**,node_modules/@sparticuz/chromium/bin/**}"
     }
   },
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
