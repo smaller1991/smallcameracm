@@ -33,11 +33,11 @@ function parseNum(v) {
   if (v === null || v === undefined || v === '') return null
   return parseFloat(String(v).replace(/,/g,'')) || 0
 }
-const STATUS_MAP  = { 'available':'Available','reserved':'Reserved','sold':'Sold' }
+const STATUS_MAP  = { 'available':'Available','พร้อมขาย':'Available','reserved':'Reserved','จอง':'Reserved','sold':'Sold','ขายแล้ว':'Sold','pending':'Pending','รอชำระ':'Pending' }
 const CAT_MAP     = { 'กล้อง':'กล้อง','เลนส์':'เลนส์','แฟลช':'แฟลช','อุปกรณ์':'อุปกรณ์','กล้องดิจิตอลเก่า':'กล้องดิจิตอลเก่า','อื่นๆ':'อื่นๆ' }
-const PAY_MAP     = { 'โอน':'โอน','เงินสด':'เงินสด' }
-const TX_TYPE_MAP = { 'income':'Income','expense':'Expense' }
-const TX_CAT_LIST = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
+const PAY_MAP     = { 'โอน':'โอน','เงินสด':'เงินสด','แบ่งจ่าย':'แบ่งจ่าย' }
+const TX_TYPE_MAP = { 'income':'Income','expense':'Expense','เงินเข้า':'Income','เงินออก':'Expense' }
+const TX_CAT_LIST = ['Buy Stock','Add-on','Sale','Rent','Marketing','Operating','Shipping','Other','รายรับ/จ่ายที่ไม่มีผลกับกำไร']
 const PRODUCT_CATEGORY_ORDER = ['กล้อง','เลนส์','แฟลช','อุปกรณ์','กล้องดิจิตอลเก่า','อื่นๆ']
 const fmt = n => Number(n||0).toLocaleString('th-TH')
 const pad = n => String(n).padStart(2, '0')
@@ -308,25 +308,34 @@ export default function Export() {
   const doExportFullBackup = async () => {
     setBusy(true)
     try {
-      const [{ data: products, error: pErr }, { data: accessories, error: aErr }, { data: transactions, error: tErr }, { data: balances, error: bErr }] = await Promise.all([
+      const [{ data: products, error: pErr }, { data: accessories, error: aErr }, { data: transactions, error: tErr }, { data: balances, error: bErr }, { data: vatSettings, error: vsErr }, { data: vatDocuments, error: vdErr }, { data: vatEvents, error: veErr }, { data: vatSequences, error: vnErr }] = await Promise.all([
         supabase.from('products').select('*').order('created_at', { ascending: true }),
         supabase.from('accessories').select('*').order('created_at', { ascending: true }),
         supabase.from('transactions').select('*').order('date', { ascending: true }),
         supabase.from('balances').select('*'),
+        supabase.from('vat_settings').select('*'),
+        supabase.from('vat_documents').select('*').order('document_date', { ascending: true }),
+        supabase.from('vat_document_events').select('*').order('created_at', { ascending: true }),
+        supabase.from('vat_number_sequences').select('*'),
       ])
       if (pErr) throw pErr
       if (aErr) throw aErr
       if (tErr) throw tErr
       if (bErr) throw bErr
+      if (vsErr || vdErr || veErr || vnErr) throw vsErr || vdErr || veErr || vnErr
       const backup = {
         format: 'camshop-full-backup',
-        version: 1,
+        version: 2,
         exported_at: new Date().toISOString(),
         tables: {
           products: products || [],
           accessories: accessories || [],
           transactions: transactions || [],
           balances: balances || [],
+          vat_settings: vatSettings || [],
+          vat_documents: vatDocuments || [],
+          vat_document_events: vatEvents || [],
+          vat_number_sequences: vatSequences || [],
         },
         notes: [
           'This backup preserves table ids and relationships.',
@@ -354,6 +363,10 @@ export default function Export() {
       accessories: Array.isArray(tables.accessories) ? tables.accessories : [],
       transactions: Array.isArray(tables.transactions) ? tables.transactions : [],
       balances: Array.isArray(tables.balances) ? tables.balances : [],
+      vatSettings: Array.isArray(tables.vat_settings) ? tables.vat_settings : [],
+      vatDocuments: Array.isArray(tables.vat_documents) ? tables.vat_documents : [],
+      vatEvents: Array.isArray(tables.vat_document_events) ? tables.vat_document_events : [],
+      vatSequences: Array.isArray(tables.vat_number_sequences) ? tables.vat_number_sequences : [],
     }
   }
 
@@ -368,7 +381,7 @@ export default function Export() {
       try {
         const parsed = JSON.parse(ev.target.result)
         const normalized = normalizeBackup(parsed)
-        if (!normalized.products.length && !normalized.transactions.length && !normalized.accessories.length && !normalized.balances.length) {
+        if (!normalized.products.length && !normalized.transactions.length && !normalized.accessories.length && !normalized.balances.length && !normalized.vatDocuments.length) {
           throw new Error('ไม่พบข้อมูล backup ที่รองรับ')
         }
         setBackupPreview(normalized)
@@ -391,30 +404,37 @@ export default function Export() {
     return count
   }
 
-  const deleteAllRows = async table => {
-    const { error } = await supabase.from(table).delete().not('id', 'is', null)
+  const deleteAllRows = async (table, key = 'id') => {
+    const { error } = await supabase.from(table).delete().not(key, 'is', null)
     if (error) throw error
   }
 
   const restoreFullBackup = async () => {
     if (!backupPreview) return
-    const total = backupPreview.products.length + backupPreview.accessories.length + backupPreview.transactions.length + backupPreview.balances.length
+    const total = backupPreview.products.length + backupPreview.accessories.length + backupPreview.transactions.length + backupPreview.balances.length + backupPreview.vatSettings.length + backupPreview.vatDocuments.length + backupPreview.vatEvents.length + backupPreview.vatSequences.length
     const msg = clearBeforeRestore
       ? `Restore แบบล้างข้อมูลเดิมก่อน?\nระบบจะลบ products/accessories/transactions เดิม แล้วนำเข้า ${total} rows จาก backup`
       : `Restore แบบ merge/update?\nระบบจะ upsert ${total} rows โดยไม่ลบข้อมูลที่ไม่มีใน backup`
     if (!confirm(msg)) return
     setRestoring(true)
     const errors = []
-    const counts = { products: 0, accessories: 0, transactions: 0, balances: 0 }
+    const counts = { products: 0, accessories: 0, transactions: 0, balances: 0, vatSettings: 0, vatDocuments: 0, vatEvents: 0, vatSequences: 0 }
     try {
       if (clearBeforeRestore) {
         await deleteAllRows('transactions')
         await deleteAllRows('accessories')
         await deleteAllRows('products')
+        await deleteAllRows('vat_document_events')
+        await deleteAllRows('vat_documents')
+        await deleteAllRows('vat_number_sequences', 'document_type')
       }
       counts.products = await upsertRows('products', backupPreview.products)
       counts.accessories = await upsertRows('accessories', backupPreview.accessories)
+      counts.vatSettings = await upsertRows('vat_settings', backupPreview.vatSettings)
+      counts.vatDocuments = await upsertRows('vat_documents', backupPreview.vatDocuments)
       counts.transactions = await upsertRows('transactions', backupPreview.transactions)
+      counts.vatEvents = await upsertRows('vat_document_events', backupPreview.vatEvents)
+      counts.vatSequences = await upsertRows('vat_number_sequences', backupPreview.vatSequences)
       counts.balances = await upsertRows('balances', backupPreview.balances)
       setResult({
         successP: counts.products,
@@ -469,6 +489,9 @@ export default function Export() {
         sold_price:soldPrice||null,
         payment_method:PAY_MAP[payRaw]||null,
         sold_date:status==='Sold'?parseThDate(soldRaw):null,
+        installment_total:parseNum(get('ยอดผ่อนทั้งหมด','installment_total'))||null,
+        installment_paid:parseNum(get('ยอดชำระแล้ว','installment_paid'))||0,
+        customer_note:String(get('รายละเอียดลูกค้า','customer_note','ลูกค้า')||'').trim()||null,
         warranty_expiry:null,
         created_at:createdAt||new Date().toISOString(),
         notes:String(get('หมายเหตุ','note','notes')||'').trim(),
@@ -503,9 +526,44 @@ export default function Export() {
       const date=parseThDate(get('วันที่','date'))
       if (!type||!amount||!date) continue
       const catRaw=String(get('หมวด','category','cat')||'Other').trim()
-      data.push({date,type,category:TX_CAT_LIST.find(c=>c.toLowerCase()===catRaw.toLowerCase())||'Other',amount,note:String(get('หมายเหตุ','note')||'').trim()})
+      const bankAmount = parseNum(get('ยอดโอน','bank_amount'))
+      const cashAmount = parseNum(get('ยอดเงินสด','cash_amount'))
+      data.push({
+        date,type,category:TX_CAT_LIST.find(c=>c.toLowerCase()===catRaw.toLowerCase())||'Other',amount,
+        payment_method: PAY_MAP[String(get('ช่องทางชำระ','payment_method','ชำระ')||'').trim()] || null,
+        bank_amount: bankAmount || null, cash_amount: cashAmount || null,
+        product_serial: String(get('serial สินค้า','serialสินค้า','product serial')||'').trim() || null,
+        note:String(get('หมายเหตุ','note')||'').trim(),
+      })
     }
     return data
+  }
+
+  const parseAccessories = wb => {
+    const ws = wb.Sheets['อุปกรณ์เสริม']
+    if (!ws) return []
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1,defval:''})
+    const headers = (rows[0] || []).map(value => String(value || '').replace(/\n.*/, '').trim())
+    const get = (row, ...keys) => {
+      const index = headers.findIndex(header => keys.some(key => header.toLowerCase().includes(key.toLowerCase())))
+      return index >= 0 ? row[index] : ''
+    }
+    return rows.slice(1).flatMap(row => {
+      const productSerial = String(get(row, 'serial สินค้า', 'serialสินค้า') || '').trim()
+      const name = String(get(row, 'ชื่ออุปกรณ์', 'ชื่อ') || '').trim()
+      const cost = parseNum(get(row, 'ต้นทุน', 'cost'))
+      if (!productSerial || !name || cost === null) return []
+      return [{ product_serial: productSerial, name, cost, created_at: parseThDate(get(row, 'วันที่เพิ่ม', 'created_at')) || new Date().toISOString() }]
+    })
+  }
+
+  const parseBalances = wb => {
+    const ws = wb.Sheets['ยอดเงินคงเหลือ']
+    if (!ws) return []
+    const rows = XLSX.utils.sheet_to_json(ws, {header:1,defval:''})
+    const bank = parseNum(rows[1]?.[0])
+    const cash = parseNum(rows[1]?.[1])
+    return bank === null && cash === null ? [] : [{ id:'main', bank:bank || 0, cash:cash || 0, updated_at:new Date().toISOString() }]
   }
 
   const handleFile = (e) => {
@@ -516,7 +574,7 @@ export default function Export() {
     reader.onload=(ev)=>{
       try {
         const wb=XLSX.read(ev.target.result,{type:'array',cellDates:false,raw:true})
-        setPreview({products:parseProducts(wb),transactions:parseTransactions(wb)})
+        setPreview({products:parseProducts(wb),transactions:parseTransactions(wb),accessories:parseAccessories(wb),balances:parseBalances(wb)})
       } catch(err){toast.error('อ่านไฟล์ไม่ได้: '+err.message)}
     }
     reader.readAsArrayBuffer(f)
@@ -525,27 +583,47 @@ export default function Export() {
   const doImport = async () => {
     if (!preview) return
     setImporting(true)
-    const errors=[]; let successP=0,successT=0
+    const errors=[]; let successP=0,successT=0,successA=0,successB=0
     try {
+      const productIds = new Map()
       for (const p of preview.products) {
         try {
           const payload={...p}
           if (!payload.created_at) delete payload.created_at
           if (payload.status==='Sold'&&payload.sold_date&&!payload.warranty_expiry)
             payload.warranty_expiry=new Date(new Date(payload.sold_date).getTime()+15*86400000).toISOString()
-          const {error}=await supabase.from('products').insert(payload)
+          const {data: saved, error}=await supabase.from('products').insert(payload).select('id,serial_number').single()
           if (error) throw error
+          productIds.set(saved.serial_number, saved.id)
           successP++
         } catch(e){errors.push(`สินค้า "${p.model}": ${e.message}`)}
       }
+      for (const accessory of preview.accessories || []) {
+        try {
+          const productId = productIds.get(accessory.product_serial)
+          if (!productId) throw new Error(`ไม่พบสินค้า Serial ${accessory.product_serial}`)
+          const { product_serial, ...payload } = accessory
+          const { error } = await supabase.from('accessories').insert({ ...payload, product_id: productId })
+          if (error) throw error
+          successA++
+        } catch (e) { errors.push(`อุปกรณ์เสริม "${accessory.name}": ${e.message}`) }
+      }
       for (const t of preview.transactions) {
         try {
-          const {error}=await supabase.from('transactions').insert(t)
+          const { product_serial, ...payload } = t
+          const productId = product_serial ? productIds.get(product_serial) : null
+          if (product_serial && !productId) throw new Error(`ไม่พบสินค้า Serial ${product_serial}`)
+          const {error}=await supabase.from('transactions').insert({ ...payload, product_id: productId })
           if (error) throw error
           successT++
         } catch(e){errors.push(`บัญชี "${t.category} ${t.date}": ${e.message}`)}
       }
-      setResult({successP,successT,errors})
+      for (const balance of preview.balances || []) {
+        const { error } = await supabase.from('balances').upsert(balance, { onConflict:'id' })
+        if (error) errors.push(`ยอดเงินคงเหลือ: ${error.message}`)
+        else successB++
+      }
+      setResult({successP,successT,errors,backupCounts:{accessories:successA,balances:successB}})
       if (errors.length===0) toast.success(`นำเข้าสำเร็จ! สินค้า ${successP} รายการ, บัญชี ${successT} รายการ`)
       else toast.error(`นำเข้าบางส่วนสำเร็จ มี ${errors.length} รายการที่ผิดพลาด`)
     } catch(e){toast.error('เกิดข้อผิดพลาด: '+e.message)}
@@ -679,8 +757,9 @@ export default function Export() {
               <div className="bg-amber-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-amber-700">{backupPreview.products.length}</p><p className="text-[10px] text-amber-600">สินค้า</p></div>
               <div className="bg-blue-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-blue-700">{backupPreview.accessories.length}</p><p className="text-[10px] text-blue-600">อุปกรณ์เสริม</p></div>
               <div className="bg-green-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-green-700">{backupPreview.transactions.length}</p><p className="text-[10px] text-green-600">บัญชี</p></div>
-              <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-gray-700">{backupPreview.balances.length}</p><p className="text-[10px] text-gray-600">ยอดเงิน</p></div>
+            <div className="bg-gray-50 rounded-xl p-2 text-center"><p className="text-lg font-bold text-gray-700">{backupPreview.balances.length}</p><p className="text-[10px] text-gray-600">ยอดเงิน</p></div>
             </div>
+            <p className="text-xs text-violet-600">VAT: เอกสาร {backupPreview.vatDocuments.length} · ประวัติ {backupPreview.vatEvents.length} · เลขเอกสาร {backupPreview.vatSequences.length} · การตั้งค่า {backupPreview.vatSettings.length}</p>
             <p className="text-xs text-gray-400">
               Exported: {backupPreview.exported_at ? thDate(backupPreview.exported_at) : '-'} | Format: {backupPreview.format}
             </p>
@@ -715,9 +794,10 @@ export default function Export() {
         </button>
         <div className="bg-amber-50 rounded-xl p-3 text-xs text-amber-700 space-y-1">
           <p className="font-semibold">วิธีกรอกข้อมูล:</p>
-          <p>• Sheet 1 <b>สต็อกสินค้า</b> — กรอกข้อมูลกล้อง/เลนส์ที่มีอยู่</p>
-          <p>• Sheet 2 <b>รายการบัญชี</b> — กรอกรายรับ-รายจ่ายเก่า</p>
-          <p>• ลบแถวตัวอย่าง (สีเหลือง) ออกก่อนอัปโหลด</p>
+          <p>• Sheet 1 <b>สต็อกสินค้า</b> — สถานะ, ผ่อนชำระ และข้อมูลลูกค้า</p>
+          <p>• Sheet 2 <b>รายการบัญชี</b> — ช่องทางชำระ, ยอดโอน/เงินสด และ Serial สินค้า</p>
+          <p>• Sheet 3-4 — Add-on และยอดเงินคงเหลือเริ่มต้น</p>
+          <p>• ลบแถวตัวอย่างออกก่อนอัปโหลด</p>
           <p>• วันที่ใช้รูปแบบ <b>DD/MM/YYYY HH.mm</b> เช่น 01/04/2568 10.00</p>
         </div>
       </div>
