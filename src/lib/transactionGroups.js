@@ -8,6 +8,10 @@ const isPurchaseInstallmentTx = tx => {
   const note = tx.note || ''
   return note.includes('ซื้อผ่อน') || note.includes('ชำระค่าซื้อ')
 }
+const isSaleInstallmentTx = tx => (
+  Number(tx.products?.installment_total || 0) > 0 ||
+  /ผ่อนจ่าย|ชำระครบ|งวดแรก|ชำระงวดนี้/.test(tx.note || '')
+)
 
 export const txProductCost = tx => (
   tx.category === 'Buy Stock'
@@ -17,6 +21,7 @@ export const txProductCost = tx => (
 
 export const transactionGroupKey = tx => {
   if (SALE_GROUP_CATEGORIES.has(tx.category) && tx.products?.sale_batch_id) {
+    if (!isSaleInstallmentTx(tx)) return `sale:${tx.products.sale_batch_id}`
     const paymentEvent = [
       tx.date || '',
       tx.payment_method || '',

@@ -363,6 +363,7 @@ export default function Finance() {
       bank_after: displayed?.bank ?? group.balanceTx?.bank_after ?? tx.bank_after ?? '',
       cash_after: displayed?.cash ?? group.balanceTx?.cash_after ?? tx.cash_after ?? '',
       group_sale_batch_id: tx.products?.sale_batch_id,
+      group_transaction_ids: group.txs.map(item => item.id),
     })
     setImgFiles([]); setImgPreviews([]); setRemovedImgs([])
     setShowForm(true)
@@ -431,7 +432,13 @@ export default function Finance() {
         payload.images = [...kept, ...newUrls]
         if (form.bank_after !== '') payload.bank_after = parseFloat(form.bank_after)
         if (form.cash_after !== '') payload.cash_after = parseFloat(form.cash_after)
-        await supabase.from('transactions').update(payload).eq('id',editId)
+        const { error: updateError } = await supabase.from('transactions').update(payload).eq('id',editId)
+        if (updateError) throw updateError
+        if (form.group_transaction_ids?.length > 1) {
+          const siblingIds = form.group_transaction_ids.filter(id => id !== editId)
+          const { error: groupDateError } = await supabase.from('transactions').update({ date: payload.date }).in('id', siblingIds)
+          if (groupDateError) throw groupDateError
+        }
         if (form.category === 'Sale') {
           const tx = txs.find(t=>t.id===editId)
           const customerNote = form.customer_note?.trim() || null
@@ -1063,8 +1070,13 @@ export default function Finance() {
 
       {/* Form */}
       {showForm && (
-        <div className="mx-4 my-3 card space-y-3">
-          <h3 className="font-semibold text-sm">{editId?'แก้ไขรายการ':'รายการใหม่'}</h3>
+        createPortal(<div className="finance-modal-backdrop" onPointerDown={e=>{if(e.target===e.currentTarget){setShowForm(false);setEditId(null)}}}>
+          <div className="finance-modal-panel" onPointerDown={e=>e.stopPropagation()}>
+            <div className="finance-modal-header">
+              <h3 className="font-semibold text-sm">{editId?'แก้ไขรายการ':'รายการใหม่'}</h3>
+              <button onClick={()=>{setShowForm(false);setEditId(null);setImgFiles([]);setImgPreviews([]);setRemovedImgs([])}} className="finance-modal-close" aria-label="ปิดหน้าต่าง"><X size={17}/></button>
+            </div>
+            <div className="finance-modal-body space-y-3">
           <div className="flex gap-2">
             {['Income','Expense'].map(t=>(
               <button key={t} onClick={()=>setForm({...form,type:t})}
@@ -1175,7 +1187,9 @@ export default function Finance() {
             </button>
             <button onClick={()=>{setShowForm(false);setEditId(null);setImgFiles([]);setImgPreviews([]);setRemovedImgs([])}} className="btn-ghost px-4"><X size={14}/></button>
           </div>
-        </div>
+            </div>
+          </div>
+        </div>, document.body)
       )}
 
       {/* List */}
@@ -1408,10 +1422,9 @@ export default function Finance() {
 
       {/* Transaction Detail Sheet */}
       {txDetail && (
-        <div className="fixed inset-0 z-50 flex flex-col justify-end"
-          style={{background:'rgba(0,0,0,0.78)'}}
+        createPortal(<div className="finance-modal-backdrop"
           onPointerDown={e=>{if(e.target===e.currentTarget)setTxDetail(null)}}>
-          <div className="finance-detail-sheet rounded-t-2xl w-full max-w-[430px] mx-auto max-h-[85vh] flex flex-col">
+          <div className="finance-detail-sheet finance-modal-panel rounded-2xl w-full max-w-[430px] flex flex-col" onPointerDown={e=>e.stopPropagation()}>
 
             {/* header */}
             <div className="flex items-center justify-between px-5 pt-4 pb-3 border-b border-amber-100 flex-shrink-0">
@@ -1643,12 +1656,12 @@ export default function Finance() {
               </>}
             </div>
           </div>
-        </div>
+        </div>, document.body)
       )}
 
       {/* Lightbox */}
       {lightbox && (
-        <div className="fixed inset-0 bg-black/92 z-[60] flex items-center justify-center p-4"
+        <div className="fixed inset-0 bg-black/92 z-[1400] flex items-center justify-center p-4"
           onClick={()=>setLightbox(null)}>
           <button className="absolute top-4 right-4 bg-black/50 rounded-full p-2 text-white z-10">
             <X size={20}/>
