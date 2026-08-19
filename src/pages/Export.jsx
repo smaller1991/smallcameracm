@@ -192,6 +192,7 @@ export default function Export() {
   const [from,         setFrom]         = useState('')
   const [to,           setTo]           = useState('')
   const [txRangePreset,setTxRangePreset] = useState('month')
+  const [txTypeFilter, setTxTypeFilter] = useState(null)
   const [busy,         setBusy]         = useState(false)
   const [invFmt,       setInvFmt]       = useState('pdf')
   const [txFmt,        setTxFmt]        = useState('pdf')
@@ -274,16 +275,18 @@ export default function Export() {
         supabase.from('products').select('id,model,serial_number,category,base_cost,total_cost,sold_price,status,batch_id,sale_batch_id,trade_ref_id,is_trade_in,notes,customer_note,payment_method,created_at'),
       ])
       const txData = withPurchaseBatchTotals(data || [], stockData || [])
+      const exportTxData = txTypeFilter ? txData.filter(transaction => transaction.type === txTypeFilter) : txData
+      if (txTypeFilter && !exportTxData.length) throw new Error(`ไม่มีรายการ${txTypeFilter === 'Income' ? 'เงินเข้า' : 'เงินออก'}ในช่วงวันที่ที่เลือก`)
       const balance = balData ? { bank: Number(balData.bank||0), cash: Number(balData.cash||0) } : null
       const currentStockValue = (stockData||[]).filter(p=>p.status!=='Sold').reduce((a,p)=>a+Number(p.total_cost||0),0)
       const reportBalance = getReportBalance(txData, from||undefined, to||undefined, balance)
       const reportStockValue = getReportStock(txData, from||undefined, to||undefined, currentStockValue)
       if (withTxImages) {
-        await exportTransactionsWithImages(txData, from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), reportBalance, reportStockValue)
+        await exportTransactionsWithImages(exportTxData, from||undefined, to||undefined, txFmt, (done,total)=>setTxImgProgress({done,total}), reportBalance, reportStockValue)
       } else if (txFmt==='xlsx') {
-        await exportTransactions(txData, from||undefined, to||undefined, reportBalance, reportStockValue)
+        await exportTransactions(exportTxData, from||undefined, to||undefined, reportBalance, reportStockValue)
       } else {
-        await previewTransactionsPDFFile(txData, from||undefined, to||undefined, reportBalance, reportStockValue)
+        await previewTransactionsPDFFile(exportTxData, from||undefined, to||undefined, reportBalance, reportStockValue)
       }
       toast.success(txFmt === 'pdf' && !withTxImages ? 'เปิดตัวอย่าง PDF แล้ว' : 'ดาวน์โหลดสำเร็จ!')
     } catch(e){toast.error(e.message)}
@@ -604,6 +607,15 @@ export default function Export() {
           {[['month', 'เดือนนี้', monthRange(0)], ['previous', 'เดือนที่แล้ว', monthRange(-1)], ['year', 'ทั้งปี', yearRange()]].map(([key, label, range]) => (
             <button key={key} onClick={() => setTxRange(key, range)} className={`liquid-filter-btn py-2 text-xs active:scale-95 ${txRangePreset === key ? 'is-active' : ''}`}>{label}</button>
           ))}
+        </div>
+        <div>
+          <p className="text-xs text-gray-500 mb-1 font-medium">ประเภทรายการ</p>
+          <div className="liquid-filter-track grid-cols-3">
+            <span className="liquid-filter-indicator" style={{ width: 'calc((100% - .5rem) / 3)', transform: `translateX(${[null, 'Income', 'Expense'].indexOf(txTypeFilter) * 100}%)` }}/>
+            <button onClick={() => setTxTypeFilter(null)} className={`liquid-filter-btn py-2 text-sm ${txTypeFilter === null ? 'is-active' : ''}`}>ทั้งหมด</button>
+            <button onClick={() => setTxTypeFilter('Income')} className={`liquid-filter-btn py-2 text-sm ${txTypeFilter === 'Income' ? 'is-active' : ''}`}>เงินเข้า</button>
+            <button onClick={() => setTxTypeFilter('Expense')} className={`liquid-filter-btn py-2 text-sm ${txTypeFilter === 'Expense' ? 'is-active' : ''}`}>เงินออก</button>
+          </div>
         </div>
         <div className="grid grid-cols-2 gap-2">
           <div><label className="text-xs text-gray-500 mb-1 block">ตั้งแต่วันที่</label><ThaiDatePicker value={from} onChange={value => { setFrom(value); setTxRangePreset(null) }} mode="calendar" className="input w-full"/></div>
