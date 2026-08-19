@@ -1,12 +1,21 @@
 import toast from 'react-hot-toast'
 import { Trash2, Undo2 } from 'lucide-react'
 
-export function scheduleDelete({ label, onCommit, onUndo, ms = 8000 }) {
+const pendingDeletes = new Set()
+
+export function scheduleDelete({ label, onCommit, onUndo, ms = 8000, key = label }) {
+  const deletionKey = String(key)
+  if (pendingDeletes.has(deletionKey)) {
+    toast('กำลังย้อนกลับรายการนี้อยู่ กรุณารอสักครู่')
+    return
+  }
+  pendingDeletes.add(deletionKey)
   let cancelled = false
   const tid = setTimeout(async () => {
     if (!cancelled) {
       try { await onCommit() }
       catch (e) { toast.error(e.message); onUndo?.() }
+      finally { pendingDeletes.delete(deletionKey) }
     }
   }, ms)
 
@@ -18,6 +27,7 @@ export function scheduleDelete({ label, onCommit, onUndo, ms = 8000 }) {
           onClick={() => {
             cancelled = true
             clearTimeout(tid)
+            pendingDeletes.delete(deletionKey)
             toast.dismiss(t.id)
             onUndo?.()
             toast.success('ยกเลิกการลบแล้ว', { duration: 2000 })

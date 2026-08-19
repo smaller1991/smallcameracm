@@ -302,7 +302,7 @@ export default function Dashboard() {
                 </span>
                 <p className="font-semibold text-gray-500 leading-tight truncate" style={{ fontSize: 14 }}>{label}</p>
               </div>
-              <p className={`w-full font-bold leading-none tracking-normal truncate ${accent}`} style={{ fontSize: 28 }}>{value}</p>
+              <p className={`w-full font-bold leading-none tracking-normal ${accent}`} style={{ fontSize: 'clamp(22px, 6.8vw, 27px)' }}>{value}</p>
             </div>
           ))}
         </div>
@@ -316,7 +316,7 @@ export default function Dashboard() {
                 </span>
                 <p className="font-semibold text-gray-500 leading-tight truncate" style={{ fontSize: 14 }}>{label}</p>
               </div>
-              <p className={`w-full font-bold leading-none tracking-normal truncate ${accent}`} style={{ fontSize: 30 }}>{value}</p>
+              <p className={`w-full font-bold leading-none tracking-normal ${accent}`} style={{ fontSize: 'clamp(20px, 6.4vw, 25px)' }}>{value}</p>
             </div>
           ))}
         </div>

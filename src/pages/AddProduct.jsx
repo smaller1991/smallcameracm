@@ -68,6 +68,18 @@ export default function AddProduct() {
 
     setSaving(true)
     try {
+      const bankDeduct = validPayments.filter(p => p.method === 'โอน').reduce((s,p) => s + parseFloat(p.amount), 0)
+      const cashDeduct = validPayments.filter(p => p.method === 'เงินสด').reduce((s,p) => s + parseFloat(p.amount), 0)
+      const { data: bal, error: balanceError } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
+      if (balanceError) throw balanceError
+      const bankBalance = Number(bal?.bank || 0)
+      const cashBalance = Number(bal?.cash || 0)
+      if (bankDeduct > bankBalance) {
+        return toast.error(`เงินโอนไม่พอ: คงเหลือ ฿${bankBalance.toLocaleString('th-TH')} แต่ต้องใช้ ฿${bankDeduct.toLocaleString('th-TH')}`)
+      }
+      if (cashDeduct > cashBalance) {
+        return toast.error(`เงินสดไม่พอ: คงเหลือ ฿${cashBalance.toLocaleString('th-TH')} แต่ต้องใช้ ฿${cashDeduct.toLocaleString('th-TH')}`)
+      }
       const txDate  = date ? new Date(date).toISOString() : new Date().toISOString()
       const isMulti = items.length > 1
       const batchId = isMulti ? crypto.randomUUID() : null
@@ -96,14 +108,10 @@ export default function AddProduct() {
         created.push({ ...p, _cost: cost })
       }
 
-      // คำนวณยอดหักตามช่องทางชำระ
-      const bankDeduct = validPayments.filter(p => p.method === 'โอน').reduce((s,p) => s + parseFloat(p.amount), 0)
-      const cashDeduct = validPayments.filter(p => p.method === 'เงินสด').reduce((s,p) => s + parseFloat(p.amount), 0)
+      // คำนวณยอดคงเหลือหลังตรวจสอบว่ามีเงินเพียงพอแล้ว
       const isSplitTender = bankDeduct > 0 && cashDeduct > 0
-
-      const { data: bal } = await supabase.from('balances').select('bank,cash').eq('id','main').single()
-      const bank_after = Math.max(0, Number(bal?.bank||0) - bankDeduct)
-      const cash_after = Math.max(0, Number(bal?.cash||0) - cashDeduct)
+      const bank_after = bankBalance - bankDeduct
+      const cash_after = cashBalance - cashDeduct
 
       // สรุปช่องทางชำระสำหรับโน้ต
       const methods = [...new Set(validPayments.map(p => p.method))]

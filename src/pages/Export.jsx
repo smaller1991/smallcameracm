@@ -191,9 +191,10 @@ export default function Export() {
   const [invFilter,    setInvFilter]    = useState('all')
   const [from,         setFrom]         = useState('')
   const [to,           setTo]           = useState('')
+  const [txRangePreset,setTxRangePreset] = useState('month')
   const [busy,         setBusy]         = useState(false)
-  const [invFmt,       setInvFmt]       = useState('xlsx')
-  const [txFmt,        setTxFmt]        = useState('xlsx')
+  const [invFmt,       setInvFmt]       = useState('pdf')
+  const [txFmt,        setTxFmt]        = useState('pdf')
   const [withImages,   setWithImages]   = useState(false)
   const [imgProgress,  setImgProgress]  = useState(null)
   const [withTxImages, setWithTxImages] = useState(false)
@@ -210,15 +211,15 @@ export default function Export() {
   const [clearBeforeRestore, setClearBeforeRestore] = useState(false)
 
   // ── Export logic ──
-  const setTxRange = range => { setFrom(range.from); setTo(range.to) }
+  const setTxRange = (preset, range) => { setTxRangePreset(preset); setFrom(range.from); setTo(range.to) }
 
   const fmtBtns = (val, set) => (
     <div className="liquid-filter-track grid-cols-2 mt-2">
       <span
         className="liquid-filter-indicator"
-        style={{ width: 'calc((100% - .5rem) / 2)', transform: `translateX(${['xlsx','pdf'].indexOf(val) * 100}%)` }}
+        style={{ width: 'calc((100% - .5rem) / 2)', transform: `translateX(${['pdf','xlsx'].indexOf(val) * 100}%)` }}
       />
-      {['xlsx','pdf'].map(f=>(
+      {['pdf','xlsx'].map(f=>(
         <button key={f} onClick={()=>set(f)}
           className={`liquid-filter-btn py-2 text-sm ${val===f?'is-active':''}`}>
           <span className="inline-flex items-center justify-center gap-2">
@@ -598,23 +599,15 @@ export default function Export() {
           <div className="w-10 h-10 bg-amber-100 rounded-xl flex items-center justify-center"><FileText size={20} className="text-amber-600"/></div>
           <div><p className="font-semibold">ส่งออกรายการบัญชี</p><p className="text-xs text-gray-400">รายรับ-รายจ่าย เลือกช่วงวันได้</p></div>
         </div>
-        <div className="grid grid-cols-3 gap-2">
-          <button onClick={()=>setTxRange(monthRange(0))}
-            className="py-2 rounded-xl text-xs font-semibold border border-amber-200 bg-amber-50 text-amber-700 active:scale-95 transition-all">
-            เดือนนี้
-          </button>
-          <button onClick={()=>setTxRange(monthRange(-1))}
-            className="py-2 rounded-xl text-xs font-semibold border border-gray-200 bg-white text-gray-500 active:scale-95 transition-all">
-            เดือนที่แล้ว
-          </button>
-          <button onClick={()=>setTxRange(yearRange())}
-            className="py-2 rounded-xl text-xs font-semibold border border-gray-200 bg-white text-gray-500 active:scale-95 transition-all">
-            ทั้งปี
-          </button>
+        <div className="liquid-filter-track grid-cols-3">
+          <span className="liquid-filter-indicator" style={{ width: 'calc((100% - .5rem) / 3)', transform: `translateX(${['month', 'previous', 'year'].indexOf(txRangePreset) * 100}%)` }}/>
+          {[['month', 'เดือนนี้', monthRange(0)], ['previous', 'เดือนที่แล้ว', monthRange(-1)], ['year', 'ทั้งปี', yearRange()]].map(([key, label, range]) => (
+            <button key={key} onClick={() => setTxRange(key, range)} className={`liquid-filter-btn py-2 text-xs active:scale-95 ${txRangePreset === key ? 'is-active' : ''}`}>{label}</button>
+          ))}
         </div>
         <div className="grid grid-cols-2 gap-2">
-          <div><label className="text-xs text-gray-500 mb-1 block">ตั้งแต่วันที่</label><ThaiDatePicker value={from} onChange={setFrom} mode="calendar" className="input w-full"/></div>
-          <div><label className="text-xs text-gray-500 mb-1 block">ถึงวันที่</label><ThaiDatePicker value={to} onChange={setTo} mode="calendar" className="input w-full"/></div>
+          <div><label className="text-xs text-gray-500 mb-1 block">ตั้งแต่วันที่</label><ThaiDatePicker value={from} onChange={value => { setFrom(value); setTxRangePreset(null) }} mode="calendar" className="input w-full"/></div>
+          <div><label className="text-xs text-gray-500 mb-1 block">ถึงวันที่</label><ThaiDatePicker value={to} onChange={value => { setTo(value); setTxRangePreset(null) }} mode="calendar" className="input w-full"/></div>
         </div>
         <p className="text-xs text-gray-400">หากไม่ระบุวันที่ จะส่งออกทั้งหมด</p>
         <label className="flex items-center gap-3 cursor-pointer select-none">

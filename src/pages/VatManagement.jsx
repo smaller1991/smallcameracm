@@ -278,6 +278,73 @@ export default function VatManagement() {
     setSaving(false)
   }
 
+  const restoreMissingSale = async () => {
+    if (!selected || selected.status !== 'draft') return
+    if (!window.confirm(`กู้คืนรายการขาย ฿${fmt(selected.total_amount)} จากฉบับร่างนี้หรือไม่?\n\nระบบจะสร้างรายการขายกลับเข้าหน้าบัญชี คืนสถานะสินค้าเป็นขายแล้ว และเพิ่มยอดกลับตามช่องทางชำระที่บันทึกไว้`)) return
+    setSaving(true)
+    try {
+      const sourceIds = (selected.source_transaction_ids || []).filter(Boolean)
+      if (sourceIds.length) {
+        const { data: existing, error } = await supabase.from('transactions').select('id').in('id', sourceIds)
+        if (error) throw error
+        if (existing?.length) throw new Error('พบรายการขายต้นทางแล้ว จึงไม่สามารถกู้คืนซ้ำได้')
+      }
+      const items = (selected.items || []).filter(item => item.serial_number && Number(item.total_amount || 0) > 0)
+      if (!items.length) throw new Error('ฉบับร่างนี้ไม่มี Serial Number สำหรับกู้คืนรายการสินค้า')
+      const serials = [...new Set(items.map(item => item.serial_number))]
+      const { data: products, error: productError } = await supabase.from('products')
+        .select('id,serial_number,model')
+        .in('serial_number', serials)
+      if (productError) throw productError
+      const productBySerial = new Map((products || []).map(product => [product.serial_number, product]))
+      const missing = items.filter(item => !productBySerial.has(item.serial_number)).map(item => item.serial_number)
+      if (missing.length) throw new Error(`ไม่พบสินค้า Serial: ${missing.join(', ')}`)
+
+      const method = selected.payment_method === 'เงินสด' ? 'เงินสด' : 'โอน'
+      const { data: balance, error: balanceError } = await supabase.from('balances').select('bank,cash').eq('id', 'main').single()
+      if (balanceError) throw balanceError
+      let bank = Number(balance?.bank || 0)
+      let cash = Number(balance?.cash || 0)
+      const saleBatchId = selected.source_sale_batch_id || (items.length > 1 ? crypto.randomUUID() : null)
+      const saleDate = selected.document_date || new Date().toISOString()
+      const warrantyExpiry = new Date(new Date(saleDate).getTime() + 15 * 86400000).toISOString()
+      const restoredIds = []
+
+      for (const item of items) {
+        const product = productBySerial.get(item.serial_number)
+        const amount = Number(item.total_amount || 0)
+        if (method === 'โอน') bank += amount
+        else cash += amount
+        const { data: transaction, error: transactionError } = await supabase.from('transactions').insert({
+          date: saleDate, type: 'Income', category: 'Sale', amount,
+          product_id: product.id, payment_method: method, vat_document_id: selected.id,
+          bank_after: bank, cash_after: cash,
+          note: `กู้คืนจากฉบับร่าง VAT: ${product.model} SN:${item.serial_number}`,
+        }).select('id').single()
+        if (transactionError) throw transactionError
+        restoredIds.push(transaction.id)
+        const { error: updateProductError } = await supabase.from('products').update({
+          status: 'Sold', sold_price: amount, sold_date: saleDate, warranty_expiry: warrantyExpiry,
+          payment_method: method, sale_batch_id: saleBatchId,
+        }).eq('id', product.id)
+        if (updateProductError) throw updateProductError
+      }
+      const [{ error: updateBalanceError }, { error: updateDocumentError }, { error: eventError }] = await Promise.all([
+        supabase.from('balances').update({ bank, cash, updated_at: new Date().toISOString() }).eq('id', 'main'),
+        supabase.from('vat_documents').update({ source_transaction_ids: restoredIds, source_sale_batch_id: saleBatchId }).eq('id', selected.id),
+        supabase.from('vat_document_events').insert({ document_id: selected.id, action: 'sale_restored_from_draft', detail: { transaction_ids: restoredIds, total_amount: selected.total_amount } }),
+      ])
+      if (updateBalanceError || updateDocumentError || eventError) throw updateBalanceError || updateDocumentError || eventError
+      toast.success(`กู้คืนรายการขาย ฿${fmt(selected.total_amount)} แล้ว`)
+      setSelectedId(null)
+      load()
+    } catch (error) {
+      toast.error(error.message)
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const deleteDraftDocument = async () => {
     if (!selected || selected.status !== 'draft') return
     const confirmed = window.confirm(
@@ -512,6 +579,7 @@ export default function VatManagement() {
 
               <div className="vat-actions">
                 {selected.status === 'draft' && <button className="vat-secondary-action" disabled={saving} onClick={saveDocumentEdits}><Save size={16}/>บันทึกร่าง</button>}
+                {selected.status === 'draft' && <button className="vat-secondary-action" disabled={saving} onClick={restoreMissingSale}><RotateCcw size={16}/>กู้คืนรายการขาย</button>}
                 <button className="vat-secondary-action" onClick={() => printDocument({...selected, ...editablePayload(), status:selected.status})}><Printer size={16}/>{selected.status === 'draft' ? 'พิมพ์ตัวอย่าง' : 'พิมพ์ซ้ำ'}</button>
                 {selected.status === 'draft' && settings.abbreviated_enabled && <button className="vat-issue-type-action is-abbreviated" disabled={saving} onClick={() => issueDocument('abbreviated')}><ReceiptText size={16}/>ออกแบบอย่างย่อ</button>}
                 {selected.status === 'draft' && <button className="vat-issue-type-action is-full" disabled={saving} onClick={() => issueDocument('full')}><CheckCircle2 size={16}/>ออกแบบเต็มรูป</button>}

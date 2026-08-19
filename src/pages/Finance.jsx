@@ -54,6 +54,20 @@ const SaleVatStatusTag = ({ document }) => {
   const isIssued = document?.status === 'issued'
   return <span className={`finance-vat-status ${isIssued ? 'is-issued' : 'is-draft'}`}><ReceiptText size={12}/>{isIssued ? 'ออกแล้ว' : 'ฉบับร่าง'}</span>
 }
+const PaymentMethodTag = ({ tx }) => {
+  if (hasSplitAmounts(tx)) {
+    return <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-purple-100 text-purple-700 inline-flex items-center gap-1">
+      <Scissors size={12}/>แบ่งจ่าย {tx.bank_amount ? `โอน ${fmt(tx.bank_amount)}` : ''}
+      {tx.bank_amount && tx.cash_amount ? ' + ' : ''}
+      {tx.cash_amount ? `สด ${fmt(tx.cash_amount)}` : ''}
+    </span>
+  }
+  if (!tx.payment_method) return null
+  const isTransfer = tx.payment_method === 'โอน'
+  return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 inline-flex items-center gap-1 ${isTransfer ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>
+    {isTransfer ? <CreditCard size={12}/> : <Banknote size={12}/>}{isTransfer ? 'เงินโอน' : 'เงินสด'}
+  </span>
+}
 
 const monthStart = () => {
   const d = new Date()
@@ -460,6 +474,7 @@ export default function Finance() {
   const del = async (tx, onConfirmed) => {
     const willRevertSale    = tx.category === 'Sale'      && tx.product_id
     const willDeleteProduct = tx.category === 'Buy Stock' && tx.product_id
+    const willRevertAddOn   = tx.category === 'Add-on'    && tx.product_id
     const msg = willDeleteProduct
       ? 'ย้อนกลับรายการนี้?\nคำเตือน: สินค้าที่เชื่อมอยู่จะถูกลบออกจากสต็อก\n• ยอดเงินจะถูกคืนอัตโนมัติ'
       : willRevertSale
@@ -476,6 +491,35 @@ export default function Finance() {
       label,
       onUndo: () => setTxs(snap),
       onCommit: async () => {
+        if (willRevertAddOn) {
+          await revertBalance(tx.type, tx.payment_method, Number(tx.amount), tx.bank_amount, tx.cash_amount)
+          let accessoryId = tx.accessory_id
+          if (!accessoryId) {
+            const addOnName = String(tx.note || '').replace(/^Add-on:\s*/i, '').split(/\s+[—-]\s+/)[0].trim()
+            if (addOnName) {
+              const { data: accessory } = await supabase.from('accessories')
+                .select('id')
+                .eq('product_id', tx.product_id)
+                .eq('name', addOnName)
+                .eq('cost', Number(tx.amount || 0))
+                .order('created_at', { ascending: false })
+                .limit(1)
+                .maybeSingle()
+              accessoryId = accessory?.id
+            }
+          }
+          if (accessoryId) await supabase.from('accessories').delete().eq('id', accessoryId)
+          const [{ data: product }, { data: accessories }] = await Promise.all([
+            supabase.from('products').select('base_cost').eq('id', tx.product_id).maybeSingle(),
+            supabase.from('accessories').select('cost').eq('product_id', tx.product_id),
+          ])
+          if (product) {
+            const addOnCost = (accessories || []).reduce((sum, accessory) => sum + Number(accessory.cost || 0), 0)
+            await supabase.from('products').update({ total_cost: Number(product.base_cost || 0) + addOnCost }).eq('id', tx.product_id)
+          }
+          await supabase.from('transactions').delete().eq('id', tx.id)
+          load(); return
+        }
         if (willRevertSale) {
           await voidVatDraftsForTransactions([tx.id], 'ยกเลิกตามการย้อนกลับการขายจากหน้าบัญชี')
           await supabase.from('products').update({
@@ -537,6 +581,7 @@ export default function Finance() {
         }
 
         if (isSale) {
+          await voidVatDraftsForTransactions(group.txs.map(tx => tx.id), 'ยกเลิกตามการย้อนกลับการขายจากหน้าบัญชี')
           const isLaterInstallment = group.installment?.hasInstallments && group.installment.installmentNumber > 1
           if (isLaterInstallment) {
             const txIds = group.txs.map(tx => tx.id)
@@ -574,9 +619,6 @@ export default function Finance() {
             }
             load(); return
           }
-
-          await voidVatDraftsForTransactions(group.txs.map(tx => tx.id), 'ยกเลิกตามการย้อนกลับการขายจากหน้าบัญชี')
-
           for (const tx of group.txs) {
             if (tx.product_id) {
               await supabase.from('products').update({
@@ -1313,13 +1355,7 @@ export default function Finance() {
                     <div className="flex flex-wrap gap-1 flex-1">
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full border flex-shrink-0 ${catColor(tx.category)}`}>{tx.category}</span>
                       {tx.category === 'Sale' && <SaleVatStatusTag document={vatDocumentOf(tx)}/>}
-                      {hasSplitAmounts(tx) && (
-                        <span className="text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 bg-purple-100 text-purple-700 inline-flex items-center gap-1">
-                          <Scissors size={12}/>แบ่งจ่าย {tx.bank_amount?`โอน ${fmt(tx.bank_amount)}`:''}
-                          {tx.bank_amount&&tx.cash_amount?' + ':''}
-                          {tx.cash_amount?`สด ${fmt(tx.cash_amount)}`:''}
-                        </span>
-                      )}
+                      {(hasSplitAmounts(tx) || tx.category === 'Buy Stock') && <PaymentMethodTag tx={tx}/>}
                       {tx.category==='Sale' && tx.products?.payment_method && (
                         <span className={`text-xs font-semibold px-2 py-0.5 rounded-full flex-shrink-0 ${tx.products.payment_method==='โอน'?'bg-blue-100 text-blue-700':'bg-green-100 text-green-700'}`}>
                           ชำระ: {tx.products.payment_method}

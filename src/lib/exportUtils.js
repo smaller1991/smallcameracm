@@ -639,8 +639,8 @@ export async function buildTransactionsXLSX(transactions, from, to, balance = nu
   if (!filtered.length) throw new Error('ไม่มีข้อมูลในช่วงวันที่ที่เลือก')
   const transactionOrder = new Map(filtered.map((tx, index) => [tx.id, index]))
   const displayTransactions = [...filtered].sort((a, b) => {
-    const dateDifference = new Date(a.date || 0) - new Date(b.date || 0)
-    return dateDifference || (transactionOrder.get(b.id) ?? 0) - (transactionOrder.get(a.id) ?? 0)
+    const dateDifference = new Date(b.date || 0) - new Date(a.date || 0)
+    return dateDifference || (transactionOrder.get(a.id) ?? 0) - (transactionOrder.get(b.id) ?? 0)
   })
   const balMap = buildBalanceMap(filtered, balance)
   const stockMap = stockValue != null ? buildStockMap(filtered, stockValue) : {}
@@ -1313,11 +1313,11 @@ export async function buildTransactionsPDF(filtered, balance = null, stockValue 
   const installmentByTransactionId = buildSaleInstallmentMetaByTransactionId(allTransactions)
   // The transaction feed is newest-first because the balance/stock ledgers
   // reconstruct historical values from the current balance. Keep that order
-  // for calculations, but present the report chronologically from day 1 onward.
+  // in the report too, so the first row and number 1 are always the latest item.
   const displayTransactions = [...filtered].sort((a, b) => {
-    const dateDifference = new Date(a.date || 0).getTime() - new Date(b.date || 0).getTime()
+    const dateDifference = new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime()
     if (dateDifference !== 0) return dateDifference
-    return (transactionOrder.get(b.id) ?? 0) - (transactionOrder.get(a.id) ?? 0)
+    return (transactionOrder.get(a.id) ?? 0) - (transactionOrder.get(b.id) ?? 0)
   })
   displayTransactions.forEach(t => {
     const batchId = t.category === 'Sale' ? t.products?.sale_batch_id : t.category === 'Buy Stock' ? t.products?.batch_id : null

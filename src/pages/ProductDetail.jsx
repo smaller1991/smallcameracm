@@ -289,7 +289,10 @@ export default function ProductDetail() {
       const cost = parseFloat(accCost)
 
       // บันทึก accessory
-      const {error} = await supabase.from('accessories').insert({ product_id:id, name:accName, cost })
+      const { data: accessory, error } = await supabase.from('accessories')
+        .insert({ product_id:id, name:accName, cost })
+        .select('id')
+        .single()
       if (error) throw error
 
       // อัปเดต total_cost = base_cost + ทุก accessory (override trigger ที่อาจผิดพลาด)
@@ -303,7 +306,7 @@ export default function ProductDetail() {
 
       const {data:newTx, error:txErr} = await supabase.from('transactions').insert({
         type: 'Expense', category: 'Add-on', amount: cost,
-        product_id: id, payment_method: accPayMethod,
+        product_id: id, accessory_id: accessory.id, payment_method: accPayMethod,
         date: accDate ? new Date(accDate).toISOString() : new Date().toISOString(),
         note: `Add-on: ${accName} — ${product.model} SN:${product.serial_number}`,
       }).select().single()
@@ -334,6 +337,32 @@ export default function ProductDetail() {
       label: acc.name,
       onUndo: () => setAccs(snap),
       onCommit: async () => {
+        let addOnTx = null
+        const { data: linkedTx } = await supabase.from('transactions').select('*').eq('accessory_id', acc.id).maybeSingle()
+        addOnTx = linkedTx
+        if (!addOnTx) {
+          const { data: legacyTx } = await supabase.from('transactions')
+            .select('*')
+            .eq('product_id', id)
+            .eq('category', 'Add-on')
+            .eq('amount', Number(acc.cost || 0))
+            .ilike('note', `Add-on: ${acc.name} —%`)
+            .order('date', { ascending: false })
+            .limit(1)
+            .maybeSingle()
+          addOnTx = legacyTx
+        }
+        if (addOnTx) {
+          const { data: balance } = await supabase.from('balances').select('bank,cash').eq('id', 'main').single()
+          if (balance) {
+            const amount = Number(addOnTx.amount || 0)
+            const update = addOnTx.payment_method === 'โอน'
+              ? { bank: Number(balance.bank || 0) + amount }
+              : { cash: Number(balance.cash || 0) + amount }
+            await supabase.from('balances').update({ ...update, updated_at: new Date().toISOString() }).eq('id', 'main')
+          }
+          await supabase.from('transactions').delete().eq('id', addOnTx.id)
+        }
         await supabase.from('accessories').delete().eq('id', acc.id)
         const remaining = snap.filter(a => a.id !== acc.id)
         const remainSum = remaining.reduce((s,a) => s + Number(a.cost), 0)
